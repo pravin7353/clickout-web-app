@@ -1,0 +1,6 @@
+allowBuilds:
+  '@firebase/util': true
+  protobufjs: true
+  unrs-resolver: true
+minimumReleaseAgeExclude:
+  - lucide-react@1.35.0

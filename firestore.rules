@@ -1,0 +1,88 @@
+rules_version = '2';
+
+// ⚠️ STARTING POINT ONLY — adjust collection names below to match your actual
+// schema before deploying. Test in the Firebase emulator first:
+//   firebase emulators:start --only firestore
+//
+// Default-deny everywhere. Every collection needs an explicit rule below,
+// otherwise it stays unreadable/unwritable — which is the safe default while
+// you audit what actually exists in your database.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- helpers ----
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      // set via Firebase Admin SDK custom claims from the Next.js admin panel,
+      // e.g. admin.auth().setCustomUserClaims(uid, { role: "cashier", storeId: "..." })
+      return request.auth.token.role;
+    }
+
+    function storeId() {
+      return request.auth.token.storeId;
+    }
+
+    function isAdminOrCompliance() {
+      return isSignedIn() && (role() == 'admin' || role() == 'compliance');
+    }
+
+    // ---- admin_users: admin-panel logins only ----
+    // Never touched by any client SDK — only the Admin SDK (server-side, bypasses
+    // rules) should ever read/write this. Deny everything from the client.
+    match /admin_users/{userId} {
+      allow read, write: if false;
+    }
+
+    // ---- customers (clickout customer app) ----
+    // A user can read/write only their own document.
+    match /users/{userId} {
+      allow read, update: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn();
+      allow delete: if isAdminOrCompliance();
+    }
+
+    // ---- stores / inventory ----
+    match /stores/{storeId} {
+      allow read: if true; // public store info — tighten if it shouldn't be public
+      allow write: if isSignedIn() && (role() == 'admin' || storeId() == storeId);
+    }
+
+    match /stores/{storeId}/inventory/{itemId} {
+      allow read: if isSignedIn() && (role() == 'admin' || storeId() == storeId);
+      allow write: if isSignedIn() && (role() == 'cashier' || role() == 'admin') && storeId() == storeId;
+    }
+
+    // ---- orders (clickout cashier / customer) ----
+    match /orders/{orderId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.storeId == storeId() ||
+        isAdminOrCompliance()
+      );
+      // fraud flags, refunds etc. — admin/compliance only, cashier can update order status
+      allow update: if isSignedIn() && (
+        isAdminOrCompliance() ||
+        (role() == 'cashier' && resource.data.storeId == storeId())
+      );
+      allow delete: if false; // never hard-delete orders, soft-delete via a status field
+    }
+
+    // ---- fraud / security logs (clickout guard) ----
+    match /fraud_logs/{logId} {
+      allow read: if isAdminOrCompliance();
+      allow create: if isSignedIn() && role() == 'guard';
+      allow update, delete: if isAdminOrCompliance();
+    }
+
+    // ---- exporter access: read-only across orders/reporting collections ----
+    match /{path=**}/reports/{reportId} {
+      allow read: if isSignedIn() && (role() == 'exporter' || isAdminOrCompliance());
+      allow write: if false; // reports are generated server-side only
+    }
+  }
+}
