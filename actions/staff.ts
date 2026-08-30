@@ -3,6 +3,7 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { onboardStaffSchema } from "@/lib/schemas/staff-schema";
+import { incrementStaffUsage, decrementStaffUsage } from "@/lib/services/usage-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
@@ -93,6 +94,8 @@ export async function onboardStaff(raw: unknown) {
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Onboarding failed" };
   }
+
+  if (effectiveTenantId) await incrementStaffUsage(effectiveTenantId);
 
   revalidatePath("/manager");
   return { ok: true };

@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { incrementCampaignUsage } from "@/lib/services/usage-service";
 
 export async function createCampaign(params: {
   branchCode: string;
@@ -44,6 +45,8 @@ export async function createCampaign(params: {
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Failed" };
   }
+
+  if (params.isActive) await incrementCampaignUsage(targetTenantId);
 
   revalidatePath("/campaign-manager");
   return { ok: true };

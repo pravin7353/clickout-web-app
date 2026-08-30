@@ -12,7 +12,14 @@ export async function requireRole(allowed: Role[]) {
   const tenantId = (session.user as any).tenantId as string | null;
   const storeId = (session.user as any).storeId as string | null;
 
-  return { session, role, tenantId, storeId };
+  return { session, role, tenantId, storeId, canEdit: (session.user as any).canEdit as boolean };
+}
+
+/** Manager (aur super_admin) hi likh sakte hain. Tenant_admin sirf dekh sakta hai. */
+export async function requireEditAccess(allowed: Role[]) {
+  const result = await requireRole(allowed);
+  if (!result.canEdit) throw new Error("READ_ONLY_ACCESS");
+  return result;
 }
 
 export function assertTenantScope(userTenantId: string | null, targetTenantId: string) {
