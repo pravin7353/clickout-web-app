@@ -1,15 +1,22 @@
 "use client";
 
-import { useTheme } from "@/app/theme-provider";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 export function ThemeToggle() {
-  const { theme, toggle } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return <div style={{ width: 90, height: 34 }} />; // avoid hydration flash
+
+  const isDark = resolvedTheme === "dark";
   return (
     <button
-      onClick={toggle}
+      onClick={() => setTheme(isDark ? "light" : "dark")}
       style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)" }}
     >
-      {theme === "light" ? "🌙 Dark" : "☀️ Light"}
+      {isDark ? "🌙 Dark" : "☀️ Light"}
     </button>
   );
 }

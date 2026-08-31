@@ -33,7 +33,7 @@ export async function configurePartnerMode(enabled: boolean, webhookUrl: string)
   }
   if (!tenantId) return { ok: false, error: "No tenant associated with this account." };
   if (enabled && !webhookUrl.trim().startsWith("https://")) {
-    return { ok: false, error: "Valid https:// webhook URL daaliye." };
+    return { ok: false, error: "Please enter a valid https:// webhook URL." };
   }
 
   const tenantRef = adminDb.collection("tenants").doc(tenantId);

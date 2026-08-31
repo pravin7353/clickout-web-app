@@ -33,3 +33,13 @@ export function assertStoreScope(userStoreId: string | null, targetStoreId: stri
     throw new Error("FORBIDDEN_STORE_SCOPE");
   }
 }
+
+/**
+ * Manager hamesha apne hi store tak locked hai (query param ignore hota hai).
+ * Tenant_admin/super_admin "Enter Store" se koi bhi apni tenant ka store choose kar sakte hain
+ * (?store=BRANCHCODE), warna default sab stores combined dikhta hai.
+ */
+export function resolveStoreScope(role: string, sessionStoreId: string | null, queryStoreParam?: string): string | null {
+  if (role === "manager") return sessionStoreId;
+  return queryStoreParam?.trim() || null;
+}

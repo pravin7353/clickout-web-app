@@ -1,13 +1,18 @@
 "use server";
 
 import { adminDb } from "@/lib/firebase-admin";
-import { requireRole } from "@/lib/rbac";
+import { requireRole, requireEditAccess, resolveStoreScope } from "@/lib/rbac";
 import { addProductSchema, updateProductSchema } from "@/lib/schemas/product-schema";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
 export async function addProduct(raw: unknown) {
-  const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireEditAccess(["super_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "You have view-only access and cannot add products." };
+  }
   const parsed = addProductSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid data" };
@@ -66,7 +71,12 @@ export async function addProduct(raw: unknown) {
 }
 
 export async function markDamagedOrExpired(productId: string, quantity: number, reason: "EXPIRED" | "DAMAGED") {
-  const { session, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  let session, tenantId;
+  try {
+    ({ session, tenantId } = await requireEditAccess(["super_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "You have view-only access and cannot update stock." };
+  }
   if (quantity <= 0) return { ok: false, error: "Quantity must be positive" };
 
   const docRef = adminDb.collection("products").doc(productId);

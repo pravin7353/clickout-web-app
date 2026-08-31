@@ -4,6 +4,7 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./theme-toggle";
+import { ProfileMenu } from "./profile-menu";
 
 type NavItem = { label: string; href: string };
 
@@ -14,6 +15,7 @@ const PLATFORM_ITEMS: NavItem[] = [
 ];
 
 const TENANT_HQ_ITEMS: NavItem[] = [
+  { label: "My Company", href: "/tenant-admin" },
   { label: "Usage & Plan", href: "/usage" },
 ];
 
@@ -92,9 +94,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <aside style={{ width: 240, borderRight: "1px solid var(--border)", padding: 16, background: "var(--card-bg)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
-          <span style={{ fontWeight: 900, fontSize: 18 }}>ClickOut</span>
-          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{role}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+          <div>
+            <span style={{ fontWeight: 900, fontSize: 18 }}>ClickOut</span>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{role}</div>
+          </div>
+          <ProfileMenu />
         </div>
 
         {isSuperAdmin && <NavSection title="Platform" items={PLATFORM_ITEMS} pathname={pathname} />}

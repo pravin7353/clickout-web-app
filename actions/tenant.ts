@@ -7,6 +7,19 @@ import { revalidatePath } from "next/cache";
 
 const MAX_STORES: Record<string, number> = { ENTERPRISE: 1000, PRO: 50, BASIC: 5 };
 
+export async function updateTenantProfile(params: { companyName: string; ownerName: string }) {
+  const { tenantId } = await requireRole(["tenant_admin", "super_admin"]);
+  if (!tenantId) return { ok: false, error: "No tenant found for this account." };
+
+  await adminDb.collection("tenants").doc(tenantId).update({
+    companyName: params.companyName.trim(),
+    ownerName: params.ownerName.trim(),
+  });
+
+  revalidatePath("/tenant-admin");
+  return { ok: true };
+}
+
 export async function onboardTenant(params: {
   companyName: string;
   plan: "BASIC" | "PRO" | "ENTERPRISE";

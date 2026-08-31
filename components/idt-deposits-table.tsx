@@ -17,7 +17,7 @@ export function IdtDepositsTable() {
         setDeposits(res.deposits);
         setHasMore(res.hasMore);
       } catch {
-        setError("Load failed — dobara try karo.");
+        setError("Failed to load. Please try again.");
       }
     });
   }

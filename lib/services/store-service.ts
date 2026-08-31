@@ -8,6 +8,7 @@ export type StoreRow = {
   city: string;
   bankDetailsPending: boolean;
   isActive: boolean;
+  status: string;
 };
 
 export async function getStores(role: string, tenantId: string | null): Promise<StoreRow[]> {
@@ -25,6 +26,7 @@ export async function getStores(role: string, tenantId: string | null): Promise<
       city: data.location?.city ?? "",
       bankDetailsPending: data.bankDetailsPending === true,
       isActive: data.isActive !== false,
+      status: data.status ?? "ACTIVE",
     };
   });
 }

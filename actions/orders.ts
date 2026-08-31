@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { revalidatePath } from "next/cache";
 import { Timestamp } from "firebase-admin/firestore";
+import { resolveStoreScope } from "@/lib/rbac";
 
 export async function flagOrderAsFraud(orderId: string, reason: string) {
   const { session } = await requireRole(["super_admin", "tenant_admin", "manager"]);
@@ -64,8 +65,10 @@ export async function fetchOrdersPage(params: {
   searchQuery: string;
   sortDesc: boolean;
   cursorTimestampMs: number | null;
+  storeParam?: string;
 }) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId: sessionStoreId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const storeId = resolveStoreScope(role, sessionStoreId, params.storeParam);
 
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());

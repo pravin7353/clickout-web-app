@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { searchProductByBarcode, createPosOrder } from "@/actions/pos";
+import { PrintReceipt, ReceiptData } from "@/components/print-receipt";
 
 type CartItem = { barcode: string; name: string; price: number; gst: string; weight: string; quantity: number };
 
@@ -10,6 +11,7 @@ export function PosTerminal() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [paymentMode, setPaymentMode] = useState("CASH");
   const [customerPhone, setCustomerPhone] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -44,7 +46,13 @@ export function PosTerminal() {
     startTransition(async () => {
       const res = await createPosOrder({ items: cart, paymentMode, customerPhone: customerPhone || undefined });
       if (!res.ok) setError(res.error!);
-      else { setSuccess(`✅ Sale complete! Invoice: ${res.invoiceNo}`); setCart([]); setCustomerPhone(""); }
+      else {
+        const discountMsg = res.discountApplied! > 0 ? ` · Saved ₹${res.discountApplied!.toFixed(0)}` : "";
+        const freeMsg = res.freeItems! > 0 ? ` · ${res.freeItems} free item(s)!` : "";
+        setSuccess(`✅ Sale complete! Invoice: ${res.invoiceNo}${discountMsg}${freeMsg}`);
+        setCart([]); setCustomerPhone("");
+        setReceipt(res.receipt as ReceiptData);
+      }
     });
   }
 
@@ -103,6 +111,11 @@ export function PosTerminal() {
             {isPending ? "Processing..." : "Complete Sale"}
           </button>
         </>
+      )}
+      {receipt && (
+        <div style={{ marginTop: 24 }}>
+          <PrintReceipt data={receipt} />
+        </div>
       )}
     </div>
   );

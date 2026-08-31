@@ -88,3 +88,27 @@ export async function createStore(raw: unknown) {
   revalidatePath("/tenant-admin");
   return { ok: true };
 }
+
+export async function toggleStoreSuspension(storeId: string, currentStatus: string) {
+  await requireRole(["super_admin", "tenant_admin"]);
+  const newStatus = currentStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+  await adminDb.collection("stores").doc(storeId).update({ status: newStatus, isActive: newStatus === "ACTIVE" });
+  revalidatePath("/tenant-admin");
+}
+
+export async function removeStore(storeId: string) {
+  await requireRole(["super_admin", "tenant_admin"]);
+  await adminDb.collection("stores").doc(storeId).delete();
+  revalidatePath("/tenant-admin");
+}
+
+export async function updateStoreProfile(params: { storeId: string; storeName: string; managerPhone: string; address: string; city: string }) {
+  await requireRole(["super_admin", "tenant_admin", "manager"]);
+  await adminDb.collection("stores").doc(params.storeId).update({
+    storeName: params.storeName.trim(),
+    managerPhone: params.managerPhone.trim(),
+    "location.address": params.address.trim(),
+    "location.city": params.city.trim(),
+  });
+  revalidatePath("/tenant-admin");
+}

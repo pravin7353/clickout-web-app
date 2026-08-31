@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { fetchOrdersPage, OrderRow } from "@/actions/orders";
+import { SkeletonRow } from "@/components/ui";
 
 const STATUS_OPTIONS = ["ALL", "Clear Exit", "Gate Pass Pending", "Reject", "Fix & Exit", "QR Expire", "Refund"];
 
@@ -15,7 +16,7 @@ const STATUS_COLORS: Record<string, string> = {
   "Pending": "#9ca3af",
 };
 
-export function ReconciliationTable() {
+export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchInput, setSearchInput] = useState("");
@@ -31,11 +32,11 @@ export function ReconciliationTable() {
     startTransition(async () => {
       setError("");
       try {
-        const res = await fetchOrdersPage({ statusFilter, searchQuery, sortDesc, cursorTimestampMs: cursor });
-        setOrders(res.orders);
+        const res = await fetchOrdersPage({ statusFilter, searchQuery, sortDesc, cursorTimestampMs: cursor, storeParam });
+        setOrders(res.orders); // purana data tabhi tak dikhta hai jab tak naya na aa jaye (stale-while-revalidate)
         setHasMore(res.hasMore);
       } catch {
-        setError("Data load nahi hui — dobara try karo.");
+        setError("Failed to load data.");
       }
     });
   }
@@ -90,9 +91,14 @@ export function ReconciliationTable() {
         </button>
       </div>
 
+      {isPending && orders.length > 0 && (
+        <div style={{ padding: "4px 20px", fontSize: 11, color: "var(--text-secondary)" }}>Updating…</div>
+      )}
       <div style={{ borderTop: "1px solid #333" }}>
         {isPending && orders.length === 0 ? (
-          <div style={{ padding: 40, textAlign: "center" }}>Loading...</div>
+          <div style={{ padding: "8px 20px" }}>
+            {[1, 2, 3, 4].map((i) => <SkeletonRow key={i} />)}
+          </div>
         ) : error ? (
           <div style={{ padding: 40, textAlign: "center", color: "#ef4444" }}>
             {error} <button onClick={() => load(cursorStack[pageIndex])}>Retry</button>

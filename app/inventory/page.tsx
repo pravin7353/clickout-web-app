@@ -1,55 +1,56 @@
-import { requireRole } from "@/lib/rbac";
+import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getLedger } from "@/lib/services/inventory-service";
 import { AddProductForm } from "@/components/add-product-form";
+import { CsvImport } from "@/components/csv-import";
+import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 
-export default async function InventoryPage() {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
-  const ledger = await getLedger(role, tenantId, storeId);
+export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ store?: string }> }) {
+  const { role, tenantId, storeId, canEdit } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { store: queryStore } = await searchParams;
+  const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
+  const ledger = await getLedger(role, tenantId, effectiveStoreId);
 
   return (
-    <div style={{ padding: 24, fontFamily: "sans-serif" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Inventory & Godown Ledger</h1>
-        <AddProductForm />
-      </div>
+    <div style={{ padding: 24 }}>
+      <PageHeader
+        title="Inventory & Godown Ledger"
+        subtitle={!canEdit ? "View-only — contact your store manager to make changes" : undefined}
+        action={canEdit ? <div style={{ display: "flex", gap: 8 }}><CsvImport /><AddProductForm /></div> : undefined}
+      />
 
       {ledger.length === 0 ? (
-        <p style={{ color: "#888" }}>No products yet — add your first one.</p>
+        <EmptyState message="No products yet." />
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #333", textAlign: "left" }}>
-              <th style={{ padding: 10 }}>Name</th>
-              <th style={{ padding: 10 }}>Opening</th>
-              <th style={{ padding: 10 }}>Purchased</th>
-              <th style={{ padding: 10 }}>Sold</th>
-              <th style={{ padding: 10 }}>Damaged</th>
-              <th style={{ padding: 10 }}>Expired</th>
-              <th style={{ padding: 10 }}>Closing</th>
-              <th style={{ padding: 10 }}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.map((row) => (
-              <tr key={row.productId} style={{ borderBottom: "1px solid #222" }}>
-                <td style={{ padding: 10 }}>{row.name}</td>
-                <td style={{ padding: 10 }}>{row.openingStock}</td>
-                <td style={{ padding: 10 }}>{row.purchasedStock}</td>
-                <td style={{ padding: 10 }}>{row.soldStock}</td>
-                <td style={{ padding: 10 }}>{row.damagedStock}</td>
-                <td style={{ padding: 10 }}>{row.expiredStock}</td>
-                <td style={{ padding: 10, fontWeight: 700 }}>{row.closingStock}</td>
-                <td style={{ padding: 10 }}>
-                  {row.isDeadStock && (
-                    <span style={{ color: "#f97316", fontSize: 12, fontWeight: 700, border: "1px solid #f97316", padding: "2px 8px", borderRadius: 12 }}>
-                      DEAD STOCK
-                    </span>
-                  )}
-                </td>
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Name</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Opening</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Purchased</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Sold</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Damaged</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Expired</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Closing</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ledger.map((row) => (
+                <tr key={row.productId} style={{ borderBottom: "1px solid var(--border)" }}>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.name}</td>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.openingStock}</td>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.purchasedStock}</td>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.soldStock}</td>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.damagedStock}</td>
+                  <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.expiredStock}</td>
+                  <td style={{ padding: 12, fontWeight: 700, color: "var(--text-primary)" }}>{row.closingStock}</td>
+                  <td style={{ padding: 12 }}>{row.isDeadStock && <Badge color="var(--warning)">DEAD STOCK</Badge>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </div>
   );
