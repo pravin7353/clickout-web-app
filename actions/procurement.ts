@@ -75,3 +75,36 @@ export async function approvePO(poId: string) {
   });
   revalidatePath("/procurement");
 }
+
+export async function createManualPO(productId: string, orderQty: number, supplierId: string = "DEFAULT_SUPPLIER") {
+  const { session, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  
+  try {
+    const productDoc = await adminDb.collection("products").doc(productId).get();
+    if (!productDoc.exists) throw new Error("Product not found");
+    
+    const productName = productDoc.data()?.name ?? "Unknown Product";
+    let unitCost = parseFloat(productDoc.data()?.unitCost ?? "0") || 0;
+    if (unitCost <= 0) unitCost = (parseFloat(productDoc.data()?.price ?? "0") || 0) * 0.7;
+    
+    const poRef = adminDb.collection("purchase_orders").doc();
+    await poRef.set({
+      poId: poRef.id,
+      supplierId,
+      status: "PENDING",
+      branchCode: storeId ?? "HQ",
+      expectedDelivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      totalItems: 1,
+      totalOrderValue: unitCost * orderQty,
+      createdAt: FieldValue.serverTimestamp(),
+      createdBy: session.user?.email ?? "Admin",
+      tenantId,
+      items: [{ productId, name: productName, orderQty, unitCost, totalItemCost: unitCost * orderQty }],
+    });
+    
+    revalidatePath("/procurement");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e.message ?? "Manual PO failed" };
+  }
+}

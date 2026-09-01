@@ -1,13 +1,16 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { calculateRevenueMetrics } from "@/lib/services/revenue-service";
+import { getHourlyAnalytics } from "@/actions/analytics";
 import { ReconciliationTable } from "@/components/reconciliation-table";
 import { Card, PageHeader, InfoTooltip } from "@/components/ui";
+import { TimeIntelligenceCard } from "@/components/time-intelligence-card";
 
 export default async function AdminDashboardPage({ searchParams }: { searchParams: Promise<{ store?: string }> }) {
   const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const { store: queryStore } = await searchParams;
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
   const metrics = await calculateRevenueMetrics(role, tenantId, effectiveStoreId);
+  const hourlyData = await getHourlyAnalytics(tenantId ?? undefined, effectiveStoreId ?? undefined);
 
   return (
     <div style={{ padding: 24 }}>
@@ -36,6 +39,10 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
         <MetricCard title="Successful Exits" value={metrics.successfulExited} info="Orders the guard approved and let exit, including previously-rejected ones fixed on retry." />
         <MetricCard title="Pending Gate Pass" value={metrics.pendingAtVerifier} accent="var(--warning)" info="Paid orders whose QR hasn't been scanned at the gate yet." />
         <MetricCard title="Guard Rejections" value={metrics.rejectedAtVerifier} accent="var(--danger)" info="Orders the guard flagged as rejected today." />
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <TimeIntelligenceCard data={hourlyData} />
       </div>
 
       <h2 style={{ fontSize: 20, fontWeight: 700, margin: "40px 0 16px", color: "var(--text-primary)" }}>

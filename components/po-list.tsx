@@ -1,12 +1,13 @@
 "use client";
 
-import { useTransition } from "react";
-import { approveAiSuggestion, rejectAiSuggestion, approvePO } from "@/actions/procurement";
+import { useTransition, useState } from "react";
+import { approveAiSuggestion, rejectAiSuggestion, approvePO, createManualPO } from "@/actions/procurement";
 import { AiSuggestion, PORow } from "@/lib/services/po-service";
 import { useRouter } from "next/navigation";
 
 export function POList({ suggestions, pos }: { suggestions: AiSuggestion[]; pos: PORow[] }) {
   const [isPending, startTransition] = useTransition();
+  const [showPoModal, setShowPoModal] = useState(false);
   const router = useRouter();
 
   function approve(id: string) {
@@ -40,7 +41,44 @@ export function POList({ suggestions, pos }: { suggestions: AiSuggestion[]; pos:
         ))
       )}
 
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: "32px 0 20px" }}>Purchase Orders</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "32px 0 20px" }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Purchase Orders</h1>
+        <button onClick={() => setShowPoModal(true)} style={{ padding: "8px 16px", background: "var(--cta-bg)", color: "var(--cta-text)", border: "none", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}>
+          + Create Manual PO
+        </button>
+      </div>
+
+      {showPoModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+           <div style={{ background: "var(--card-bg)", padding: 24, borderRadius: 8, width: 400 }}>
+             <h2 style={{ margin: "0 0 16px 0", color: "var(--text-primary)" }}>Create Manual PO</h2>
+             <form action={(formData) => {
+               const pid = formData.get("productId") as string;
+               const qty = Number(formData.get("qty"));
+               startTransition(async () => {
+                 await createManualPO(pid, qty);
+                 setShowPoModal(false);
+                 router.refresh();
+               });
+             }}>
+               <div style={{ marginBottom: 12 }}>
+                 <label style={{ display: "block", marginBottom: 4, fontSize: 12, color: "var(--text-secondary)" }}>Product ID</label>
+                 <input name="productId" required className="co-input" style={{ width: "100%" }} placeholder="e.g. PROD-123" />
+               </div>
+               <div style={{ marginBottom: 20 }}>
+                 <label style={{ display: "block", marginBottom: 4, fontSize: 12, color: "var(--text-secondary)" }}>Order Quantity</label>
+                 <input type="number" name="qty" required min="1" className="co-input" style={{ width: "100%" }} placeholder="e.g. 50" />
+               </div>
+               <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
+                 <button type="button" onClick={() => setShowPoModal(false)} className="co-btn-ghost">Cancel</button>
+                 <button type="submit" disabled={isPending} className="co-btn-primary">
+                   {isPending ? "Creating..." : "Confirm PO"}
+                 </button>
+               </div>
+             </form>
+           </div>
+        </div>
+      )}
       {pos.length === 0 ? (
         <p style={{ color: "#888" }}>No purchase orders yet.</p>
       ) : (

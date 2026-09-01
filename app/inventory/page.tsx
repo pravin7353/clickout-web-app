@@ -2,6 +2,7 @@ import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getLedger } from "@/lib/services/inventory-service";
 import { AddProductForm } from "@/components/add-product-form";
 import { CsvImport } from "@/components/csv-import";
+import { BlockBatchButton } from "@/components/block-batch-button";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ store?: string }> }) {
@@ -33,6 +34,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                 <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Expired</th>
                 <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Closing</th>
                 <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Status</th>
+                <th style={{ padding: 12, color: "var(--text-secondary)", fontSize: 12 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -46,6 +48,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                   <td style={{ padding: 12, color: "var(--text-primary)" }}>{row.expiredStock}</td>
                   <td style={{ padding: 12, fontWeight: 700, color: "var(--text-primary)" }}>{row.closingStock}</td>
                   <td style={{ padding: 12 }}>{row.isDeadStock && <Badge color="var(--warning)">DEAD STOCK</Badge>}</td>
+                  <td style={{ padding: 12 }}>
+                    {canEdit && <BlockBatchButton productId={row.productId} />}
+                  </td>
                 </tr>
               ))}
             </tbody>

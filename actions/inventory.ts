@@ -109,3 +109,62 @@ export async function markDamagedOrExpired(productId: string, quantity: number, 
   revalidatePath("/inventory");
   return { ok: true };
 }
+
+export async function blockBatchSafely(productId: string) {
+  let session, tenantId;
+  try {
+    ({ session, tenantId } = await requireEditAccess(["super_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "View-only access." };
+  }
+
+  const docRef = adminDb.collection("products").doc(productId);
+  
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) throw new Error("Product not found");
+      
+      const data = snap.data()!;
+      const stockRemoved = data.physicalStock ?? 0;
+      const productName = data.name ?? "Unknown Item";
+
+      tx.update(docRef, {
+        physicalStock: 0,
+        isBlocked: true,
+        blockedAt: FieldValue.serverTimestamp(),
+        expiredStock: (data.expiredStock ?? 0) + stockRemoved,
+        lastEditedBy: session.user?.email,
+      });
+
+      tx.set(adminDb.collection("audit_logs").doc(), {
+        action: "EXPIRED_BATCH_BLOCKED",
+        productId,
+        productName,
+        quantityRemoved: stockRemoved,
+        tenantId,
+        blockedBy: session.user?.email,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    });
+  } catch (e: any) {
+    return { ok: false, error: e.message ?? "Failed to block batch" };
+  }
+  
+  revalidatePath("/inventory");
+  return { ok: true };
+}
+
+export async function undoBlockBatch(productId: string, restoredStock: number) {
+  try {
+    await requireEditAccess(["super_admin", "manager"]);
+    await adminDb.collection("products").doc(productId).update({
+      physicalStock: FieldValue.increment(restoredStock),
+      isBlocked: false,
+    });
+    revalidatePath("/inventory");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: "Undo failed" };
+  }
+}
