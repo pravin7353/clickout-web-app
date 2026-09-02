@@ -15,7 +15,7 @@ export async function requireRole(allowed: Role[]) {
   return { session, role, tenantId, storeId, canEdit: (session.user as any).canEdit as boolean };
 }
 
-/** Manager (aur super_admin) hi likh sakte hain. Tenant_admin sirf dekh sakta hai. */
+/** Manager aur tenant_admin hi operate kar sakte hain. super_admin sirf dekh sakta hai. */
 export async function requireEditAccess(allowed: Role[]) {
   const result = await requireRole(allowed);
   if (!result.canEdit) throw new Error("READ_ONLY_ACCESS");

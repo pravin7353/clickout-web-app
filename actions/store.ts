@@ -16,53 +16,67 @@ export async function createStore(raw: unknown) {
   const effectiveTenantId = tenantId ?? (raw as any).tenantId;
   if (!effectiveTenantId) return { ok: false, error: "Tenant Identity missing!" };
 
-  const managerEmail = data.managerEmail.toLowerCase();
   const branchCode = data.branchCode.toUpperCase();
+  const hasManager = !!data.managerEmail;
+  const managerEmail = hasManager ? data.managerEmail!.toLowerCase() : "";
 
   try {
-    const existingManager = await adminDb.collection("staff").where("email", "==", managerEmail).where("isDeleted", "==", false).get();
-    if (!existingManager.empty) {
-      return { ok: false, error: "This email is already assigned to an active operational account." };
+    // 1. Check Branch Code Uniqueness within Tenant
+    const existingBranch = await adminDb.collection("stores").where("tenantId", "==", effectiveTenantId).where("branchCode", "==", branchCode).get();
+    if (!existingBranch.empty) {
+      return { ok: false, error: `Branch Code ${branchCode} already exists in your company.` };
     }
 
     const batch = adminDb.batch();
     const storeRef = adminDb.collection("stores").doc();
-    const staffRef = adminDb.collection("staff").doc();
 
-    batch.set(staffRef, {
-      docId: staffRef.id,
-      empId: data.managerEmpId.trim(),
-      email: managerEmail,
-      name: data.managerName.trim(),
-      phone: data.managerPhone.trim(),
-      role: "MANAGER",
-      tenantId: effectiveTenantId,
-      storeId: storeRef.id,
-      branchCode,
-      isActive: true,
-      isDeleted: false,
-      createdAt: FieldValue.serverTimestamp(),
-    });
+    // 2. Optional Manager Creation
+    if (hasManager) {
+      if (managerEmail === session.user?.email) {
+        return { ok: false, error: "You cannot assign yourself as a manager. As Tenant Admin, you already have access." };
+      }
+      const existingManager = await adminDb.collection("staff").where("email", "==", managerEmail).where("isDeleted", "==", false).get();
+      if (!existingManager.empty) {
+        return { ok: false, error: "This email is already assigned to an active operational account." };
+      }
+
+      const staffRef = adminDb.collection("staff").doc();
+      batch.set(staffRef, {
+        docId: staffRef.id,
+        empId: data.managerEmpId?.trim() ?? "",
+        email: managerEmail,
+        name: data.managerName?.trim() ?? "",
+        phone: data.managerPhone?.trim() ?? "",
+        role: "MANAGER",
+        tenantId: effectiveTenantId,
+        storeId: storeRef.id,
+        branchCode,
+        isActive: true,
+        isDeleted: false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     batch.set(storeRef, {
       storeId: storeRef.id,
       tenantId: effectiveTenantId,
       storeName: data.storeName.trim(),
       branchCode,
-      managerEmail,
-      managerEmpId: data.managerEmpId.trim(),
-      managerName: data.managerName.trim(),
-      managerPhone: data.managerPhone.trim(),
-      contactNumbers: [data.managerPhone.trim()],
+      gstin: data.gstin?.trim() ?? "",
+      managerEmail: hasManager ? managerEmail : null,
+      managerEmpId: data.managerEmpId?.trim() ?? null,
+      managerName: data.managerName?.trim() ?? null,
+      managerPhone: data.managerPhone?.trim() ?? null,
+      contactNumbers: [data.storePhone?.trim() || data.managerPhone?.trim() || ""].filter(Boolean),
       location: {
         address: data.address ?? "",
         city: data.city ?? "",
         state: data.state ?? "",
         pincode: data.pincode ?? "",
       },
-      licenses: [],
-      bankAccounts: [],
-      bankDetailsPending: true,
+      licenses: data.licenses ?? [],
+      bankAccounts: data.bankAccounts ?? [],
+      bankDetailsPending: !data.bankAccounts?.length,
       status: "ACTIVE",
       isActive: true,
       createdAt: FieldValue.serverTimestamp(),

@@ -53,7 +53,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               companyName: `${email.split("@")[0].toUpperCase()} ENTERPRISES`,
               ownerName: email.split("@")[0],
               establishedYear: new Date().getFullYear(),
-              isOnboardingComplete: false,
+              isOnboardingComplete: true,
               status: "ACTIVE",
               subscriptionPlan: "trial",
               billingStatus: "active",
@@ -96,7 +96,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           role,
           tenantId: data.tenantId ?? null,
           storeId: data.branchCode ?? null,
-          canEdit: role === "manager" || role === "super_admin",
+          canEdit: role === "manager" || role === "tenant_admin",
         };
       },
     }),

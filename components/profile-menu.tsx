@@ -93,23 +93,8 @@ export function CompanyEditButton() {
 }
 
 export function AddStoreButton() {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        title="Add New Store"
-        style={{ width: 36, height: 36, borderRadius: 10, background: "transparent", border: "1px solid var(--border)", color: "var(--text-primary)", cursor: "pointer", fontSize: 16 }}
-      >
-        ➕
-      </button>
-      {open && (
-        <Modal onClose={() => setOpen(false)}>
-          <CreateStoreForm />
-        </Modal>
-      )}
-    </>
-  );
+  // CreateStoreForm ab khud apna modal aur state handle karta hai
+  return <CreateStoreForm asIcon={true} />;
 }
 
 function MenuItem({ icon, label, onClick, color }: { icon: string; label: string; onClick: () => void; color?: string }) {
