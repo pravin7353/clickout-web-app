@@ -53,7 +53,7 @@ export function RegisterClientForm() {
         <input name="accountName" placeholder="Account holder name" style={{ padding: 8 }} />
         <input name="accountNo" placeholder="Account number" style={{ padding: 8 }} />
         <input name="ifsc" placeholder="IFSC code" style={{ padding: 8 }} />
-        <input name="upi" placeholder="UPI ID (optional)" style={{ padding: 8 }} />
+        <input name="upi" placeholder="UPI ID" style={{ padding: 8 }} />
 
         <label style={{ fontSize: 13 }}><input type="checkbox" name="tcAccepted" required /> I accept Terms & Conditions</label>
         <label style={{ fontSize: 13 }}><input type="checkbox" name="dataConsent" required /> I consent to data processing</label>

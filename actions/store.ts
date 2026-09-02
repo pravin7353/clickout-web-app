@@ -116,13 +116,43 @@ export async function removeStore(storeId: string) {
   revalidatePath("/tenant-admin");
 }
 
-export async function updateStoreProfile(params: { storeId: string; storeName: string; managerPhone: string; address: string; city: string }) {
+export async function getStoreForEdit(storeId: string) {
   await requireRole(["super_admin", "tenant_admin", "manager"]);
-  await adminDb.collection("stores").doc(params.storeId).update({
-    storeName: params.storeName.trim(),
-    managerPhone: params.managerPhone.trim(),
-    "location.address": params.address.trim(),
-    "location.city": params.city.trim(),
-  });
-  revalidatePath("/tenant-admin");
+  const doc = await adminDb.collection("stores").doc(storeId).get();
+  if (!doc.exists) return null;
+  const data = doc.data()!;
+  return {
+    storeName: data.storeName || "",
+    gstin: data.gstin || "",
+    address: data.location?.address || "",
+    city: data.location?.city || "",
+    state: data.location?.state || "",
+    pincode: data.location?.pincode || "",
+    licenses: data.licenses || [],
+    bankAccounts: data.bankAccounts || []
+  };
+}
+
+export async function updateStoreProfile(params: { 
+  storeId: string; storeName: string; gstin: string; address: string; city: string; state: string; pincode: string;
+  licenses: any[]; bankAccounts: any[];
+}) {
+  try {
+    await requireRole(["super_admin", "tenant_admin", "manager"]);
+    await adminDb.collection("stores").doc(params.storeId).update({
+      storeName: params.storeName.trim(),
+      gstin: params.gstin.trim(),
+      "location.address": params.address.trim(),
+      "location.city": params.city.trim(),
+      "location.state": params.state.trim(),
+      "location.pincode": params.pincode.trim(),
+      licenses: params.licenses,
+      bankAccounts: params.bankAccounts,
+      bankDetailsPending: !params.bankAccounts?.length
+    });
+    revalidatePath("/tenant-admin");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e.message || "Failed to update profile" };
+  }
 }

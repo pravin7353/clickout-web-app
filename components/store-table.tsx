@@ -5,6 +5,8 @@ import Link from "next/link";
 import { StoreRow } from "@/lib/services/store-service";
 import { toggleStoreSuspension, removeStore } from "@/actions/store";
 import { EditStoreForm } from "@/components/edit-store-form";
+import { Modal } from "@/components/profile-menu";
+import { Card, Button } from "@/components/ui";
 
 export function StoreTable({ stores }: { stores: StoreRow[] }) {
   const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
@@ -62,33 +64,22 @@ export function StoreTable({ stores }: { stores: StoreRow[] }) {
                   {s.status}
                 </span>
               </td>
-              <td style={{ padding: 12, display: "flex", gap: 8 }}>
-                <Link href={`/dashboard?store=${s.branchCode}`} className="co-btn-primary" style={{ padding: "6px 12px", textDecoration: "none", fontSize: 12, borderRadius: 4 }}>
-                  🚪 Enter
+              <td style={{ padding: 12, display: "flex", gap: 20, alignItems: "center" }}>
+                <Link href={`/dashboard?store=${s.branchCode}`} title="Enter Store" style={{ color: "var(--text-primary)", display: "flex", opacity: 0.8 }} onMouseEnter={e => e.currentTarget.style.opacity="1"} onMouseLeave={e => e.currentTarget.style.opacity="0.8"}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
                 </Link>
-                <button 
-                  onClick={() => setEditingStoreId(s.id)} 
-                  disabled={loadingId === s.id} 
-                  className="co-btn-secondary" 
-                  style={{ padding: "6px 10px", fontSize: 12, borderRadius: 4, border: "1px solid var(--border)", background: "transparent" }}
-                >
-                  ✏️
+                <button onClick={() => setEditingStoreId(s.id)} disabled={loadingId === s.id} title="Edit Store" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
                 </button>
-                <button 
-                  onClick={() => openConfirm(s.isActive ? "pause" : "resume", s.id, s.storeName)} 
-                  disabled={loadingId === s.id} 
-                  className="co-btn-secondary" 
-                  style={{ padding: "6px 10px", fontSize: 12, borderRadius: 4, border: "1px solid var(--border)", background: "transparent" }}
-                >
-                  {s.isActive ? "⏸️" : "▶️"}
+                <button onClick={() => openConfirm(s.isActive ? "pause" : "resume", s.id, s.storeName)} disabled={loadingId === s.id} title={s.isActive ? "Pause Store" : "Resume Store"} style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                  {s.isActive ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><rect x="9" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/><rect x="13" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/></svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><polygon points="10 7 16 12 10 17" fill="#1A1A1A"/></svg>
+                  )}
                 </button>
-                <button 
-                  onClick={() => openConfirm("delete", s.id, s.storeName)} 
-                  disabled={loadingId === s.id} 
-                  className="co-btn-danger" 
-                  style={{ padding: "6px 10px", fontSize: 12, borderRadius: 4, border: "1px solid var(--danger)", color: "var(--danger)", background: "transparent" }}
-                >
-                  🗑️
+                <button onClick={() => openConfirm("delete", s.id, s.storeName)} disabled={loadingId === s.id} title="Delete Store" style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>
               </td>
             </tr>
@@ -97,47 +88,29 @@ export function StoreTable({ stores }: { stores: StoreRow[] }) {
       </table>
 
       {/* Edit Store Modal */}
-      {editingStoreId && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-           <div style={{ background: "var(--card-bg)", padding: 24, borderRadius: 8, minWidth: 400 }}>
-             <EditStoreForm storeId={editingStoreId} onClose={() => setEditingStoreId(null)} />
-           </div>
-        </div>
-      )}
+      {editingStoreId && <EditStoreForm storeId={editingStoreId} onClose={() => setEditingStoreId(null)} />}
 
       {/* Custom Confirmation Modal */}
       {confirmDialog.isOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 110 }}>
-          <div className="co-card" style={{ width: 340, padding: 24, textAlign: "center", border: "1px solid var(--border)", boxShadow: "0 10px 30px rgba(0,0,0,0.5)" }}>
+        <Modal onClose={() => setConfirmDialog({ isOpen: false, type: null, storeId: null, storeName: "" })}>
+          <Card style={{ width: 340, textAlign: "center" }}>
             <div style={{ fontSize: 28, marginBottom: 16 }}>
               {confirmDialog.type === "delete" ? "🗑️" : confirmDialog.type === "pause" ? "⏸️" : "▶️"}
             </div>
             <h3 style={{ margin: "0 0 8px 0", fontSize: 16, color: "var(--text-primary)" }}>
               {confirmDialog.type === "delete" ? "Delete Store?" : confirmDialog.type === "pause" ? "Pause Store?" : "Resume Store?"}
             </h3>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 24, lineHeight: 1.5 }}>
-              {confirmDialog.type === "delete" 
-                ? `Are you sure you want to permanently delete "${confirmDialog.storeName}"? This action cannot be undone.` 
-                : `Are you sure you want to ${confirmDialog.type} operations for "${confirmDialog.storeName}"?`}
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 24 }}>
+              Are you sure you want to {confirmDialog.type} operations for "{confirmDialog.storeName}"?
             </p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-              <button 
-                type="button" 
-                onClick={() => setConfirmDialog({ isOpen: false, type: null, storeId: null, storeName: "" })} 
-                className="co-btn co-btn-ghost"
-              >
-                Cancel
-              </button>
-              <button 
-                type="button" 
-                onClick={executeAction} 
-                className={confirmDialog.type === "delete" ? "co-btn co-btn-danger" : "co-btn co-btn-primary"}
-              >
+              <Button type="button" onClick={() => setConfirmDialog({ isOpen: false, type: null, storeId: null, storeName: "" })}>Cancel</Button>
+              <button onClick={executeAction} className={confirmDialog.type === "delete" ? "co-btn co-btn-danger" : "co-btn co-btn-primary"}>
                 Confirm
               </button>
             </div>
-          </div>
-        </div>
+          </Card>
+        </Modal>
       )}
     </div>
   );

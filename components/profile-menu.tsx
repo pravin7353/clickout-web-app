@@ -27,7 +27,7 @@ export function ProfileMenu() {
   const name = session.user?.name ?? session.user?.email ?? "User";
 
   const qrPayload = activeStore
-    ? JSON.stringify({ action: "STORE_ENTRY", tenantId, branchCode: activeStore, timestamp: Date.now() })
+    ? JSON.stringify({ action: "STORE_ENTRY", tenantId, branchCode: activeStore })
     : null;
 
   return (
@@ -56,9 +56,15 @@ export function ProfileMenu() {
                   🏢
                 </div>
               )}
-              <div style={{ fontWeight: 700, marginTop: 12, color: "var(--text-primary)" }}>{name}</div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--cta-bg-accent)", letterSpacing: 1 }}>{role?.toUpperCase()}</div>
-              {tenantId && <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>{tenantId}</div>}
+              <div style={{ fontWeight: 700, marginTop: 12, color: "var(--text-primary)" }}>
+                {activeStore ? `Store: ${activeStore}` : name}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--cta-bg-accent)", letterSpacing: 1 }}>
+                {activeStore ? "OPERATIONAL NODE" : role?.toUpperCase()}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+                {activeStore ? `Manager: ${name}` : tenantId}
+              </div>
             </div>
           </Card>
         </>

@@ -27,12 +27,15 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
   
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
+  const defaultBank = { label: "Primary Settlement", accountName: "", accountNo: "", ifsc: "", bankName: "", upi: "" };
+  const defaultLicense = { type: "GSTIN", number: "" };
+
   const [data, setData] = useState({
     storeName: "", branchCode: "", storePhone: "",
     managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "",
     pincode: "", city: "", state: "", address: "",
-    licenses: [] as { type: string; number: string }[],
-    bankAccounts: [] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[]
+    licenses: [defaultLicense] as { type: string; number: string }[],
+    bankAccounts: [defaultBank] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[]
   });
 
   const updateData = (fields: Partial<typeof data>) => setData(prev => ({ ...prev, ...fields }));
@@ -129,7 +132,7 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
       else { 
         setOpen(false); 
         setStep(1); 
-        setData({ storeName: "", branchCode: "", storePhone: "", managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "", pincode: "", city: "", state: "", address: "", licenses: [], bankAccounts: [] });
+        setData({ storeName: "", branchCode: "", storePhone: "", managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "", pincode: "", city: "", state: "", address: "", licenses: [defaultLicense], bankAccounts: [defaultBank] });
         router.refresh(); 
       }
     });
@@ -280,7 +283,12 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
                 <div key={idx} style={{ padding: 16, border: "1px solid var(--border)", borderRadius: 8, position: "relative" }}>
                   <button onClick={() => updateData({ bankAccounts: data.bankAccounts.filter((_, i) => i !== idx) })} style={{ position: "absolute", top: 12, right: 12, background: "transparent", border: "none", color: "var(--danger)", cursor: "pointer" }}>🗑️</button>
                   <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                    <input className="co-input" style={{ flex: 1 }} placeholder="Label (e.g. Primary)" value={bank.label} onChange={e => { const b = [...data.bankAccounts]; b[idx].label = e.target.value; updateData({ bankAccounts: b }); }} />
+                    <select className="co-input" style={{ flex: 1 }} value={bank.label} onChange={e => { const b = [...data.bankAccounts]; b[idx].label = e.target.value; updateData({ bankAccounts: b }); }}>
+                      <option value="Primary Settlement">Primary Settlement</option>
+                      <option value="Instore">Instore</option>
+                      <option value="Online Delivery">Online Delivery</option>
+                      <option value="Vendor payment">Vendor payment</option>
+                    </select>
                     <input className="co-input" style={{ flex: 1 }} placeholder="Account Name" value={bank.accountName} onChange={e => { const b = [...data.bankAccounts]; b[idx].accountName = e.target.value; updateData({ bankAccounts: b }); }} />
                   </div>
                   <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -290,7 +298,10 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
                       {fetchingIfscFor === idx && <span style={{ position: "absolute", right: 12, top: 10, fontSize: 12 }}>⏳</span>}
                     </div>
                   </div>
-                  <input className="co-input" style={{ width: "100%", background: "var(--scaffold-bg)" }} readOnly placeholder="Bank Name (Auto-fetched)" value={bank.bankName} />
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <input className="co-input" style={{ flex: 1, background: "var(--card-bg)" }} readOnly placeholder="Bank Name (Auto-fetched)" value={bank.bankName} />
+                    <input className="co-input" style={{ flex: 1 }} placeholder="UPI ID" value={bank.upi} onChange={e => { const b = [...data.bankAccounts]; b[idx].upi = e.target.value; updateData({ bankAccounts: b }); }} />
+                  </div>
                 </div>
               ))}
               {data.bankAccounts.length < 5 && (
