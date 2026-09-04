@@ -15,7 +15,7 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
   let query: FirebaseFirestore.Query = adminDb.collection("staff").where("isDeleted", "==", false);
 
   if (role !== "super_admin" && tenantId) query = query.where("tenantId", "==", tenantId);
-  if (role === "manager" && storeId) query = query.where("branchCode", "==", storeId);
+  if (storeId) query = query.where("branchCode", "==", storeId);
   if (roleFilter !== "ALL") query = query.where("role", "==", roleFilter);
 
   const snap = await query.orderBy("createdAt", "desc").limit(15).get();

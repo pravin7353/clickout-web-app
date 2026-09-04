@@ -5,7 +5,10 @@ export type ServiceRow = { id: string; barcode: string; name: string; price: num
 export async function getServices(role: string, tenantId: string | null, storeId: string | null): Promise<ServiceRow[]> {
   let query: FirebaseFirestore.Query = adminDb.collection("products").where("itemType", "==", "SERVICE");
   if (role !== "super_admin" && tenantId) query = query.where("tenantId", "==", tenantId);
-  if (role === "manager" && storeId) query = query.where("branchCode", "==", storeId);
+  // storeId is already securely resolved by resolveStoreScope in the caller
+  if (storeId) {
+    query = query.where("branchCode", "==", storeId);
+  }
 
   const snap = await query.get();
   return snap.docs.map((doc) => {

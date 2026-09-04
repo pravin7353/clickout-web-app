@@ -54,7 +54,8 @@ export async function calculateRevenueMetrics(
   if (role !== "super_admin" && tenantId) {
     query = query.where("tenantId", "==", tenantId);
   }
-  if (role === "manager" && storeId) {
+  // storeId is already securely resolved by resolveStoreScope in the caller
+  if (storeId) {
     query = query.where("branchCode", "==", storeId);
   }
 

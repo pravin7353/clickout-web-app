@@ -78,8 +78,8 @@ export async function fetchOrdersPage(params: {
   if (role !== "super_admin" && tenantId) {
     query = query.where("tenantId", "==", tenantId);
   }
-  if (role === "manager" && storeId) {
-    query = query.where("branchCode", "==", storeId);
+  if (storeId) {
+  query = query.where("branchCode", "==", storeId);
   }
 
   query = query.where("timestamp", ">=", Timestamp.fromDate(startOfDay));

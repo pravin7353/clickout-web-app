@@ -103,6 +103,13 @@ export async function onboardStaff(raw: unknown) {
 
 export async function toggleStaffStatus(staffId: string, currentStatus: boolean) {
   await requireRole(["super_admin", "tenant_admin", "manager"]);
+  if (currentStatus) {
+    const doc = await adminDb.collection("staff").doc(staffId).get();
+    if (doc.data()?.role === "tenant_admin") {
+      const snap = await adminDb.collection("staff").where("tenantId", "==", doc.data()?.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).where("isActive", "==", true).get();
+      if (snap.size <= 1) throw new Error("Cannot deactivate the sole tenant admin.");
+    }
+  }
   await adminDb.collection("staff").doc(staffId).update({
     isActive: !currentStatus,
     updatedAt: FieldValue.serverTimestamp(),
@@ -112,6 +119,11 @@ export async function toggleStaffStatus(staffId: string, currentStatus: boolean)
 
 export async function softDeleteStaff(staffId: string) {
   await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const doc = await adminDb.collection("staff").doc(staffId).get();
+  if (doc.data()?.role === "tenant_admin") {
+    const snap = await adminDb.collection("staff").where("tenantId", "==", doc.data()?.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).get();
+    if (snap.size <= 1) throw new Error("Cannot delete the sole tenant admin.");
+  }
   await adminDb.collection("staff").doc(staffId).update({
     isDeleted: true,
     isActive: false,

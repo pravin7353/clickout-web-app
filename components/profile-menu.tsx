@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
 import { updateTenantProfile } from "@/actions/tenant";
 import { CreateStoreForm } from "@/components/create-store-form";
 import { Card, Button, Input, ErrorBanner } from "@/components/ui";
@@ -25,18 +25,24 @@ export function ProfileMenu() {
   if (!session) return null;
 
   const name = session.user?.name ?? session.user?.email ?? "User";
+  const profileImage = (session.user as any)?.image ?? null;
 
+  // Flutter app's Uri.parse expects standard URL query parameters, not a JSON string.
   const qrPayload = activeStore
-    ? JSON.stringify({ action: "STORE_ENTRY", tenantId, branchCode: activeStore })
+    ? `https://app.clickout.com/entry?t=${tenantId}&b=${activeStore}&s=${activeStore}`
     : null;
 
   return (
     <div style={{ position: "relative" }}>
       <button
         onClick={() => setView(view === "closed" ? "detail" : "closed")}
-        style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--cta-bg-accent)", color: "#000", border: "none", fontWeight: 700, cursor: "pointer" }}
+        style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--cta-bg-accent)", color: "#000", border: "none", fontWeight: 700, cursor: "pointer", overflow: "hidden", padding: 0 }}
       >
-        {name.charAt(0).toUpperCase()}
+        {profileImage ? (
+          <img src={profileImage} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          name.charAt(0).toUpperCase()
+        )}
       </button>
 
       {view === "detail" && (
@@ -72,9 +78,72 @@ export function ProfileMenu() {
 
       {view === "qr" && qrPayload && (
         <Modal onClose={() => setView("closed")}>
-          <div style={{ textAlign: "center" }}>
-            <QRCodeSVG value={qrPayload} size={240} />
-            <p style={{ marginTop: 16, color: "var(--text-secondary)", fontSize: 13 }}>Scan this to enter store: {activeStore}</p>
+          <div style={{ textAlign: "center", background: "var(--card-bg)", padding: 24, borderRadius: 12 }}>
+            <QRCodeCanvas id="qr-canvas" value={qrPayload} size={240} level="H" includeMargin={true} />
+            <p style={{ marginTop: 16, color: "var(--text-secondary)", fontSize: 13, fontWeight: 600 }}>Scan this to enter store: {activeStore}</p>
+            <Button 
+              onClick={() => {
+                const qrCanvas = document.getElementById("qr-canvas") as HTMLCanvasElement;
+                if (!qrCanvas) return;
+
+                // Create high-res canvas for the poster
+                const canvas = document.createElement("canvas");
+                canvas.width = 600;
+                canvas.height = 850;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) return;
+
+                // 1. Dark Background with rounded corners
+                ctx.fillStyle = "#222222";
+                ctx.beginPath();
+                ctx.roundRect(0, 0, 600, 850, 24);
+                ctx.fill();
+
+                // 2. Green Border
+                ctx.strokeStyle = "#00C853";
+                ctx.lineWidth = 12;
+                ctx.beginPath();
+                ctx.roundRect(6, 6, 588, 838, 20);
+                ctx.stroke();
+
+                // 3. Header Icon & Text
+                ctx.textAlign = "center";
+                ctx.font = "50px sans-serif";
+                ctx.fillText("🏪", 300, 120);
+
+                ctx.fillStyle = "#FFFFFF";
+                ctx.font = "bold 48px sans-serif";
+                // Using activeStore as name if separate store name isn't in scope yet
+                ctx.fillText(activeStore || "ClickOut Store", 300, 200); 
+
+                ctx.fillStyle = "#888888";
+                ctx.font = "bold 20px sans-serif";
+                ctx.fillText(`STORE ID: ${activeStore}`, 300, 240);
+
+                // 4. White Box for QR Code
+                ctx.fillStyle = "#FFFFFF";
+                ctx.beginPath();
+                ctx.roundRect(80, 290, 440, 440, 24);
+                ctx.fill();
+
+                // 5. Draw the actual QR Code
+                ctx.drawImage(qrCanvas, 100, 310, 400, 400);
+
+                // 6. Footer Text
+                ctx.fillStyle = "#666666";
+                ctx.font = "bold 22px sans-serif";
+                ctx.fillText("Scan to enter via ClickOut App", 300, 790);
+
+                // Trigger Download
+                const link = document.createElement("a");
+                link.download = `ClickOut_QR_Poster_${activeStore}.png`;
+                link.href = canvas.toDataURL("image/png");
+                link.click();
+              }}
+              style={{ marginTop: 16, width: "100%" }}
+            >
+              Download Store QR Poster
+            </Button>
           </div>
         </Modal>
       )}

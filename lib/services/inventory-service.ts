@@ -17,8 +17,7 @@ export async function getLedger(role: string, tenantId: string | null, storeId: 
   let query: FirebaseFirestore.Query = adminDb.collection("products");
 
   if (role !== "super_admin" && tenantId) query = query.where("tenantId", "==", tenantId);
-  if (role === "manager" && storeId) query = query.where("branchCode", "==", storeId);
-
+  if (storeId) { query = query.where("branchCode", "==", storeId);}
   const snap = await query.get();
   const now = Date.now();
 
