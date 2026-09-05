@@ -1,61 +1,109 @@
-:root {
+:root,
+[data-theme="light"],
+html[data-theme="light"] {
+  color-scheme: light;
   --scaffold-bg: #FAFAF8;
   --card-bg: #FFFFFF;
+  --sidebar-bg: #F5F4F0;
   --text-primary: #1F1E1D;
   --text-secondary: #78766F;
-  --cta-bg: #C96442;
-  --cta-bg-accent: #3ADD60;
-  --cta-text: #FFFFFF;
+  --cta-bg: #00D26A;
+  --cta-bg-accent: #00D26A;
+  --cta-text: #000000;
+  --primary: #00D26A;
+  --primary-text: #000000;
   --danger: #D0342C;
   --warning: #C9821E;
-  --success: #3ADD60;
+  --success: #00D26A;
   --border: #E5E4E0;
   --border-hover: #D4D2CC;
-  --sidebar-bg: #F5F4F0;
+  --accent-orange: #FF6D00;
+  --accent-blue: #1565C0;
+  --accent-blue-subtle: rgba(21, 101, 192, 0.08);
 }
 
-[data-theme="dark"] {
-  --scaffold-bg: #262624;
-  --card-bg: #30302E;
+[data-theme="dark"],
+html[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+  --scaffold-bg: #141413;
+  --card-bg: #1E1E1C;
+  --sidebar-bg: #181816;
   --text-primary: #EEEEEC;
   --text-secondary: #A8A29B;
-  --cta-bg: #C96442;
-  --cta-bg-accent: #3ADD60;
-  --cta-text: #FFFFFF;
+  --cta-bg: #00D26A;
+  --cta-bg-accent: #00D26A;
+  --cta-text: #000000;
+  --primary: #00D26A;
+  --primary-text: #000000;
   --danger: #EF6B5F;
   --warning: #E0A855;
-  --success: #3ADD60;
-  --border: #3E3D3A;
-  --border-hover: #4E4D49;
-  --sidebar-bg: #201F1D;
+  --success: #00D26A;
+  --border: #2E2E2A;
+  --border-hover: #44443E;
+  --accent-orange: #FF6D00;
+  --accent-blue: #2962FF;
+  --accent-blue-subtle: rgba(41, 98, 255, 0.12);
 }
 
 body {
   background: var(--scaffold-bg);
   color: var(--text-primary);
   transition: background 0.2s ease, color 0.2s ease;
+  scrollbar-color: var(--border) transparent;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
 }
 
-* { box-sizing: border-box; }
+/* Ensure native form elements inherit proper color-scheme and dark mode backgrounds */
+select,
+input,
+textarea,
+button {
+  color-scheme: inherit;
+  font-family: inherit;
+}
+
+select option {
+  background-color: var(--card-bg);
+  color: var(--text-primary);
+  padding: 8px 12px;
+}
+
+[data-theme="dark"] select option,
+html.dark select option {
+  background-color: #1E1E1C !important;
+  color: #EEEEEC !important;
+}
+
+[data-theme="light"] select option {
+  background-color: #FFFFFF !important;
+  color: #1F1E1D !important;
+}
+
+* {
+  box-sizing: border-box;
+}
 
 .co-card {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 18px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .co-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
   border-color: var(--border-hover);
 }
 
 .co-btn {
   padding: 9px 16px;
   border-radius: 10px;
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  font-size: 13px;
   border: none;
   cursor: pointer;
   transition: transform 0.1s ease, opacity 0.15s ease, box-shadow 0.15s ease;
@@ -63,28 +111,50 @@ body {
   align-items: center;
   gap: 6px;
 }
-.co-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
-.co-btn:active:not(:disabled) { transform: translateY(0); }
-.co-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.co-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.co-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.co-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
-.co-btn-primary { background: var(--cta-bg-accent); color: #0A0A0A; }
-.co-btn-secondary { background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--border); }
-.co-btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
-.co-btn-ghost { background: transparent; color: var(--text-secondary); }
+.co-btn-primary {
+  background: var(--cta-bg);
+  color: var(--cta-text);
+}
+.co-btn-secondary {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+.co-btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.co-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
 
 .co-input {
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--card-bg);
+  background: var(--scaffold-bg);
   color: var(--text-primary);
   font-size: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   outline: none;
 }
 .co-input:focus {
-  border-color: var(--cta-bg-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cta-bg-accent) 20%, transparent);
+  border-color: var(--cta-bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cta-bg) 20%, transparent);
 }
 
 .co-badge {
@@ -111,11 +181,34 @@ body {
   border-radius: 8px;
 }
 @keyframes co-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
-.co-table { width: 100%; border-collapse: collapse; }
-.co-table th { padding: 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
-.co-table td { padding: 12px; font-size: 14px; color: var(--text-primary); border-bottom: 1px solid var(--border); }
-.co-table tr:hover td { background: color-mix(in srgb, var(--text-primary) 3%, transparent); }
+.co-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.co-table th {
+  padding: 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.co-table td {
+  padding: 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+.co-table tr:hover td {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}

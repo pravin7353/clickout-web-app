@@ -2,7 +2,7 @@
 
 import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
-import { onboardStaffSchema } from "@/lib/schemas/staff-schema";
+import { onboardStaffSchema, updateStaffSchema } from "@/lib/schemas/staff-schema";
 import { incrementStaffUsage, decrementStaffUsage } from "@/lib/services/usage-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
@@ -17,7 +17,8 @@ export async function onboardStaff(raw: unknown) {
 
   // manager can only onboard within their own scope; tenant_admin/super_admin can pick tenant
   const effectiveTenantId = role === "super_admin" ? (raw as any).tenantId ?? tenantId : tenantId;
-  const cleanBranch = data.branchCode.toUpperCase().trim();
+  const managerStoreId = (session.user as any)?.storeId as string | undefined;
+  const cleanBranch = (role === "manager" && managerStoreId ? managerStoreId : data.branchCode).toUpperCase().trim();
   const cleanEmpId = data.empId.trim().toUpperCase();
   const email = data.email?.trim().toLowerCase() ?? "";
 
@@ -66,6 +67,7 @@ export async function onboardStaff(raw: unknown) {
       status: "ACTIVE",
       isActive: true,
       isDeleted: false,
+      trustScore: 100,
       createdAt: FieldValue.serverTimestamp(),
       tenantId: effectiveTenantId,
     });
@@ -80,15 +82,16 @@ export async function onboardStaff(raw: unknown) {
       });
     }
 
-    await adminDb.collection("audit_logs").add({
+    await adminDb.collection("admin_audit_logs").add({
       tenantId: effectiveTenantId ?? "SYSTEM",
       timestamp: FieldValue.serverTimestamp(),
       actorId: session.user?.email,
       actorEmail: session.user?.email,
+      action: "STAFF_ONBOARDED",
       actionType: "STAFF_ONBOARDED",
       targetCollection: "staff",
       targetId: staffRef.id,
-      details: `Created ${data.role} access for ${data.name} (${cleanEmpId}).`,
+      details: `Created ${data.role} access for ${data.name} (${cleanEmpId}) at ${cleanBranch}.`,
       severity: "INFO",
     });
   } catch (e: any) {
@@ -99,6 +102,127 @@ export async function onboardStaff(raw: unknown) {
 
   revalidatePath("/manager");
   return { ok: true };
+}
+
+export async function updateStaff(raw: unknown) {
+  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const parsed = updateStaffSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid data" };
+  }
+  const { id, role: newRole, phone, email, branchCode } = parsed.data;
+
+  try {
+    const staffDoc = await adminDb.collection("staff").doc(id).get();
+    if (!staffDoc.exists) return { ok: false, error: "Staff member not found" };
+
+    const staffData = staffDoc.data()!;
+    const effectiveTenantId = role === "super_admin" ? (staffData.tenantId ?? tenantId) : tenantId;
+    const cleanRole = newRole.toUpperCase().trim();
+    const cleanBranch = branchCode.toUpperCase().trim();
+    const cleanEmail = email?.trim().toLowerCase() ?? "";
+
+    // Check phone uniqueness if phone changed
+    if (phone.trim() !== (staffData.phone ?? "").trim()) {
+      const existingPhone = await adminDb.collection("staff").where("phone", "==", phone.trim()).get();
+      if (!existingPhone.empty && existingPhone.docs.some((d) => d.id !== id)) {
+        return { ok: false, error: `Phone number +91 ${phone} is already registered to another staff member.` };
+      }
+    }
+
+    // Find storeId for branchCode
+    let storeId = staffData.storeId;
+    if (effectiveTenantId && cleanBranch) {
+      const storeQuery = await adminDb
+        .collection("stores")
+        .where("tenantId", "==", effectiveTenantId)
+        .where("branchCode", "==", cleanBranch)
+        .limit(1)
+        .get();
+      if (!storeQuery.empty) storeId = storeQuery.docs[0].id;
+    }
+
+    await adminDb.collection("staff").doc(id).update({
+      role: cleanRole,
+      tagPrefix: cleanRole,
+      accessTags: [cleanRole, cleanBranch],
+      phone: phone.trim(),
+      email: cleanEmail,
+      branchCode: cleanBranch,
+      storeId,
+      lastEditedBy: session.user?.name ?? session.user?.email,
+      lastEditedByEmail: session.user?.email,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    await adminDb.collection("admin_audit_logs").add({
+      tenantId: effectiveTenantId ?? "SYSTEM",
+      timestamp: FieldValue.serverTimestamp(),
+      actorId: session.user?.email,
+      actorEmail: session.user?.email,
+      action: "UPDATE_STAFF",
+      actionType: "UPDATE_STAFF",
+      targetCollection: "staff",
+      targetId: id,
+      details: `Updated profile for ${staffData.name} (${staffData.empId}). Role: ${cleanRole}, Branch: ${cleanBranch}.`,
+      severity: "WARNING",
+    });
+
+    revalidatePath("/manager");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e.message ?? "Update failed" };
+  }
+}
+
+export async function bulkImportStaff(csvContent: string, defaultBranchCode?: string) {
+  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const lines = csvContent
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length === 0) return { ok: false, error: "CSV content is empty." };
+
+  let startIndex = 0;
+  if (lines[0].toLowerCase().includes("empid") || lines[0].toLowerCase().includes("role")) {
+    startIndex = 1;
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const parts = lines[i].split(",").map((p) => p.trim());
+    if (parts.length < 5) {
+      failCount++;
+      errors.push(`Row ${i + 1}: Insufficient columns. Expected: empId, name, email, phone, role, [branchCode]`);
+      continue;
+    }
+
+    const [empId, name, email, phone, staffRole, branchCodeCol] = parts;
+    const branchCode = branchCodeCol || defaultBranchCode || "HQ";
+
+    const res = await onboardStaff({
+      empId,
+      name,
+      email: email || undefined,
+      phone,
+      role: staffRole.toLowerCase(),
+      branchCode,
+    });
+
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`Row ${i + 1} (${empId}): ${res.error}`);
+    }
+  }
+
+  revalidatePath("/manager");
+  return { ok: true, successCount, failCount, errors };
 }
 
 export async function toggleStaffStatus(staffId: string, currentStatus: boolean) {
@@ -129,5 +253,6 @@ export async function softDeleteStaff(staffId: string) {
     isActive: false,
     deletedAt: FieldValue.serverTimestamp(),
   });
+  if (doc.data()?.tenantId) await decrementStaffUsage(doc.data()?.tenantId);
   revalidatePath("/manager");
 }

@@ -22,12 +22,19 @@ export async function generateErpApiKey() {
     erpApiKeyGeneratedAt: FieldValue.serverTimestamp(),
   });
 
+  await adminDb.collection("admin_audit_logs").doc().set({
+    action: "ERP_API_KEY_GENERATED",
+    tenantId,
+    adminId: (await requireRole(["super_admin", "tenant_admin"])).session.user?.email,
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
   revalidatePath("/integrations");
   return { ok: true, apiKey: newKey };
 }
 
 export async function configurePartnerMode(enabled: boolean, webhookUrl: string) {
-  const { role, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
+  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
   if (role !== "super_admin" && role !== "tenant_admin") {
     return { ok: false, error: "Only Tenant Admin can configure Partner Mode." };
   }
@@ -47,6 +54,17 @@ export async function configurePartnerMode(enabled: boolean, webhookUrl: string)
       webhookUrl: webhookUrl.trim(),
       webhookSecret,
     },
+  });
+
+  await adminDb.collection("admin_audit_logs").doc().set({
+    action: "PARTNER_MODE_UPDATED",
+    tenantId,
+    enabled,
+    webhookUrl: webhookUrl.trim(),
+    adminId: session.user?.email,
+    adminEmail: session.user?.email,
+    adminName: session.user?.name || "Admin",
+    timestamp: FieldValue.serverTimestamp(),
   });
 
   return { ok: true, webhookSecret };

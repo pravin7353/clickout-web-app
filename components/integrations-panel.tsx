@@ -2,18 +2,31 @@
 
 import { useState, useTransition } from "react";
 import { generateErpApiKey, configurePartnerMode, resendWebhookDelivery } from "@/actions/integrations";
+import { Card, Button, Input, Badge, EmptyState, ErrorBanner } from "@/components/ui";
 
 type PartnerMode = { enabled: boolean; webhookUrl: string; webhookSecret: string | null };
 type FailedDelivery = { id: string; eventType: string; error: string; httpStatus: number | null };
 
-export function IntegrationsPanel({ existingKey, partnerMode, failedDeliveries }: { existingKey: string | null; partnerMode: PartnerMode; failedDeliveries: FailedDelivery[] }) {
+export function IntegrationsPanel({
+  existingKey,
+  partnerMode,
+  failedDeliveries,
+}: {
+  existingKey: string | null;
+  partnerMode: PartnerMode;
+  failedDeliveries: FailedDelivery[];
+}) {
   const [key, setKey] = useState(existingKey);
   const [enabled, setEnabled] = useState(partnerMode.enabled);
   const [url, setUrl] = useState(partnerMode.webhookUrl);
   const [secret, setSecret] = useState(partnerMode.webhookSecret);
   const [showSecret, setShowSecret] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedSecret, setCopiedSecret] = useState(false);
   const [error, setError] = useState("");
+  const [webhookSuccess, setWebhookSuccess] = useState("");
   const [webhookError, setWebhookError] = useState("");
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function generateKey() {
@@ -27,67 +40,263 @@ export function IntegrationsPanel({ existingKey, partnerMode, failedDeliveries }
 
   function savePartnerMode() {
     setWebhookError("");
+    setWebhookSuccess("");
     startTransition(async () => {
       const res = await configurePartnerMode(enabled, url);
-      if (!res.ok) setWebhookError(res.error!);
-      else { setSecret(res.webhookSecret!); setShowSecret(true); }
+      if (!res.ok) {
+        setWebhookError(res.error!);
+      } else {
+        setSecret(res.webhookSecret!);
+        setShowSecret(true);
+        setWebhookSuccess("Partner Mode webhook configuration updated.");
+      }
     });
   }
 
   function resend(id: string) {
-    startTransition(async () => { await resendWebhookDelivery(id); });
+    setResendingId(id);
+    startTransition(async () => {
+      await resendWebhookDelivery(id);
+      setResendingId(null);
+    });
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "sans-serif", maxWidth: 560 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Integrations — ERP / Tally / Busy</h1>
-      <p style={{ color: "#888" }}>Generate a read-only API key to pull your audit feed into external accounting tools.</p>
-
-      {key && (
-        <div style={{ marginTop: 20, padding: 16, border: "1px solid #333", borderRadius: 12 }}>
-          <div style={{ fontSize: 12, color: "#888" }}>Your API Key</div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <code style={{ flex: 1, padding: 8, background: "#111", borderRadius: 6, wordBreak: "break-all" }}>{key}</code>
-            <button onClick={() => navigator.clipboard.writeText(key)}>Copy</button>
-          </div>
-        </div>
-      )}
-      {error && <p style={{ color: "#ef4444", marginTop: 12 }}>🚨 {error}</p>}
-      <button onClick={generateKey} disabled={isPending} style={{ marginTop: 16, padding: "10px 20px", background: "#22c55e", color: "#000", border: "none", borderRadius: 8, fontWeight: 700 }}>
-        {isPending ? "..." : key ? "Regenerate Key" : "Generate API Key"}
-      </button>
-
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 32 }}>Partner Mode (Webhooks)</h2>
-      <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Enable Partner Mode
-      </label>
-      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://your-server.com/webhook" style={{ width: "100%", padding: 8, marginTop: 8 }} />
-      {webhookError && <p style={{ color: "#ef4444", fontSize: 13 }}>{webhookError}</p>}
-      <button onClick={savePartnerMode} disabled={isPending} style={{ marginTop: 12, padding: "10px 20px", background: "#3b82f6", color: "#fff", border: "none", borderRadius: 8 }}>
-        Save & Enable
-      </button>
-
-      {secret && showSecret && (
-        <div style={{ marginTop: 12, padding: 12, border: "1px solid #f97316", borderRadius: 8 }}>
-          <div style={{ fontSize: 12, color: "#f97316" }}>Webhook Secret (save this, shown once)</div>
-          <code style={{ wordBreak: "break-all" }}>{secret}</code>
-        </div>
-      )}
-
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 32 }}>Failed Webhook Deliveries</h2>
-      {failedDeliveries.length === 0 ? (
-        <p style={{ color: "#888" }}>Koi failed delivery nahi hai 🎉</p>
-      ) : (
-        failedDeliveries.map((d) => (
-          <div key={d.id} style={{ display: "flex", justifyContent: "space-between", padding: 10, borderBottom: "1px solid #222" }}>
-            <div>
-              <div style={{ fontWeight: 600 }}>{d.eventType}</div>
-              <div style={{ fontSize: 11, color: "#888" }}>{d.error}</div>
+    <div style={{ display: "grid", gap: 24, maxWidth: 960 }}>
+      {/* ERP & Accounting Feed Card */}
+      <Card style={{ display: "grid", gap: 16, padding: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 24 }}>🔌</span>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+                ERP & Accounting Feed (Tally / Busy / SAP)
+              </h2>
             </div>
-            <button onClick={() => resend(d.id)} disabled={isPending}>Resend</button>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+              Issue read-only REST API keys to securely ingest completed sales registers, SAC itemization, and GST audits into your financial ledger.
+            </p>
           </div>
-        ))
-      )}
+          {key && <Badge color="var(--success)">KEY ACTIVE</Badge>}
+        </div>
+
+        {key ? (
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 10,
+              background: "color-mix(in srgb, var(--card-bg) 60%, transparent)",
+              border: "1px solid var(--border)",
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+              Active REST API Access Token:
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <code
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  background: "var(--scaffold-bg)",
+                  border: "1px solid var(--border)",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  color: "var(--primary)",
+                  wordBreak: "break-all",
+                }}
+              >
+                {key}
+              </code>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(key);
+                  setCopiedKey(true);
+                  setTimeout(() => setCopiedKey(false), 2000);
+                }}
+              >
+                {copiedKey ? "Copied!" : "Copy Token"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            No active API key generated for this tenant. Generate one below to connect your external accounting software.
+          </div>
+        )}
+
+        {error && <ErrorBanner message={error} />}
+
+        <div>
+          <Button variant="primary" onClick={generateKey} disabled={isPending}>
+            {isPending ? "Generating..." : key ? "Regenerate API Key" : "Generate API Key"}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Partner Mode Webhooks Card */}
+      <Card style={{ display: "grid", gap: 16, padding: 24 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 24 }}>⚡</span>
+            <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+              Partner Mode — Real-time Event Webhooks
+            </h2>
+          </div>
+          <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+            Receive instantaneous signed HMAC-SHA256 HTTP POST notifications whenever an order is paid, exited, or refunded.
+          </p>
+        </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            cursor: "pointer",
+            fontSize: 14,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            style={{ width: 18, height: 18 }}
+          />
+          <span>Enable Real-time Webhook Dispatch</span>
+        </label>
+
+        <div style={{ display: "grid", gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+            Target Webhook Endpoint URL (HTTPS only) *
+          </label>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://api.yourbrand.com/webhooks/clickout"
+          />
+        </div>
+
+        {webhookError && <ErrorBanner message={webhookError} />}
+        {webhookSuccess && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              background: "rgba(34, 197, 94, 0.12)",
+              border: "1px solid rgba(34, 197, 94, 0.3)",
+              color: "var(--success)",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            ✓ {webhookSuccess}
+          </div>
+        )}
+
+        <div>
+          <Button variant="primary" onClick={savePartnerMode} disabled={isPending}>
+            {isPending ? "Saving..." : "Save Webhook Configuration"}
+          </Button>
+        </div>
+
+        {secret && (showSecret || partnerMode.webhookSecret) && (
+          <div
+            style={{
+              padding: 14,
+              borderRadius: 10,
+              background: "rgba(249, 115, 22, 0.08)",
+              border: "1px solid rgba(249, 115, 22, 0.3)",
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#f97316" }}>
+              Webhook HMAC Signature Secret:
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <code style={{ flex: 1, fontFamily: "monospace", fontSize: 13, color: "var(--text-primary)", wordBreak: "break-all" }}>
+                {secret}
+              </code>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(secret);
+                  setCopiedSecret(true);
+                  setTimeout(() => setCopiedSecret(false), 2000);
+                }}
+              >
+                {copiedSecret ? "Copied!" : "Copy Secret"}
+              </Button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              Use this secret to verify the <code>X-ClickOut-Signature</code> header on incoming requests.
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Failed Deliveries Card */}
+      <Card style={{ display: "grid", gap: 14, padding: 24 }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+            Failed Webhook Deliveries & Retry Queue
+          </h2>
+          <p style={{ margin: "2px 0 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
+            Automatically captures undeliverable HTTP notifications. Trigger manual re-attempts below.
+          </p>
+        </div>
+
+        {failedDeliveries.length === 0 ? (
+          <EmptyState
+            icon="✨"
+            message="No failed webhook deliveries! All notifications dispatched cleanly."
+          />
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {failedDeliveries.map((d) => (
+              <div
+                key={d.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "12px 14px",
+                  borderRadius: 8,
+                  background: "var(--scaffold-bg)",
+                  border: "1px solid var(--border)",
+                  fontSize: 13,
+                }}
+              >
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>{d.eventType}</span>
+                    <Badge color="var(--danger)">
+                      {d.httpStatus ? `HTTP ${d.httpStatus}` : "Network Error"}
+                    </Badge>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+                    {d.error}
+                  </div>
+                </div>
+
+                <Button
+                  variant="secondary"
+                  onClick={() => resend(d.id)}
+                  disabled={isPending || resendingId === d.id}
+                >
+                  {resendingId === d.id ? "Retrying..." : "Resend Payload"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

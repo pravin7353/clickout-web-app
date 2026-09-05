@@ -4,7 +4,15 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ThemeToggle } from "./theme-toggle";
-import { ProfileMenu, CompanyEditButton, AddStoreButton } from "./profile-menu";
+import {
+  ProfileMenu,
+  UploadLogoButton,
+  CompanyEditButton,
+  AddStoreButton,
+  StoreQRButton,
+  EditStoreButton,
+  InvoiceSettingsButton,
+} from "./profile-menu";
 
 type NavItem = { label: string; href: string };
 
@@ -60,17 +68,32 @@ function NavSection({ title, items, pathname, storeCode }: { title: string; item
             key={item.href}
             href={hrefWithContext}
             style={{
-              display: "block",
-              padding: "8px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "9px 12px",
               borderRadius: 8,
               marginBottom: 2,
-              fontSize: 14,
+              fontSize: 13,
+              fontWeight: active ? 700 : 500,
               textDecoration: "none",
-              color: active ? "var(--cta-text)" : "var(--text-primary)",
-              background: active ? "var(--cta-bg)" : "transparent",
+              color: active ? "var(--text-primary)" : "var(--text-secondary)",
+              background: active ? "color-mix(in srgb, var(--text-primary) 8%, transparent)" : "transparent",
+              transition: "all 0.15s ease",
             }}
           >
-            {item.label}
+            <span>{item.label}</span>
+            {active && (
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: "var(--success)",
+                  boxShadow: "0 0 6px var(--success)",
+                }}
+              />
+            )}
           </Link>
         );
       })}
@@ -94,7 +117,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isManager = role === "manager";
   
   const isStoreContext = !!storeCode;
-  const showStoreMenus = isManager || (isTenantAdmin && isStoreContext);
+  const showStoreMenus = isManager || isStoreContext;
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -104,13 +127,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{role}</div>
         </div>
 
-        {isSuperAdmin && <NavSection title="Platform" items={PLATFORM_ITEMS} pathname={pathname} />}
+        {isSuperAdmin && !isStoreContext && <NavSection title="Platform" items={PLATFORM_ITEMS} pathname={pathname} />}
         {isTenantAdmin && !isStoreContext && <NavSection title="Tenant HQ" items={TENANT_HQ_ITEMS} pathname={pathname} />}
         
-        {isTenantAdmin && isStoreContext && (
+        {(isTenantAdmin || isSuperAdmin) && isStoreContext && (
           <div style={{ marginBottom: 20 }}>
-            <Link href="/tenant-admin" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--card-bg)", color: "var(--text-secondary)", borderRadius: 8, fontSize: 13, textDecoration: "none", border: "1px solid var(--border)" }}>
-              ← Back to Command Center
+            <Link href={isTenantAdmin ? "/tenant-admin" : "/"} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "var(--card-bg)", color: "var(--text-secondary)", borderRadius: 8, fontSize: 13, textDecoration: "none", border: "1px solid var(--border)" }}>
+              ← Back to Overview
             </Link>
           </div>
         )}
@@ -135,17 +158,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside style={{ width: 64, flexShrink: 0, borderLeft: "1px solid var(--border)", background: "var(--card-bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", padding: "16px 0", height: "100vh" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <ProfileMenu />
+          {(isTenantAdmin || isManager) && <UploadLogoButton />}
           {isTenantAdmin && !isStoreContext && (
             <>
               <CompanyEditButton />
               <AddStoreButton />
+              <InvoiceSettingsButton />
             </>
           )}
-          {isStoreContext && (
+          {(isStoreContext || isManager) && (
             <>
-              <button title="Store QR / Details" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--scaffold-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", cursor: "pointer", fontSize: 16 }}>🔳</button>
-              <button title="Edit Store" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--scaffold-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", cursor: "pointer", fontSize: 16 }}>✏️</button>
-              <button title="Invoice Rules" style={{ width: 36, height: 36, borderRadius: 10, background: "var(--scaffold-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", cursor: "pointer", fontSize: 16 }}>🧾</button>
+              <StoreQRButton />
+              <EditStoreButton />
+              <InvoiceSettingsButton />
             </>
           )}
         </div>

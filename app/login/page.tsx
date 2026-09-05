@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isSignInWithEmailLink, signInWithEmailLink, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
-import { signIn } from "next-auth/react";
+import { signIn, useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { clientAuth } from "@/lib/firebase-client";
 import { sendMagicLink } from "@/actions/magic-link";
@@ -68,10 +68,91 @@ export default function LoginPage() {
     }
   }
 
+  const { data: session, status } = useSession();
+
   if (verifying) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)" }}>
         <p style={{ color: "var(--text-secondary)" }}>Signing you in…</p>
+      </div>
+    );
+  }
+
+  if (status === "authenticated" && session?.user) {
+    const role = ((session.user as any)?.role || "STAFF").toString().toUpperCase();
+    const userEmail = session.user.email || "Active User";
+    const userName = session.user.name || userEmail.split("@")[0];
+    const destinationPath =
+      role === "TENANT_ADMIN"
+        ? "/tenant-admin"
+        : role === "CASHIER"
+        ? "/cashier"
+        : role === "GUARD"
+        ? "/guard"
+        : role === "AUDITOR"
+        ? "/auditor"
+        : "/dashboard";
+
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)", fontFamily: "system-ui, sans-serif", padding: 20 }}>
+        <div style={{ width: 400, maxWidth: "100%", background: "var(--card-bg)", borderRadius: 20, padding: 36, boxShadow: "0 10px 40px rgba(0,0,0,0.15)", border: "1px solid var(--border)", textAlign: "center" }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: "0 0 6px 0" }}>
+            Click<span style={{ color: "var(--success)" }}>Out</span>
+          </h1>
+          <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: "0 0 24px 0" }}>
+            Command Center Gateway
+          </p>
+
+          <div style={{ background: "color-mix(in srgb, var(--success) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--success) 35%, transparent)", borderRadius: 14, padding: "16px 20px", marginBottom: 24, textAlign: "left" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--success)", display: "inline-block" }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--success)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Active Session Detected
+              </span>
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>{userName}</div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}>{userEmail}</div>
+            <div style={{ marginTop: 10, display: "inline-block", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", color: "var(--text-primary)" }}>
+              ROLE: {role}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button
+              onClick={() => router.push(destinationPath)}
+              style={{
+                width: "100%",
+                padding: "12px 18px",
+                borderRadius: 10,
+                background: "var(--cta-bg)",
+                color: "var(--cta-text)",
+                fontWeight: 700,
+                fontSize: 14,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              Continue to Dashboard →
+            </button>
+
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              style={{
+                width: "100%",
+                padding: "10px 18px",
+                borderRadius: 10,
+                background: "transparent",
+                color: "var(--danger)",
+                fontWeight: 600,
+                fontSize: 13,
+                border: "1px solid color-mix(in srgb, var(--danger) 30%, transparent)",
+                cursor: "pointer",
+              }}
+            >
+              Sign Out / Switch Account
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

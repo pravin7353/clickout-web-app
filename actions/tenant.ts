@@ -54,6 +54,7 @@ export async function onboardTenant(params: {
       billingStatus: "ACTIVE",
       maxStores,
       maxUsers: maxStores * 20,
+      gstins: [],
       isActive: true,
       createdAt: FieldValue.serverTimestamp(),
     });

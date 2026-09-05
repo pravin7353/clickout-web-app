@@ -12,11 +12,13 @@ export const addProductSchema = z.object({
 });
 
 export const updateProductSchema = z.object({
-  barcode: z.string().trim().min(1),
+  productId: z.string().optional(),
+  barcode: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1),
   price: z.coerce.number().min(0),
   unitCost: z.coerce.number().min(0).optional(),
   gst: z.string().optional(),
   physicalStock: z.coerce.number().int().min(0).optional(),
   weight: z.string().optional(),
+  expiryDate: z.string().optional().nullable(),
 });

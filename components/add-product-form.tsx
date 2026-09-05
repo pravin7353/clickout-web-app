@@ -3,12 +3,27 @@
 import { useState, useTransition } from "react";
 import { addProduct } from "@/actions/inventory";
 import { useRouter } from "next/navigation";
-import { Card, Button, Input, ErrorBanner } from "@/components/ui";
+import { Modal } from "@/components/profile-menu";
+import { CustomSelect, OptionItem } from "@/components/custom-select";
 
-const GST_SLABS = ["0", "5", "12", "18", "28"];
+const GST_OPTIONS: OptionItem[] = [
+  { value: "0", label: "0% GST", icon: "📊" },
+  { value: "5", label: "5% GST", icon: "📊" },
+  { value: "12", label: "12% GST", icon: "📊" },
+  { value: "18", label: "18% GST", icon: "📊" },
+  { value: "28", label: "28% GST", icon: "📊" },
+];
 
-export function AddProductForm() {
+export function AddProductForm({ branchParam }: { branchParam?: string }) {
   const [open, setOpen] = useState(false);
+  const [barcode, setBarcode] = useState("");
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [unitCost, setUnitCost] = useState("");
+  const [gst, setGst] = useState("0");
+  const [weight, setWeight] = useState("");
+  const [physicalStock, setPhysicalStock] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -16,72 +31,484 @@ export function AddProductForm() {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-    const form = new FormData(e.currentTarget);
-    const payload = Object.fromEntries(form.entries());
+
+    if (!barcode.trim()) {
+      setError("Barcode is required.");
+      return;
+    }
+    if (!name.trim()) {
+      setError("Product Name is required.");
+      return;
+    }
 
     startTransition(async () => {
-      const res = await addProduct(payload);
-      if (!res.ok) setError(res.error ?? "Failed to add product.");
-      else { setOpen(false); router.refresh(); }
+      const res = await addProduct({
+        barcode: barcode.trim(),
+        name: name.trim(),
+        price: parseFloat(price) || 0,
+        unitCost: parseFloat(unitCost) || 0,
+        gst,
+        weight: weight.trim(),
+        physicalStock: parseInt(physicalStock) || 0,
+        expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
+        branchCode: branchParam ?? "HQ",
+      });
+
+      if (!res.ok) {
+        setError(res.error ?? "Failed to add product.");
+      } else {
+        setOpen(false);
+        setBarcode("");
+        setName("");
+        setPrice("");
+        setUnitCost("");
+        setGst("0");
+        setWeight("");
+        setPhysicalStock("");
+        setExpiryDate("");
+        router.refresh();
+      }
     });
   }
 
-  if (!open) {
-    return <Button onClick={() => setOpen(true)}>+ Add Product</Button>;
-  }
-
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-      <Card style={{ width: 600 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: "var(--text-primary)" }}>Add New Master SKU</h2>
-        <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 20 }}>Register a new product into the enterprise inventory.</p>
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{
+          background: "var(--cta-bg-accent)",
+          color: "#0A0A0A",
+          border: "none",
+          borderRadius: 12,
+          padding: "10px 20px",
+          fontSize: 13,
+          fontWeight: 800,
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          boxShadow: "0 2px 10px color-mix(in srgb, var(--cta-bg-accent) 25%, transparent)",
+          transition: "all 0.15s ease",
+        }}
+      >
+        <span style={{ fontSize: 16 }}>+</span>
+        <span>Add Product</span>
+      </button>
 
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Barcode (Primary Key)</label>
-              <Input name="barcode" placeholder="Scan or enter" required style={{ width: "100%", marginTop: 4 }} />
+      {open && (
+        <Modal onClose={() => setOpen(false)}>
+          <div
+            style={{
+              width: 720,
+              maxWidth: "94vw",
+              background: "var(--card-bg)",
+              borderRadius: 24,
+              border: "1px solid var(--border)",
+              boxShadow: "0 28px 70px rgba(0, 0, 0, 0.5)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "22px 28px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "color-mix(in srgb, var(--card-bg) 94%, var(--scaffold-bg))",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: "color-mix(in srgb, var(--cta-bg-accent) 15%, transparent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 22,
+                    color: "var(--cta-bg-accent)",
+                    flexShrink: 0,
+                  }}
+                >
+                  🪪
+                </div>
+                <div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: 20,
+                      fontWeight: 800,
+                      color: "var(--text-primary)",
+                      letterSpacing: "-0.02em",
+                    }}
+                  >
+                    Add New Master SKU
+                  </h3>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                    Register a new product into the enterprise inventory.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  fontSize: 18,
+                  cursor: "pointer",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                }}
+              >
+                ✕
+              </button>
             </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Product Name</label>
-              <Input name="name" placeholder="Example: Tata Salt 1kg" required style={{ width: "100%", marginTop: 4 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Selling Price (₹)</label>
-              <Input name="price" type="number" step="0.01" placeholder="0.00" required style={{ width: "100%", marginTop: 4 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Unit Cost (₹) (your buy price)</label>
-              <Input name="unitCost" type="number" step="0.01" placeholder="0.00" style={{ width: "100%", marginTop: 4 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Included GST Slab</label>
-              <select name="gst" defaultValue="0" style={{ width: "100%", marginTop: 4, padding: 10, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)" }}>
-                {GST_SLABS.map((g) => <option key={g} value={g}>{g}% GST</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Weight / Volume</label>
-              <Input name="weight" placeholder="500g / 1L" style={{ width: "100%", marginTop: 4 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Physical Stock</label>
-              <Input name="physicalStock" type="number" placeholder="Units" required style={{ width: "100%", marginTop: 4 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Expiry Date</label>
-              <Input name="expiryDate" type="date" style={{ width: "100%", marginTop: 4 }} />
-            </div>
+
+            {/* Form Fields */}
+            <form onSubmit={handleSubmit} style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                {/* Barcode */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Barcode (Primary Key) *
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>🪪</span>
+                    <input
+                      value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                      placeholder="Scan or enter"
+                      required
+                      autoFocus
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        fontFamily: "monospace",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Product Name */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Product Name *
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>📦</span>
+                    <input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Example: Tata Salt 1kg"
+                      required
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        fontWeight: 600,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Selling Price */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Selling Price (₹) *
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>🏷️</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      placeholder="0.00"
+                      required
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Unit Cost */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Unit Cost (₹) (APKA KHARIDI BHAV)
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>🧾</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={unitCost}
+                      onChange={(e) => setUnitCost(e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Included GST Slab */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Included GST Slab
+                  </label>
+                  <CustomSelect
+                    value={gst}
+                    onChange={setGst}
+                    options={GST_OPTIONS}
+                    prefixIcon="📊"
+                  />
+                </div>
+
+                {/* Weight / Volume */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Weight / Volume
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>⚖️</span>
+                    <input
+                      value={weight}
+                      onChange={(e) => setWeight(e.target.value)}
+                      placeholder="500g / 1L"
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Physical Stock */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Physical Stock *
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>📦</span>
+                    <input
+                      type="number"
+                      value={physicalStock}
+                      onChange={(e) => setPhysicalStock(e.target.value)}
+                      placeholder="Units"
+                      required
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "13px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Expiry Date */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                    Expiry Date
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "0 14px",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, color: "var(--text-secondary)", marginRight: 10 }}>📅</span>
+                    <input
+                      type="date"
+                      value={expiryDate}
+                      onChange={(e) => setExpiryDate(e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        padding: "12px 0",
+                        color: "var(--text-primary)",
+                        fontSize: 13,
+                        cursor: "pointer",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {error && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "color-mix(in srgb, var(--danger) 12%, transparent)",
+                    border: "1px solid var(--danger)",
+                    color: "var(--danger)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  🚨 {error}
+                </div>
+              )}
+
+              {/* Footer Actions */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: 14,
+                  marginTop: 6,
+                  paddingTop: 16,
+                  borderTop: "1px solid var(--border)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  disabled={isPending}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-secondary)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    padding: "10px 18px",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  style={{
+                    background: "var(--cta-bg-accent)",
+                    color: "#000000",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "13px 32px",
+                    fontSize: 14,
+                    fontWeight: 900,
+                    cursor: isPending ? "not-allowed" : "pointer",
+                    opacity: isPending ? 0.7 : 1,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    boxShadow: "0 3px 12px color-mix(in srgb, var(--cta-bg-accent) 35%, transparent)",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span>✓</span>
+                  <span>{isPending ? "Registering..." : "Register Master SKU"}</span>
+                </button>
+              </div>
+            </form>
           </div>
-
-          {error && <div style={{ marginTop: 16 }}><ErrorBanner message={error} /></div>}
-
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={isPending}>{isPending ? "Registering..." : "✓ Register Master SKU"}</Button>
-          </div>
-        </form>
-      </Card>
-    </div>
+        </Modal>
+      )}
+    </>
   );
 }

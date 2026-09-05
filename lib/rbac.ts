@@ -1,13 +1,18 @@
+import { redirect } from "next/navigation";
 import { auth } from "./auth";
 
 type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor";
 
 export async function requireRole(allowed: Role[]) {
   const session = await auth();
-  if (!session?.user) throw new Error("UNAUTHENTICATED");
+  if (!session?.user) {
+    redirect("/login");
+  }
 
-  const role = (session.user as any).role as Role;
-  if (!allowed.includes(role)) throw new Error("FORBIDDEN");
+  const role = ((session.user as any).role as string)?.toLowerCase() as Role;
+  if (!allowed.includes(role)) {
+    redirect("/login");
+  }
 
   const tenantId = (session.user as any).tenantId as string | null;
   const storeId = (session.user as any).storeId as string | null;

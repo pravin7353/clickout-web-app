@@ -51,28 +51,46 @@ export async function getStaffingForecast(tenantId: string | null, branchCode: s
   const since = new Date(today.getTime() - 84 * 24 * 60 * 60 * 1000);
   const sinceStr = since.toISOString().slice(0, 10);
 
-  let query: FirebaseFirestore.Query = adminDb.collection("daily_store_stats")
-    .where("tenantId", "==", tenantId)
-    .where("date", ">=", sinceStr)
-    .orderBy("date", "desc");
-  if (branchCode) query = query.where("branchCode", "==", branchCode);
+  try {
+    let history: FirebaseFirestore.DocumentData[] = [];
 
-  const snap = await query.get();
-  const history = snap.docs.map((d) => d.data());
+    if (branchCode) {
+      // Matches composite index: tenantId ASC, branchCode ASC, date DESC
+      const snap = await adminDb
+        .collection("daily_store_stats")
+        .where("tenantId", "==", tenantId)
+        .where("branchCode", "==", branchCode)
+        .where("date", ">=", sinceStr)
+        .orderBy("date", "desc")
+        .get();
+      history = snap.docs.map((d) => d.data());
+    } else {
+      // If branchCode is not specified, query by tenantId and filter/sort in memory
+      // to avoid unindexed Firestore index crash
+      const snap = await adminDb
+        .collection("daily_store_stats")
+        .where("tenantId", "==", tenantId)
+        .get();
+      history = snap.docs
+        .map((d) => d.data())
+        .filter((d) => d.date && d.date >= sinceStr)
+        .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    }
 
-  const sameWeekday = history
-    .filter((d) => {
-      const parsed = new Date(d.date);
-      return !isNaN(parsed.getTime()) && (parsed.getDay() + 6) % 7 === (today.getDay() + 6) % 7;
-    })
-    .sort((a, b) => a.date.localeCompare(b.date));
+    const sameWeekday = history
+      .filter((d) => {
+        const parsed = new Date(d.date);
+        return !isNaN(parsed.getTime()) && (parsed.getDay() + 6) % 7 === (today.getDay() + 6) % 7;
+      })
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
-  const MIN_SAMPLES = 3;
-  if (sameWeekday.length < MIN_SAMPLES) {
-    return insufficientData(weekdayName, sameWeekday.length);
-  }
+    const MIN_SAMPLES = 3;
+    if (sameWeekday.length < MIN_SAMPLES) {
+      return insufficientData(weekdayName, sameWeekday.length);
+    }
 
-  const samples = sameWeekday.length > 8 ? sameWeekday.slice(-8) : sameWeekday;
+    const samples = sameWeekday.length > 8 ? sameWeekday.slice(-8) : sameWeekday;
+
 
   let weightSum = 0, ordersWeighted = 0, revenueWeighted = 0;
   const orderValues: number[] = [];
@@ -150,7 +168,12 @@ export async function getStaffingForecast(tenantId: string | null, branchCode: s
     contributingFactors: factors, recommendation,
     comparisonPeriod: `vs last ${samples.length} ${weekdayName}${samples.length > 1 ? "s" : ""}`,
   };
+  } catch (error) {
+    console.error("Failed to load staffing forecast:", error);
+    return insufficientData(weekdayName, 0);
+  }
 }
+
 
 function insufficientData(period: string, sampleCount: number): ForecastResult {
   return {

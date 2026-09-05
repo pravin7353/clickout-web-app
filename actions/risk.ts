@@ -1,7 +1,7 @@
 "use server";
 
 import { adminDb } from "@/lib/firebase-admin";
-import { requireRole } from "@/lib/rbac";
+import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
@@ -14,18 +14,23 @@ export type ExpiredOrder = {
   branchCode: string;
   qrExpiresAtMs: number;
   qrRegenCount: number;
+  customerName?: string;
+  itemCount?: number;
+  paymentMethod?: string;
+  raw?: any;
 };
 
-export async function fetchExpiredOrders(searchQuery: string) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+export async function fetchExpiredOrders(searchQuery: string, storeParam?: string) {
+  const { role, tenantId, storeId: sessionStoreId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const effectiveStore = resolveStoreScope(role, sessionStoreId, storeParam);
   const isSuperAdmin = role === "super_admin";
 
   if (searchQuery.trim()) {
     const doc = await adminDb.collection("orders").doc(searchQuery.trim()).get();
     if (!doc.exists) return { orders: [] };
     const data = doc.data()!;
-    if (!isSuperAdmin && data.tenantId !== tenantId) return { orders: [] };
-    if (!isSuperAdmin && data.branchCode !== storeId) return { orders: [] };
+    if (!isSuperAdmin && tenantId && data.tenantId !== tenantId) return { orders: [] };
+    if (effectiveStore && data.branchCode !== effectiveStore) return { orders: [] };
     return { orders: [mapOrder(doc.id, data)].filter((o) => matchesEligibility(o.raw)) };
   }
 
@@ -39,7 +44,7 @@ export async function fetchExpiredOrders(searchQuery: string) {
   const orders = snap.docs
     .filter((doc) => {
       const data = doc.data();
-      if (!isSuperAdmin && data.branchCode !== storeId) return false;
+      if (effectiveStore && data.branchCode !== effectiveStore) return false;
       return matchesEligibility(data, now);
     })
     .map((doc) => mapOrder(doc.id, doc.data()))
@@ -61,19 +66,22 @@ function matchesEligibility(data: FirebaseFirestore.DocumentData, now = Date.now
   return true;
 }
 
-function mapOrder(id: string, data: FirebaseFirestore.DocumentData) {
+function mapOrder(id: string, data: FirebaseFirestore.DocumentData): ExpiredOrder {
   return {
     id,
     amount: parseFloat(data.totalAmount ?? "0") || 0,
     branchCode: data.branchCode ?? "",
     qrExpiresAtMs: (data.qrExpiresAt as Timestamp | undefined)?.toMillis() ?? 0,
     qrRegenCount: data.qrRegenCount ?? 0,
+    customerName: data.customerName ?? data.userName ?? "Walk-in Customer",
+    itemCount: Array.isArray(data.items) ? data.items.length : 0,
+    paymentMethod: data.paymentMethod ?? "UPI",
     raw: data,
   };
 }
 
-export async function reactivateQR(orderId: string, currentStoreId: string) {
-  const { session, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+export async function reactivateQR(orderId: string, currentStoreId: string, reason?: string) {
+  const { session, role, tenantId, storeId: sessionStoreId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const orderRef = adminDb.collection("orders").doc(orderId);
 
   try {
@@ -81,6 +89,15 @@ export async function reactivateQR(orderId: string, currentStoreId: string) {
       const doc = await tx.get(orderRef);
       if (!doc.exists) throw new Error("Order vanished from database!");
       const data = doc.data()!;
+
+      // Scope protection: Managers cannot mutate orders outside their assigned store
+      if (role === "manager" && sessionStoreId && data.branchCode !== sessionStoreId) {
+        throw new Error("UNAUTHORIZED_STORE_ACTION: Managers can only bailout orders in their assigned store.");
+      }
+
+      if (role !== "super_admin" && tenantId && data.tenantId !== tenantId) {
+        throw new Error("UNAUTHORIZED_ACTION: Order cannot be accessed from your account.");
+      }
 
       const exitStatus = (data.exitStatus ?? "").toString().toUpperCase();
       if (EXITED_STATUSES.includes(exitStatus)) {
@@ -106,24 +123,29 @@ export async function reactivateQR(orderId: string, currentStoreId: string) {
         qrExpiresAt: Timestamp.fromDate(newExpiry),
         qrRegenCount: FieldValue.increment(1),
         reactivatedBy: session.user?.email,
+        reactivatedByName: session.user?.name || "Admin",
+        reactivationReason: reason || "Emergency gate timeout bailout",
       });
 
       tx.set(adminDb.collection("admin_audit_logs").doc(), {
         action: "QR_REACTIVATION",
         orderId,
-        storeId: currentStoreId,
+        storeId: data.branchCode || currentStoreId,
         adminId: session.user?.email,
         adminEmail: session.user?.email,
+        adminName: session.user?.name || "Admin",
         timestamp: FieldValue.serverTimestamp(),
         previousExitStatus: exitStatus,
         regenCount: currentRegenCount + 1,
-        tenantId,
+        tenantId: data.tenantId || tenantId,
+        reason: reason || "Emergency gate timeout bailout",
       });
     });
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Reactivation failed" };
   }
 
+  revalidatePath("/qr-reactivation");
   revalidatePath("/risk");
   return { ok: true };
 }

@@ -1,16 +1,27 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
-import { calculateRevenueMetrics } from "@/lib/services/revenue-service";
+import { calculateRevenueMetrics, getIndustryBenchmark } from "@/lib/services/revenue-service";
+import { getStaffingForecast } from "@/lib/services/manpower-service";
 import { getHourlyAnalytics } from "@/actions/analytics";
 import { ReconciliationTable } from "@/components/reconciliation-table";
 import { Card, PageHeader, InfoTooltip } from "@/components/ui";
 import { TimeIntelligenceCard } from "@/components/time-intelligence-card";
+import { IndustryBenchmarkCard } from "@/components/industry-benchmark-card";
+import { CommandIntelCard } from "@/components/command-intel-card";
 
 export default async function AdminDashboardPage({ searchParams }: { searchParams: Promise<{ store?: string }> }) {
   const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const { store: queryStore } = await searchParams;
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
-  const metrics = await calculateRevenueMetrics(role, tenantId, effectiveStoreId);
-  const hourlyData = await getHourlyAnalytics(tenantId ?? undefined, effectiveStoreId ?? undefined);
+
+  const [metrics, hourlyData, industryAvg, forecast] = await Promise.all([
+    calculateRevenueMetrics(role, tenantId, effectiveStoreId),
+    getHourlyAnalytics(tenantId ?? undefined, effectiveStoreId ?? undefined),
+    getIndustryBenchmark(),
+    getStaffingForecast(tenantId, effectiveStoreId),
+  ]);
+
+  const atRiskRevenue = metrics.pendingRevenue + metrics.rejectedRevenue;
+  const shrinkageRate = metrics.grossRevenue > 0 ? (atRiskRevenue / metrics.grossRevenue) * 100 : 0.0;
 
   return (
     <div style={{ padding: 24 }}>
@@ -41,6 +52,30 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
         <MetricCard title="Guard Rejections" value={metrics.rejectedAtVerifier} accent="var(--danger)" info="Orders the guard flagged as rejected today." />
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20, marginTop: 16 }}>
+        <MetricCard
+          title="Refunds"
+          value={metrics.refundCount}
+          subValue={`Impact: ₹${metrics.refundAmount.toFixed(0)}`}
+          info="Total refund count and financial impact today. High refunds signal product issues or cashier anomalies."
+        />
+        <MetricCard
+          title="QR Expired"
+          value={metrics.expireCount}
+          subValue={`Impact: ₹${metrics.expireAmount.toFixed(0)}`}
+          accent={metrics.expireCount > 0 ? "var(--warning)" : undefined}
+          info="Carts abandoned after QR generation where customer left without completing exit verification."
+        />
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <IndustryBenchmarkCard shrinkageRate={shrinkageRate} industryAvg={industryAvg} />
+      </div>
+
+      <div style={{ marginTop: 32 }}>
+        <CommandIntelCard initialForecast={forecast} storeCode={effectiveStoreId} />
+      </div>
+
       <div style={{ marginTop: 32 }}>
         <TimeIntelligenceCard data={hourlyData} />
       </div>
@@ -53,7 +88,20 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
   );
 }
 
-function MetricCard({ title, value, accent, info }: { title: string; value: string | number; accent?: string; info: string }) {
+
+function MetricCard({
+  title,
+  value,
+  subValue,
+  accent,
+  info,
+}: {
+  title: string;
+  value: string | number;
+  subValue?: string;
+  accent?: string;
+  info: string;
+}) {
   return (
     <Card style={{ borderColor: accent }}>
       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, display: "flex", alignItems: "center" }}>
@@ -61,6 +109,11 @@ function MetricCard({ title, value, accent, info }: { title: string; value: stri
         <InfoTooltip text={info} />
       </div>
       <div style={{ fontSize: 24, fontWeight: 700, color: accent ?? "var(--text-primary)" }}>{value}</div>
+      {subValue && (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, fontWeight: 500 }}>
+          {subValue}
+        </div>
+      )}
     </Card>
   );
-}
+}

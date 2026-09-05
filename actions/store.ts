@@ -63,6 +63,7 @@ export async function createStore(raw: unknown) {
       storeName: data.storeName.trim(),
       branchCode,
       gstin: data.gstin?.trim() ?? "",
+      gstNumber: data.gstin?.trim() ?? "",
       managerEmail: hasManager ? managerEmail : null,
       managerEmpId: data.managerEmpId?.trim() ?? null,
       managerName: data.managerName?.trim() ?? null,
@@ -118,12 +119,19 @@ export async function removeStore(storeId: string) {
 
 export async function getStoreForEdit(storeId: string) {
   await requireRole(["super_admin", "tenant_admin", "manager"]);
-  const doc = await adminDb.collection("stores").doc(storeId).get();
+  let doc = await adminDb.collection("stores").doc(storeId).get();
+  if (!doc.exists) {
+    const qSnap = await adminDb.collection("stores").where("branchCode", "==", storeId).limit(1).get();
+    if (!qSnap.empty) {
+      doc = qSnap.docs[0];
+    }
+  }
   if (!doc.exists) return null;
   const data = doc.data()!;
   return {
-    storeName: data.storeName || "",
-    gstin: data.gstin || "",
+    storeId: doc.id,
+    storeName: data.storeName || data.name || "",
+    gstin: data.gstin || data.gstNumber || "",
     address: data.location?.address || "",
     city: data.location?.city || "",
     state: data.location?.state || "",
@@ -139,9 +147,19 @@ export async function updateStoreProfile(params: {
 }) {
   try {
     await requireRole(["super_admin", "tenant_admin", "manager"]);
-    await adminDb.collection("stores").doc(params.storeId).update({
+    let docRef = adminDb.collection("stores").doc(params.storeId);
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      const qSnap = await adminDb.collection("stores").where("branchCode", "==", params.storeId).limit(1).get();
+      if (!qSnap.empty) {
+        docRef = qSnap.docs[0].ref;
+      }
+    }
+
+    await docRef.update({
       storeName: params.storeName.trim(),
       gstin: params.gstin.trim(),
+      gstNumber: params.gstin.trim(),
       "location.address": params.address.trim(),
       "location.city": params.city.trim(),
       "location.state": params.state.trim(),
@@ -151,6 +169,7 @@ export async function updateStoreProfile(params: {
       bankDetailsPending: !params.bankAccounts?.length
     });
     revalidatePath("/tenant-admin");
+    revalidatePath("/dashboard");
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e.message || "Failed to update profile" };

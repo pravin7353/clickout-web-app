@@ -9,6 +9,8 @@ export type StaffRow = {
   role: string;
   branchCode: string;
   isActive: boolean;
+  trustScore: number;
+  tenantId?: string;
 };
 
 export async function getStaffList(role: string, tenantId: string | null, storeId: string | null, roleFilter: string): Promise<StaffRow[]> {
@@ -18,7 +20,7 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
   if (storeId) query = query.where("branchCode", "==", storeId);
   if (roleFilter !== "ALL") query = query.where("role", "==", roleFilter);
 
-  const snap = await query.orderBy("createdAt", "desc").limit(15).get();
+  const snap = await query.orderBy("createdAt", "desc").limit(50).get();
 
   return snap.docs.map((doc) => {
     const data = doc.data();
@@ -31,6 +33,8 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       role: data.role ?? "",
       branchCode: data.branchCode ?? "",
       isActive: data.isActive !== false,
+      trustScore: typeof data.trustScore === "number" ? data.trustScore : 100,
+      tenantId: data.tenantId ?? "",
     };
   });
-}
+}

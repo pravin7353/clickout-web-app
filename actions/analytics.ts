@@ -70,3 +70,16 @@ export async function getHourlyAnalytics(targetTenantId?: string, targetBranchCo
 
   return hours.map(h => dataMap[h]);
 }
+
+export async function fetchStaffingForecastAction(targetStoreId?: string): Promise<{ ok: boolean; forecast?: import("@/lib/services/manpower-service").ForecastResult; error?: string }> {
+  try {
+    const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+    const effectiveTenantId = role === "super_admin" ? undefined : tenantId;
+    const effectiveBranchCode = role === "manager" ? storeId : targetStoreId;
+    const { getStaffingForecast } = await import("@/lib/services/manpower-service");
+    const forecast = await getStaffingForecast(effectiveTenantId ?? null, effectiveBranchCode ?? null);
+    return { ok: true, forecast };
+  } catch (err: any) {
+    return { ok: false, error: err.message || "Failed to load staffing forecast." };
+  }
+}

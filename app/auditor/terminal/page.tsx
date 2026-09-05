@@ -97,3 +97,8 @@ export function AuditTerminal({ initialLogs }: { initialLogs: Log[] }) {
     </div>
   );
 }
+
+export default function AuditorTerminalPage() {
+  return <AuditTerminal initialLogs={[]} />;
+}
+
