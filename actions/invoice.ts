@@ -21,7 +21,7 @@ export type InvoiceConfig = {
 
 export async function generateInvoicePdf(orderId: string) {
   try {
-    const session = await requireRole(["super_admin", "tenant_admin", "manager"]);
+    const session = await requireRole(["super_admin", "tenant_admin", "manager", "auditor"]);
 
     // 1. Fetch Order
     const orderSnap = await adminDb.collection("orders").doc(orderId).get();
@@ -29,7 +29,14 @@ export async function generateInvoicePdf(orderId: string) {
     const order = orderSnap.data()!;
 
     // Security: Tenant isolation
-    if (session.role !== "super_admin" && order.tenantId !== session.tenantId) {
+    if (session.role === "auditor") {
+      const allowed =
+        session.accessibleTenants?.some((t: any) => t.tenantId === order.tenantId) ||
+        order.tenantId === session.tenantId;
+      if (!allowed) {
+        return { ok: false, error: "Unauthorized: Tenant mismatch for auditor" };
+      }
+    } else if (session.role !== "super_admin" && order.tenantId !== session.tenantId) {
       return { ok: false, error: "Unauthorized: Tenant mismatch" };
     }
 

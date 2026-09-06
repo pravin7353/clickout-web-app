@@ -12,12 +12,14 @@ export function AuditorConsole({
   orders: initialOrders,
   cashRecon: initialCashRecon,
   branchCode,
+  tenantId,
   canEdit = false,
 }: {
   financials: DailyFinancials;
   orders: AuditOrder[];
   cashRecon: CashReconciliation;
   branchCode?: string | null;
+  tenantId?: string | null;
   canEdit?: boolean;
 }) {
   const [selectedOrder, setSelectedOrder] = useState<AuditOrder | null>(null);
@@ -276,7 +278,7 @@ export function AuditorConsole({
     setError(null);
     startTransition(async () => {
       try {
-        const res = await exportCaSalesReport(branchCode ?? undefined);
+        const res = await exportCaSalesReport(branchCode ?? undefined, tenantId ?? undefined);
         if (!res.ok || !res.csv) {
           setError("Failed to generate CA Sales Register.");
           return;
@@ -426,9 +428,12 @@ export function AuditorConsole({
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Link href="/auditor/vault" style={{ textDecoration: "none" }}>
+          <Link
+            href={`/auditor/terminal${tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : ""}`}
+            style={{ textDecoration: "none" }}
+          >
             <Button variant="secondary" style={{ fontSize: 12, padding: "8px 14px" }}>
-              Audit Vault →
+              Audit Terminal →
             </Button>
           </Link>
           <Button

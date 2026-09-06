@@ -43,6 +43,11 @@ const FINANCE_ITEMS: NavItem[] = [
   { label: "Guard Console", href: "/guard" },
 ];
 
+const AUDITOR_ITEMS: NavItem[] = [
+  { label: "Auditor Console", href: "/auditor" },
+  { label: "Audit Terminal", href: "/auditor/terminal" },
+];
+
 const SECURITY_ITEMS: NavItem[] = [
   { label: "Risk Engine", href: "/risk" },
   { label: "Fraud Control", href: "/fraud-control" },
@@ -115,9 +120,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isSuperAdmin = role === "super_admin";
   const isTenantAdmin = role === "tenant_admin";
   const isManager = role === "manager";
+  const isAuditor = role === "auditor";
   
   const isStoreContext = !!storeCode;
-  const showStoreMenus = isManager || isStoreContext;
+  const showStoreMenus = (isManager || isStoreContext) && !isAuditor;
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -138,6 +144,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
+        {isAuditor && (
+          <NavSection title="Financial Audit" items={AUDITOR_ITEMS} pathname={pathname} storeCode={storeCode} />
+        )}
+
         {showStoreMenus && (
           <>
             <NavSection title="Operations" items={OPERATIONS_ITEMS} pathname={pathname} storeCode={storeCode} />
@@ -146,7 +156,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <NavSection title="Settings" items={SETTINGS_ITEMS} pathname={pathname} storeCode={storeCode} />
           </>
         )}
-        {(isSuperAdmin || isTenantAdmin) && !showStoreMenus && (
+        {(isSuperAdmin || isTenantAdmin) && !showStoreMenus && !isAuditor && (
           <p style={{ fontSize: 12, color: "var(--text-secondary)", padding: "0 12px" }}>
             Enter a store to see operations.
           </p>
@@ -166,7 +176,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <InvoiceSettingsButton />
             </>
           )}
-          {(isStoreContext || isManager) && (
+          {((isStoreContext && !isAuditor) || isManager) && (
             <>
               <StoreQRButton />
               <EditStoreButton />

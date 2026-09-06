@@ -18,13 +18,15 @@ const ROLE_OPTIONS: OptionItem[] = [
 export function OnboardStaffForm({
   defaultBranchCode,
   branches = [],
+  isBranchLocked = false,
 }: {
   defaultBranchCode?: string;
   branches?: BranchOption[];
+  isBranchLocked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState("CASHIER");
-  const [selectedBranch, setSelectedBranch] = useState(defaultBranchCode || "HQ");
+  const [selectedBranch, setSelectedBranch] = useState(defaultBranchCode || (branches[0]?.branchCode ?? "HQ"));
   const [empId, setEmpId] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -33,14 +35,25 @@ export function OnboardStaffForm({
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
-  const branchOptionsList: OptionItem[] = [
-    { value: "HQ", label: "ALL BRANCHES (HQ)", icon: "🌐" },
-    ...branches.map((b) => ({
-      value: b.branchCode,
-      label: `${b.branchCode} — ${b.storeName}`,
-      icon: "🏪",
-    })),
-  ];
+  const branchOptionsList: OptionItem[] = isBranchLocked
+    ? branches.map((b) => ({
+        value: b.branchCode,
+        label: `${b.branchCode} — ${b.storeName}`,
+        icon: "🏪",
+      }))
+    : [
+        { value: "HQ", label: "ALL BRANCHES (HQ)", icon: "🌐" },
+        ...branches.map((b) => ({
+          value: b.branchCode,
+          label: `${b.branchCode} — ${b.storeName}`,
+          icon: "🏪",
+        })),
+      ];
+
+  const lockedBranchInfo = branches.find((b) => b.branchCode === (defaultBranchCode || selectedBranch)) || branches[0];
+  const lockedBranchDisplay = lockedBranchInfo
+    ? `${lockedBranchInfo.branchCode} — ${lockedBranchInfo.storeName}`
+    : (defaultBranchCode || selectedBranch);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -187,12 +200,48 @@ export function OnboardStaffForm({
                 <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
                   Assign to Branch *
                 </label>
-                <CustomSelect
-                  value={selectedBranch}
-                  onChange={setSelectedBranch}
-                  options={branchOptionsList}
-                  prefixIcon="🏪"
-                />
+                {isBranchLocked ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "11px 14px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 16 }}>🏪</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                        {lockedBranchDisplay}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          padding: "2px 7px",
+                          borderRadius: 6,
+                          background: "color-mix(in srgb, var(--cta-bg-accent) 15%, transparent)",
+                          color: "var(--cta-bg-accent)",
+                          border: "1px solid color-mix(in srgb, var(--cta-bg-accent) 30%, transparent)",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        LOCKED
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 14, opacity: 0.7 }} title="Personnel will be assigned exclusively to your branch">🔒</span>
+                  </div>
+                ) : (
+                  <CustomSelect
+                    value={selectedBranch}
+                    onChange={setSelectedBranch}
+                    options={branchOptionsList}
+                    prefixIcon="🏪"
+                  />
+                )}
               </div>
 
               {/* System Designation */}
@@ -206,6 +255,11 @@ export function OnboardStaffForm({
                   options={ROLE_OPTIONS}
                   prefixIcon="🛡️"
                 />
+                {selectedRole === "AUDITOR" && (
+                  <div style={{ marginTop: 8, padding: "8px 12px", background: "color-mix(in srgb, #2563eb 12%, transparent)", border: "1px solid color-mix(in srgb, #2563eb 35%, transparent)", borderRadius: 8, fontSize: 12, color: "#60a5fa" }}>
+                    📊 <strong>Universal Auditor:</strong> This auditor email can be assigned across multiple client companies without uniqueness conflicts.
+                  </div>
+                )}
               </div>
 
               {/* Employee ID */}
@@ -243,6 +297,18 @@ export function OnboardStaffForm({
                     }}
                   />
                 </div>
+                {empId.toUpperCase().startsWith("AUD") && selectedRole !== "AUDITOR" && (
+                  <div style={{ marginTop: 8, padding: "8px 12px", background: "color-mix(in srgb, #eab308 12%, transparent)", border: "1px solid color-mix(in srgb, #eab308 35%, transparent)", borderRadius: 8, fontSize: 12, color: "#facc15", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>⚠️ Employee ID has &quot;AUD&quot;, but Designation is <strong>{selectedRole}</strong>.</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRole("AUDITOR")}
+                      style={{ background: "#facc15", color: "#000", border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      Set to AUDITOR
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Full Name */}
@@ -283,7 +349,7 @@ export function OnboardStaffForm({
               {/* Phone */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
-                  Phone (Login Credential) *
+                  {selectedRole === "AUDITOR" ? "Contact Phone (Optional for Auditor)" : "Phone (Login Credential) *"}
                 </label>
                 <div
                   style={{
@@ -302,7 +368,7 @@ export function OnboardStaffForm({
                     value={phone}
                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
                     placeholder="10-digit mobile number"
-                    required
+                    required={selectedRole !== "AUDITOR"}
                     style={{
                       flex: 1,
                       background: "transparent",
@@ -320,7 +386,11 @@ export function OnboardStaffForm({
               {/* Official Email */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
-                  Official Email Address {selectedRole === "MANAGER" ? "*" : "(Optional)"}
+                  {selectedRole === "AUDITOR"
+                    ? "Official Email Address * (Auditor Login Credential)"
+                    : selectedRole === "MANAGER"
+                    ? "Official Email Address *"
+                    : "Official Email Address (Optional)"}
                 </label>
                 <div
                   style={{
@@ -337,8 +407,8 @@ export function OnboardStaffForm({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="staff@store.com"
-                    required={selectedRole === "MANAGER"}
+                    placeholder={selectedRole === "AUDITOR" ? "ca@auditfirm.com" : "staff@store.com"}
+                    required={selectedRole === "MANAGER" || selectedRole === "AUDITOR"}
                     style={{
                       flex: 1,
                       background: "transparent",
@@ -347,6 +417,7 @@ export function OnboardStaffForm({
                       padding: "13px 0",
                       color: "var(--text-primary)",
                       fontSize: 13,
+                      fontWeight: 600,
                     }}
                   />
                 </div>

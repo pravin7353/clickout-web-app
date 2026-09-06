@@ -25,12 +25,20 @@ export default async function ManagerPage({
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
   const activeRoleFilter = (queryRole ?? "ALL").toUpperCase();
 
+  const isManager = role === "manager";
   const [staff, stores] = await Promise.all([
     getStaffList(role, tenantId, effectiveStoreId, activeRoleFilter),
     getStores(role, tenantId),
   ]);
 
-  const branchOptions = stores.map((s) => ({ branchCode: s.branchCode, storeName: s.storeName }));
+  // Isolation: For a manager, lock strictly to their assigned branch.
+  // They must never see or assign staff to other branches or HQ.
+  const managerStore = stores.find((s) => s.branchCode === effectiveStoreId);
+  const branchOptions = isManager
+    ? (managerStore
+        ? [{ branchCode: managerStore.branchCode, storeName: managerStore.storeName }]
+        : (effectiveStoreId ? [{ branchCode: effectiveStoreId, storeName: effectiveStoreId }] : []))
+    : stores.map((s) => ({ branchCode: s.branchCode, storeName: s.storeName }));
 
   const totalCount = staff.length;
   const activeCount = staff.filter((s) => s.isActive).length;
@@ -90,10 +98,14 @@ export default async function ManagerPage({
 
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <BulkImportModal defaultBranchCode={effectiveStoreId ?? undefined} />
+            <BulkImportModal
+              defaultBranchCode={effectiveStoreId ?? undefined}
+              isBranchLocked={isManager}
+            />
             <OnboardStaffForm
               defaultBranchCode={effectiveStoreId ?? undefined}
               branches={branchOptions}
+              isBranchLocked={isManager}
             />
           </div>
         )}
@@ -204,6 +216,7 @@ export default async function ManagerPage({
                     staff={s}
                     canEdit={canEdit}
                     branches={branchOptions}
+                    isBranchLocked={isManager}
                   />
                 ))}
               </tbody>

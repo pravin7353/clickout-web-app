@@ -12,10 +12,12 @@ export function StaffRow({
   staff,
   canEdit,
   branches = [],
+  isBranchLocked = false,
 }: {
   staff: StaffRowType;
   canEdit: boolean;
   branches?: BranchOption[];
+  isBranchLocked?: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [showEditModal, setShowEditModal] = useState(false);
@@ -329,6 +331,7 @@ export function StaffRow({
             <EditStaffModal
               staff={staff}
               branches={branches}
+              isBranchLocked={isBranchLocked}
               onClose={() => setShowEditModal(false)}
             />
           )}

@@ -15,7 +15,13 @@ export default async function Home() {
   } else if (role === "guard") {
     redirect("/guard");
   } else if (role === "auditor") {
-    redirect("/auditor");
+    const accessibleTenants = ((session.user as any)?.accessibleTenants as any[]) || [];
+    if (accessibleTenants.length > 1) {
+      redirect("/select-company");
+    } else {
+      const singleTenant = accessibleTenants[0]?.tenantId;
+      redirect(singleTenant ? `/auditor?tenant=${encodeURIComponent(singleTenant)}` : "/auditor");
+    }
   } else if (role === "tenant_admin") {
     redirect("/tenant-admin");
   } else {

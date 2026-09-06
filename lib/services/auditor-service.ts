@@ -310,3 +310,54 @@ export async function getCashReconciliation(
     status,
   };
 }
+
+export type AuditLogItem = {
+  id: string;
+  action: string;
+  actor: string;
+  target: string;
+  details: string;
+  severity: string;
+  timestamp: string;
+};
+
+export async function getAuditLogs(
+  role: string,
+  tenantId: string | null,
+  branchCode: string | null
+): Promise<AuditLogItem[]> {
+  if (!tenantId && role !== "super_admin") return [];
+
+  let query: FirebaseFirestore.Query = adminDb.collection("admin_audit_logs");
+  if (role !== "super_admin" && tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+  if (branchCode && branchCode !== "HQ") {
+    query = query.where("branchCode", "==", branchCode);
+  }
+
+  try {
+    const snap = await query.orderBy("timestamp", "desc").limit(200).get();
+    return snap.docs.map((doc) => {
+      const data = doc.data();
+      let ts = new Date().toISOString();
+      if (data.timestamp?.toDate) {
+        ts = data.timestamp.toDate().toISOString();
+      } else if (typeof data.timestamp === "string") {
+        ts = data.timestamp;
+      }
+      return {
+        id: doc.id,
+        action: data.action || data.actionType || "LOG_EVENT",
+        actor: data.actorEmail || data.actorId || data.adminEmail || data.adminId || data.actor || "System",
+        target: data.targetId || data.targetCollection || data.barcode || "",
+        details: data.details || data.reason || "",
+        severity: data.severity || "INFO",
+        timestamp: ts,
+      };
+    });
+  } catch (err) {
+    console.error("Error fetching audit logs:", err);
+    return [];
+  }
+}

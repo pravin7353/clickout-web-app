@@ -8,27 +8,78 @@ import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
 export async function onboardStaff(raw: unknown) {
-  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const parsed = onboardStaffSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid data" };
   }
   const data = parsed.data;
 
-  // manager can only onboard within their own scope; tenant_admin/super_admin can pick tenant
+  const isManager = role === "manager";
+  const managerStoreId = ((session.user as any)?.storeId || storeId || "").toUpperCase().trim();
+
+  if (isManager && !managerStoreId) {
+    return { ok: false, error: "Manager account is not assigned to any store branch." };
+  }
+
+  // STRICT ENFORCEMENT: Managers can ONLY onboard staff to their own branch
+  const cleanBranch = (isManager ? managerStoreId : data.branchCode).toUpperCase().trim();
   const effectiveTenantId = role === "super_admin" ? (raw as any).tenantId ?? tenantId : tenantId;
-  const managerStoreId = (session.user as any)?.storeId as string | undefined;
-  const cleanBranch = (role === "manager" && managerStoreId ? managerStoreId : data.branchCode).toUpperCase().trim();
   const cleanEmpId = data.empId.trim().toUpperCase();
   const email = data.email?.trim().toLowerCase() ?? "";
 
+  // Role check: Managers cannot create tenant_admin or super_admin
+  const requestedRole = data.role.toUpperCase();
+  if (isManager && (requestedRole === "TENANT_ADMIN" || requestedRole === "SUPER_ADMIN")) {
+    return { ok: false, error: "Managers do not have permission to create administrative accounts." };
+  }
+
   try {
-    const existingPhone = await adminDb.collection("staff").where("phone", "==", data.phone.trim()).get();
-    if (!existingPhone.empty) return { ok: false, error: `Phone number +91 ${data.phone} is already registered.` };
+    const cleanPhone = (data.phone ?? "").trim();
+    if (cleanPhone) {
+      const existingPhone = await adminDb.collection("staff").where("phone", "==", cleanPhone).get();
+      if (!existingPhone.empty) {
+        if (requestedRole === "AUDITOR") {
+          // Universal Auditor: allow assignment across multiple organizations, disallow duplicate within same tenant
+          const sameTenantPhone = existingPhone.docs.find(
+            (d) => d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
+          );
+          if (sameTenantPhone) {
+            return { ok: false, error: `An auditor with phone +91 ${cleanPhone} is already registered in your company.` };
+          }
+          const nonAuditor = existingPhone.docs.find(
+            (d) => (d.data().role || "").toUpperCase() !== "AUDITOR" && d.data().isDeleted !== true
+          );
+          if (nonAuditor) {
+            return { ok: false, error: `Phone +91 ${cleanPhone} is registered to an operational staff account (${nonAuditor.data().role}).` };
+          }
+        } else {
+          return { ok: false, error: `Phone number +91 ${cleanPhone} is already registered.` };
+        }
+      }
+    }
 
     if (email) {
       const existingEmail = await adminDb.collection("staff").where("email", "==", email).get();
-      if (!existingEmail.empty) return { ok: false, error: `Email '${email}' is already registered.` };
+      if (!existingEmail.empty) {
+        if (requestedRole === "AUDITOR") {
+          // Universal Auditor: CA firm can be assigned to multiple tenant clients!
+          const sameTenantEmail = existingEmail.docs.find(
+            (d) => d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
+          );
+          if (sameTenantEmail) {
+            return { ok: false, error: "This email is already an auditor for this company." };
+          }
+          const nonAuditorEmail = existingEmail.docs.find(
+            (d) => (d.data().role || "").toUpperCase() !== "AUDITOR" && d.data().isDeleted !== true
+          );
+          if (nonAuditorEmail) {
+            return { ok: false, error: `Email '${email}' is already in use by an operational staff member.` };
+          }
+        } else {
+          return { ok: false, error: `Email '${email}' is already registered.` };
+        }
+      }
     }
 
     const existingEmpId = await adminDb
@@ -38,7 +89,7 @@ export async function onboardStaff(raw: unknown) {
       .get();
     if (!existingEmpId.empty) return { ok: false, error: `Employee ID '${cleanEmpId}' is already in use within this company.` };
 
-    let storeId = "DEFAULT_STORE";
+    let storeIdFound = "DEFAULT_STORE";
     if (effectiveTenantId) {
       const storeQuery = await adminDb
         .collection("stores")
@@ -46,14 +97,14 @@ export async function onboardStaff(raw: unknown) {
         .where("branchCode", "==", cleanBranch)
         .limit(1)
         .get();
-      if (!storeQuery.empty) storeId = storeQuery.docs[0].id;
+      if (!storeQuery.empty) storeIdFound = storeQuery.docs[0].id;
     }
 
     const staffRef = adminDb.collection("staff").doc();
     await staffRef.set({
       staffId: staffRef.id,
       docId: staffRef.id,
-      storeId,
+      storeId: storeIdFound,
       addedBy: session.user?.name ?? session.user?.email,
       addedByEmail: session.user?.email,
       empId: cleanEmpId,
@@ -61,7 +112,7 @@ export async function onboardStaff(raw: unknown) {
       tagPrefix: data.role.toUpperCase(),
       accessTags: [data.role.toUpperCase(), cleanBranch],
       name: data.name.trim(),
-      phone: data.phone.trim(),
+      phone: cleanPhone,
       email,
       branchCode: cleanBranch,
       status: "ACTIVE",
@@ -105,33 +156,86 @@ export async function onboardStaff(raw: unknown) {
 }
 
 export async function updateStaff(raw: unknown) {
-  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const parsed = updateStaffSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid data" };
   }
   const { id, role: newRole, phone, email, branchCode } = parsed.data;
+  const isManager = role === "manager";
+  const managerStoreId = ((session.user as any)?.storeId || storeId || "").toUpperCase().trim();
 
   try {
     const staffDoc = await adminDb.collection("staff").doc(id).get();
     if (!staffDoc.exists) return { ok: false, error: "Staff member not found" };
 
     const staffData = staffDoc.data()!;
+
+    // MULTI-TENANT ISOLATION CHECK
+    if (role !== "super_admin") {
+      if (tenantId && staffData.tenantId && staffData.tenantId !== tenantId) {
+        return { ok: false, error: "ACCESS DENIED: Staff member belongs to a different organization." };
+      }
+    }
+
+    // MANAGER STORE ISOLATION CHECK
+    if (isManager) {
+      const targetBranch = (staffData.branchCode || "").toUpperCase().trim();
+      if (managerStoreId && targetBranch && targetBranch !== managerStoreId) {
+        return { ok: false, error: "ACCESS DENIED: You can only manage personnel assigned to your branch." };
+      }
+    }
+
     const effectiveTenantId = role === "super_admin" ? (staffData.tenantId ?? tenantId) : tenantId;
     const cleanRole = newRole.toUpperCase().trim();
-    const cleanBranch = branchCode.toUpperCase().trim();
+
+    if (isManager && (cleanRole === "TENANT_ADMIN" || cleanRole === "SUPER_ADMIN")) {
+      return { ok: false, error: "Managers do not have permission to elevate accounts to administrative roles." };
+    }
+
+    // STRICT ENFORCEMENT: Managers cannot reassign staff to other branches
+    const cleanBranch = isManager
+      ? (managerStoreId || staffData.branchCode || "HQ").toUpperCase().trim()
+      : branchCode.toUpperCase().trim();
     const cleanEmail = email?.trim().toLowerCase() ?? "";
 
     // Check phone uniqueness if phone changed
-    if (phone.trim() !== (staffData.phone ?? "").trim()) {
-      const existingPhone = await adminDb.collection("staff").where("phone", "==", phone.trim()).get();
-      if (!existingPhone.empty && existingPhone.docs.some((d) => d.id !== id)) {
-        return { ok: false, error: `Phone number +91 ${phone} is already registered to another staff member.` };
+    const cleanPhone = (phone ?? "").trim();
+    if (cleanPhone && cleanPhone !== (staffData.phone ?? "").trim()) {
+      const existingPhone = await adminDb.collection("staff").where("phone", "==", cleanPhone).get();
+      if (!existingPhone.empty) {
+        if (cleanRole === "AUDITOR" || (staffData.role || "").toUpperCase() === "AUDITOR") {
+          const sameTenantPhone = existingPhone.docs.find(
+            (d) => d.id !== id && d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
+          );
+          if (sameTenantPhone) {
+            return { ok: false, error: `An auditor with phone +91 ${cleanPhone} is already registered in your company.` };
+          }
+        } else if (existingPhone.docs.some((d) => d.id !== id && d.data().isDeleted !== true)) {
+          return { ok: false, error: `Phone number +91 ${cleanPhone} is already registered to another staff member.` };
+        }
+      }
+    }
+
+    // Check email uniqueness if email changed
+    if (cleanEmail && cleanEmail !== (staffData.email ?? "").trim().toLowerCase()) {
+      const existingEmail = await adminDb.collection("staff").where("email", "==", cleanEmail).get();
+      if (!existingEmail.empty) {
+        if (cleanRole === "AUDITOR" || (staffData.role || "").toUpperCase() === "AUDITOR") {
+          const sameTenantEmail = existingEmail.docs.find(
+            (d) => d.id !== id && d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
+          );
+          if (sameTenantEmail) {
+            return { ok: false, error: `An auditor with email '${cleanEmail}' is already assigned to your company.` };
+          }
+        } else if (existingEmail.docs.some((d) => d.id !== id && d.data().isDeleted !== true)) {
+          return { ok: false, error: `Email '${cleanEmail}' is already registered to another staff member.` };
+        }
       }
     }
 
     // Find storeId for branchCode
-    let storeId = staffData.storeId;
+    let storeIdFound = staffData.storeId;
     if (effectiveTenantId && cleanBranch) {
       const storeQuery = await adminDb
         .collection("stores")
@@ -139,17 +243,17 @@ export async function updateStaff(raw: unknown) {
         .where("branchCode", "==", cleanBranch)
         .limit(1)
         .get();
-      if (!storeQuery.empty) storeId = storeQuery.docs[0].id;
+      if (!storeQuery.empty) storeIdFound = storeQuery.docs[0].id;
     }
 
     await adminDb.collection("staff").doc(id).update({
       role: cleanRole,
       tagPrefix: cleanRole,
       accessTags: [cleanRole, cleanBranch],
-      phone: phone.trim(),
+      phone: cleanPhone,
       email: cleanEmail,
       branchCode: cleanBranch,
-      storeId,
+      storeId: storeIdFound,
       lastEditedBy: session.user?.name ?? session.user?.email,
       lastEditedByEmail: session.user?.email,
       updatedAt: FieldValue.serverTimestamp(),
@@ -226,11 +330,28 @@ export async function bulkImportStaff(csvContent: string, defaultBranchCode?: st
 }
 
 export async function toggleStaffStatus(staffId: string, currentStatus: boolean) {
-  await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const doc = await adminDb.collection("staff").doc(staffId).get();
+  if (!doc.exists) throw new Error("Staff member not found");
+  const staffData = doc.data()!;
+
+  // MULTI-TENANT ISOLATION CHECK
+  if (role !== "super_admin" && tenantId && staffData.tenantId && staffData.tenantId !== tenantId) {
+    throw new Error("ACCESS DENIED: Staff member belongs to a different organization.");
+  }
+
+  // MANAGER STORE ISOLATION CHECK
+  if (role === "manager") {
+    const targetBranch = (staffData.branchCode || "").toUpperCase().trim();
+    const managerStoreId = (storeId || "").toUpperCase().trim();
+    if (managerStoreId && targetBranch && targetBranch !== managerStoreId) {
+      throw new Error("ACCESS DENIED: You can only modify personnel in your assigned branch.");
+    }
+  }
+
   if (currentStatus) {
-    const doc = await adminDb.collection("staff").doc(staffId).get();
-    if (doc.data()?.role === "tenant_admin") {
-      const snap = await adminDb.collection("staff").where("tenantId", "==", doc.data()?.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).where("isActive", "==", true).get();
+    if (staffData.role === "tenant_admin" || staffData.role === "TENANT_ADMIN") {
+      const snap = await adminDb.collection("staff").where("tenantId", "==", staffData.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).where("isActive", "==", true).get();
       if (snap.size <= 1) throw new Error("Cannot deactivate the sole tenant admin.");
     }
   }
@@ -242,10 +363,27 @@ export async function toggleStaffStatus(staffId: string, currentStatus: boolean)
 }
 
 export async function softDeleteStaff(staffId: string) {
-  await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const doc = await adminDb.collection("staff").doc(staffId).get();
-  if (doc.data()?.role === "tenant_admin") {
-    const snap = await adminDb.collection("staff").where("tenantId", "==", doc.data()?.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).get();
+  if (!doc.exists) throw new Error("Staff member not found");
+  const staffData = doc.data()!;
+
+  // MULTI-TENANT ISOLATION CHECK
+  if (role !== "super_admin" && tenantId && staffData.tenantId && staffData.tenantId !== tenantId) {
+    throw new Error("ACCESS DENIED: Staff member belongs to a different organization.");
+  }
+
+  // MANAGER STORE ISOLATION CHECK
+  if (role === "manager") {
+    const targetBranch = (staffData.branchCode || "").toUpperCase().trim();
+    const managerStoreId = (storeId || "").toUpperCase().trim();
+    if (managerStoreId && targetBranch && targetBranch !== managerStoreId) {
+      throw new Error("ACCESS DENIED: You can only delete personnel in your assigned branch.");
+    }
+  }
+
+  if (staffData.role === "tenant_admin" || staffData.role === "TENANT_ADMIN") {
+    const snap = await adminDb.collection("staff").where("tenantId", "==", staffData.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).get();
     if (snap.size <= 1) throw new Error("Cannot delete the sole tenant admin.");
   }
   await adminDb.collection("staff").doc(staffId).update({

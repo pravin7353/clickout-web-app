@@ -2,19 +2,20 @@
 
 import { adminDb, adminAuth } from "@/lib/firebase-admin";
 
-const ALLOWED_ROLES = ["super_admin", "tenant_admin", "manager"];
+const ALLOWED_ROLES = ["super_admin", "tenant_admin", "manager", "auditor"];
 
 export async function sendMagicLink(email: string, origin: string) {
   const cleanEmail = email.toLowerCase().trim();
   if (!cleanEmail) return { ok: false, error: "Email is required." };
 
-  const snap = await adminDb.collection("staff").where("email", "==", cleanEmail).limit(1).get();
+  const snap = await adminDb.collection("staff").where("email", "==", cleanEmail).get();
 
   if (!snap.empty) {
-    const data = snap.docs[0].data();
-    if (data.isActive === false || data.isDeleted === true) {
+    const activeDoc = snap.docs.find((d) => d.data().isActive !== false && d.data().isDeleted !== true);
+    if (!activeDoc) {
       return { ok: false, error: "Account Suspended: Please contact support." };
     }
+    const data = activeDoc.data();
     const role = (data.role ?? "").toString().toLowerCase();
     if (!ALLOWED_ROLES.includes(role)) {
       return { ok: false, error: "Access Denied: You do not have Command Center privileges." };

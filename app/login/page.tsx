@@ -12,8 +12,27 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [isPending, setIsPending] = useState(false);
+  const [isGooglePending, setIsGooglePending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const router = useRouter();
+
+  // Suppress harmless Firebase SDK internal popup assertion errors when popup is closed or blocked
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const msg = event?.reason?.message || String(event?.reason || "");
+      if (
+        msg.includes("Pending promise was never set") ||
+        msg.includes("INTERNAL ASSERTION FAILED") ||
+        msg.includes("auth/popup-closed-by-user") ||
+        msg.includes("auth/cancelled-popup-request")
+      ) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+  }, []);
 
   useEffect(() => {
     async function completeSignIn() {
@@ -31,7 +50,7 @@ export default function LoginPage() {
           const idToken = await cred.user.getIdToken(true);
           const res = await signIn("credentials", { idToken, redirect: false });
           if (res?.error) setError("Access denied.");
-          else router.push("/dashboard");
+          else router.push("/");
         } catch {
           setError("This link is invalid or expired. Please request a new one.");
         } finally {
@@ -56,15 +75,34 @@ export default function LoginPage() {
   }
 
   async function handleGoogleSignIn() {
+    if (isGooglePending) return;
+    setIsGooglePending(true);
     setError("");
     try {
-      const cred = await signInWithPopup(clientAuth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const cred = await signInWithPopup(clientAuth, provider);
       const idToken = await cred.user.getIdToken();
       const res = await signIn("credentials", { idToken, redirect: false });
-      if (res?.error) setError("Access denied.");
-      else router.push("/dashboard");
-    } catch {
-      setError("Google sign-in failed. Try again.");
+      if (res?.error) {
+        setError("Access denied: You do not have command center privileges.");
+      } else {
+        router.push("/");
+      }
+    } catch (err: any) {
+      const code = err?.code || "";
+      const msg = err?.message || "";
+      if (
+        code === "auth/popup-closed-by-user" ||
+        code === "auth/cancelled-popup-request" ||
+        msg.includes("Pending promise was never set")
+      ) {
+        // User closed or cancelled popup window
+        return;
+      }
+      setError("Google sign-in failed. Please try again or use Magic Link.");
+    } finally {
+      setIsGooglePending(false);
     }
   }
 
@@ -80,6 +118,7 @@ export default function LoginPage() {
 
   if (status === "authenticated" && session?.user) {
     const role = ((session.user as any)?.role || "STAFF").toString().toUpperCase();
+    const accessibleTenants = ((session.user as any)?.accessibleTenants as any[]) || [];
     const userEmail = session.user.email || "Active User";
     const userName = session.user.name || userEmail.split("@")[0];
     const destinationPath =
@@ -90,7 +129,9 @@ export default function LoginPage() {
         : role === "GUARD"
         ? "/guard"
         : role === "AUDITOR"
-        ? "/auditor"
+        ? accessibleTenants.length > 1
+          ? "/select-company"
+          : "/auditor"
         : "/dashboard";
 
     return (
@@ -209,7 +250,23 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={handleGoogleSignIn}
-              style={{ width: "100%", padding: 12, borderRadius: 10, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)", fontWeight: 600, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+              disabled={isGooglePending || isPending}
+              style={{
+                width: "100%",
+                padding: 12,
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--card-bg)",
+                color: "var(--text-primary)",
+                fontWeight: 600,
+                fontSize: 14,
+                cursor: isGooglePending ? "not-allowed" : "pointer",
+                opacity: isGooglePending ? 0.7 : 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
             >
               <svg width="18" height="18" viewBox="0 0 18 18">
                 <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.92c1.71-1.57 2.68-3.88 2.68-6.64z"/>
@@ -217,7 +274,7 @@ export default function LoginPage() {
                 <path fill="#FBBC05" d="M3.97 10.71a5.4 5.4 0 010-3.42V4.95H.96a9 9 0 000 8.1l3.01-2.34z"/>
                 <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.95l3.01 2.34C4.68 5.16 6.66 3.58 9 3.58z"/>
               </svg>
-              Continue with Google
+              {isGooglePending ? "Connecting to Google…" : "Continue with Google"}
             </button>
           </form>
         )}

@@ -145,13 +145,23 @@ export async function fetchOrdersPage(params: {
   return { orders, hasMore: snap.docs.length === ROWS_PER_PAGE };
 }
 
-export async function exportCaSalesReport(targetBranchCode?: string) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager", "auditor"]);
+export async function exportCaSalesReport(targetBranchCode?: string, targetTenantId?: string) {
+  const { role, tenantId, storeId, accessibleTenants } = await requireRole(["super_admin", "tenant_admin", "manager", "auditor"]);
+
+  let effectiveTenantId = tenantId;
+  if (role === "auditor" && targetTenantId) {
+    if (accessibleTenants.some((t) => t.tenantId === targetTenantId)) {
+      effectiveTenantId = targetTenantId;
+    }
+  } else if (role === "super_admin" && targetTenantId) {
+    effectiveTenantId = targetTenantId;
+  }
+
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode);
 
   let query: FirebaseFirestore.Query = adminDb.collection("orders").orderBy("timestamp", "desc").limit(1000);
-  if (role !== "super_admin" && tenantId) {
-    query = query.where("tenantId", "==", tenantId);
+  if (role !== "super_admin" && effectiveTenantId) {
+    query = query.where("tenantId", "==", effectiveTenantId);
   }
   if (branchCode) {
     query = query.where("branchCode", "==", branchCode);
@@ -162,9 +172,9 @@ export async function exportCaSalesReport(targetBranchCode?: string) {
   let gstin = "N/A";
   let storeAddress = "N/A";
 
-  if (tenantId) {
+  if (effectiveTenantId) {
     try {
-      const tDoc = await adminDb.collection("tenants").doc(tenantId).get();
+      const tDoc = await adminDb.collection("tenants").doc(effectiveTenantId).get();
       if (tDoc.exists) {
         const tData = tDoc.data()!;
         companyName = tData.companyName ?? tData.name ?? companyName;

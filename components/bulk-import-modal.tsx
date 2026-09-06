@@ -7,8 +7,10 @@ import { Modal } from "@/components/profile-menu";
 
 export function BulkImportModal({
   defaultBranchCode,
+  isBranchLocked = false,
 }: {
   defaultBranchCode?: string;
+  isBranchLocked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [csvText, setCsvText] = useState("");
@@ -131,8 +133,26 @@ export function BulkImportModal({
                 <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Expected CSV Format:</div>
                 <code>empId, name, email, phone, role, branchCode</code>
                 <div style={{ marginTop: 6, opacity: 0.8 }}>
-                  e.g.: EMP-101, Amit Kumar, amit@store.com, 9876543210, cashier, QUEST-001
+                  e.g.: EMP-101, Amit Kumar, amit@store.com, 9876543210, cashier, {defaultBranchCode || "QUEST-001"}
                 </div>
+                {isBranchLocked && defaultBranchCode && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      paddingTop: 8,
+                      borderTop: "1px dashed var(--border)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      color: "var(--cta-bg-accent)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span>🔒</span>
+                    <span>All imported personnel will be strictly locked to your branch: {defaultBranchCode}</span>
+                  </div>
+                )}
               </div>
 
               <textarea

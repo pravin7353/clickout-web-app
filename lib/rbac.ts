@@ -16,8 +16,21 @@ export async function requireRole(allowed: Role[]) {
 
   const tenantId = (session.user as any).tenantId as string | null;
   const storeId = (session.user as any).storeId as string | null;
+  const accessibleTenants =
+    ((session.user as any).accessibleTenants as {
+      tenantId: string;
+      companyName: string;
+      branchCode: string;
+    }[]) || [];
 
-  return { session, role, tenantId, storeId, canEdit: (session.user as any).canEdit as boolean };
+  return {
+    session,
+    role,
+    tenantId,
+    storeId,
+    canEdit: (session.user as any).canEdit as boolean,
+    accessibleTenants,
+  };
 }
 
 /** Manager aur tenant_admin hi operate kar sakte hain. super_admin sirf dekh sakta hai. */
@@ -46,5 +59,8 @@ export function assertStoreScope(userStoreId: string | null, targetStoreId: stri
  */
 export function resolveStoreScope(role: string, sessionStoreId: string | null, queryStoreParam?: string): string | null {
   if (role === "manager") return sessionStoreId;
+  if (role === "auditor") {
+    return sessionStoreId && sessionStoreId !== "HQ" ? sessionStoreId : (queryStoreParam?.trim() || null);
+  }
   return queryStoreParam?.trim() || null;
 }
