@@ -1,20 +1,31 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { generateErpApiKey, configurePartnerMode, resendWebhookDelivery } from "@/actions/integrations";
+import {
+  generateErpApiKey,
+  configurePartnerMode,
+  resendWebhookDelivery,
+  updatePaymentConfig,
+} from "@/actions/integrations";
 import { Card, Button, Input, Badge, EmptyState, ErrorBanner } from "@/components/ui";
 
 type PartnerMode = { enabled: boolean; webhookUrl: string; webhookSecret: string | null };
 type FailedDelivery = { id: string; eventType: string; error: string; httpStatus: number | null };
+type PaymentConfigStatus = {
+  phonepe: { configured: boolean; merchantId: string; saltIndex: string };
+  razorpay: { configured: boolean; keyId: string };
+};
 
 export function IntegrationsPanel({
   existingKey,
   partnerMode,
   failedDeliveries,
+  paymentConfigStatus,
 }: {
   existingKey: string | null;
   partnerMode: PartnerMode;
   failedDeliveries: FailedDelivery[];
+  paymentConfigStatus: PaymentConfigStatus;
 }) {
   const [key, setKey] = useState(existingKey);
   const [enabled, setEnabled] = useState(partnerMode.enabled);
@@ -27,7 +38,82 @@ export function IntegrationsPanel({
   const [webhookSuccess, setWebhookSuccess] = useState("");
   const [webhookError, setWebhookError] = useState("");
   const [resendingId, setResendingId] = useState<string | null>(null);
+
+  // Payment Gateway states
+  const [activeGateway, setActiveGateway] = useState<"PHONEPE" | "RAZORPAY">("PHONEPE");
+  const [phonepeMerchantId, setPhonepeMerchantId] = useState(paymentConfigStatus?.phonepe?.merchantId || "");
+  const [phonepeSaltKey, setPhonepeSaltKey] = useState("");
+  const [phonepeSaltIndex, setPhonepeSaltIndex] = useState(paymentConfigStatus?.phonepe?.saltIndex || "1");
+  const [phonepeConfigured, setPhonepeConfigured] = useState(Boolean(paymentConfigStatus?.phonepe?.configured));
+
+  const [rzpKeyId, setRzpKeyId] = useState(paymentConfigStatus?.razorpay?.keyId || "");
+  const [rzpKeySecret, setRzpKeySecret] = useState("");
+  const [rzpWebhookSecret, setRzpWebhookSecret] = useState("");
+  const [rzpConfigured, setRzpConfigured] = useState(Boolean(paymentConfigStatus?.razorpay?.configured));
+
+  const [paymentSuccess, setPaymentSuccess] = useState("");
+  const [paymentError, setPaymentError] = useState("");
+
   const [isPending, startTransition] = useTransition();
+
+  function savePaymentGateway() {
+    setPaymentError("");
+    setPaymentSuccess("");
+
+    startTransition(async () => {
+      let credentials: Record<string, any> = {};
+
+      if (activeGateway === "PHONEPE") {
+        if (!phonepeMerchantId.trim()) {
+          setPaymentError("Merchant ID is required.");
+          return;
+        }
+        if (!phonepeSaltKey.trim() && !phonepeConfigured) {
+          setPaymentError("Salt Key is required for initial configuration.");
+          return;
+        }
+        if (!phonepeSaltIndex.trim()) {
+          setPaymentError("Salt Index is required (usually 1).");
+          return;
+        }
+        credentials = {
+          merchantId: phonepeMerchantId.trim(),
+          saltKey: phonepeSaltKey.trim(),
+          saltIndex: phonepeSaltIndex.trim(),
+        };
+      } else {
+        if (!rzpKeyId.trim()) {
+          setPaymentError("Key ID is required.");
+          return;
+        }
+        if (!rzpKeySecret.trim() && !rzpConfigured) {
+          setPaymentError("Key Secret is required for initial configuration.");
+          return;
+        }
+        credentials = {
+          keyId: rzpKeyId.trim(),
+          keySecret: rzpKeySecret.trim(),
+          webhookSecret: rzpWebhookSecret.trim() || undefined,
+        };
+      }
+
+      const res = await updatePaymentConfig(activeGateway, credentials);
+      if (!res.ok) {
+        setPaymentError(res.error || "Failed to update payment gateway config.");
+      } else {
+        if (activeGateway === "PHONEPE") {
+          setPhonepeConfigured(true);
+          setPhonepeSaltKey(""); // Clear secret immediately from memory
+          setPaymentSuccess("PhonePe gateway credentials saved securely.");
+        } else {
+          setRzpConfigured(true);
+          setRzpKeySecret(""); // Clear secret immediately from memory
+          setRzpWebhookSecret("");
+          setPaymentSuccess("Razorpay gateway credentials saved securely.");
+        }
+      }
+    });
+  }
 
   function generateKey() {
     setError("");
@@ -63,6 +149,185 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: 24, maxWidth: 960 }}>
+      {/* Payment Gateway Credentials Card */}
+      <Card style={{ display: "grid", gap: 20, padding: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 24 }}>💳</span>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+                Payment Gateway Configuration
+              </h2>
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+              Configure your merchant credentials for customer-facing mobile payments (PhonePe &amp; Razorpay). Secrets are stored in an isolated private vault.
+            </p>
+          </div>
+          {(activeGateway === "PHONEPE" ? phonepeConfigured : rzpConfigured) ? (
+            <Badge color="var(--success)">CONFIGURED ✓</Badge>
+          ) : (
+            <Badge color="var(--text-secondary)">NOT CONFIGURED</Badge>
+          )}
+        </div>
+
+        {/* Gateway Tabs */}
+        <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border)", paddingBottom: 10 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveGateway("PHONEPE");
+              setPaymentError("");
+              setPaymentSuccess("");
+            }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "1px solid",
+              borderColor: activeGateway === "PHONEPE" ? "var(--primary)" : "var(--border)",
+              background: activeGateway === "PHONEPE" ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
+              color: activeGateway === "PHONEPE" ? "var(--primary)" : "var(--text-secondary)",
+              fontWeight: activeGateway === "PHONEPE" ? 700 : 500,
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>PhonePe (UPI / PG)</span>
+            {phonepeConfigured && <span style={{ fontSize: 10, color: "var(--success)" }}>●</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveGateway("RAZORPAY");
+              setPaymentError("");
+              setPaymentSuccess("");
+            }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "1px solid",
+              borderColor: activeGateway === "RAZORPAY" ? "var(--primary)" : "var(--border)",
+              background: activeGateway === "RAZORPAY" ? "color-mix(in srgb, var(--primary) 12%, transparent)" : "transparent",
+              color: activeGateway === "RAZORPAY" ? "var(--primary)" : "var(--text-secondary)",
+              fontWeight: activeGateway === "RAZORPAY" ? 700 : 500,
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>Razorpay (Cards / Netbanking / UPI)</span>
+            {rzpConfigured && <span style={{ fontSize: 10, color: "var(--success)" }}>●</span>}
+          </button>
+        </div>
+
+        {/* PhonePe Form */}
+        {activeGateway === "PHONEPE" && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                PhonePe Merchant ID *
+              </label>
+              <Input
+                value={phonepeMerchantId}
+                onChange={(e) => setPhonepeMerchantId(e.target.value)}
+                placeholder="e.g. PGTESTPAYUAT86 or your production MID"
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                Salt Key * {phonepeConfigured && <span style={{ color: "var(--success)", fontWeight: 400 }}>(Already saved in vault. Leave blank to keep current)</span>}
+              </label>
+              <Input
+                type="password"
+                value={phonepeSaltKey}
+                onChange={(e) => setPhonepeSaltKey(e.target.value)}
+                placeholder={phonepeConfigured ? "••••••••••••••••••••••••••••••••" : "Enter PhonePe API Salt Key"}
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                Salt Index *
+              </label>
+              <Input
+                value={phonepeSaltIndex}
+                onChange={(e) => setPhonepeSaltIndex(e.target.value)}
+                placeholder="Usually 1"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Razorpay Form */}
+        {activeGateway === "RAZORPAY" && (
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                Razorpay Key ID *
+              </label>
+              <Input
+                value={rzpKeyId}
+                onChange={(e) => setRzpKeyId(e.target.value)}
+                placeholder="e.g. rzp_live_... or rzp_test_..."
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                Razorpay Key Secret * {rzpConfigured && <span style={{ color: "var(--success)", fontWeight: 400 }}>(Already saved in vault. Leave blank to keep current)</span>}
+              </label>
+              <Input
+                type="password"
+                value={rzpKeySecret}
+                onChange={(e) => setRzpKeySecret(e.target.value)}
+                placeholder={rzpConfigured ? "••••••••••••••••••••••••••••••••" : "Enter Razorpay Key Secret"}
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+                Razorpay Webhook Secret (Optional)
+              </label>
+              <Input
+                type="password"
+                value={rzpWebhookSecret}
+                onChange={(e) => setRzpWebhookSecret(e.target.value)}
+                placeholder="Optional webhook signature verification secret"
+              />
+            </div>
+          </div>
+        )}
+
+        {paymentError && <ErrorBanner message={paymentError} />}
+        {paymentSuccess && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: 8,
+              background: "rgba(34, 197, 94, 0.12)",
+              border: "1px solid rgba(34, 197, 94, 0.3)",
+              color: "var(--success)",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            ✓ {paymentSuccess}
+          </div>
+        )}
+
+        <div>
+          <Button variant="primary" onClick={savePaymentGateway} disabled={isPending}>
+            {isPending ? "Saving..." : `Save ${activeGateway === "PHONEPE" ? "PhonePe" : "Razorpay"} Configuration`}
+          </Button>
+        </div>
+      </Card>
+
       {/* ERP & Accounting Feed Card */}
       <Card style={{ display: "grid", gap: 16, padding: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>

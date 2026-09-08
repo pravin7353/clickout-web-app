@@ -23,6 +23,8 @@ export const metadata: Metadata = {
 import { Inter } from "next/font/google";
 const inter = Inter({ subsets: ["latin"] });
 
+import { Suspense } from "react";
+
 export default function RootLayout({
   children,
 }: {
@@ -33,7 +35,9 @@ export default function RootLayout({
       <body className={inter.className}>
         <Providers>
           <ThemeProvider>
-            <AppShell>{children}</AppShell>
+            <Suspense fallback={null}>
+              <AppShell>{children}</AppShell>
+            </Suspense>
           </ThemeProvider>
         </Providers>
       </body>
