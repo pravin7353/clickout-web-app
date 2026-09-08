@@ -37,25 +37,36 @@ export async function onboardStaff(raw: unknown) {
   try {
     const cleanPhone = (data.phone ?? "").trim();
     if (cleanPhone) {
-      const existingPhone = await adminDb.collection("staff").where("phone", "==", cleanPhone).get();
-      if (!existingPhone.empty) {
-        if (requestedRole === "AUDITOR") {
-          // Universal Auditor: allow assignment across multiple organizations, disallow duplicate within same tenant
-          const sameTenantPhone = existingPhone.docs.find(
-            (d) => d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
-          );
-          if (sameTenantPhone) {
-            return { ok: false, error: `An auditor with phone +91 ${cleanPhone} is already registered in your company.` };
-          }
-          const nonAuditor = existingPhone.docs.find(
-            (d) => (d.data().role || "").toUpperCase() !== "AUDITOR" && d.data().isDeleted !== true
-          );
-          if (nonAuditor) {
-            return { ok: false, error: `Phone +91 ${cleanPhone} is registered to an operational staff account (${nonAuditor.data().role}).` };
-          }
-        } else {
-          return { ok: false, error: `Phone number +91 ${cleanPhone} is already registered.` };
+      const existingPhoneSnap = await adminDb
+        .collection("staff")
+        .where("phone", "==", cleanPhone)
+        .where("isActive", "==", true)
+        .where("isDeleted", "==", false)
+        .get();
+
+      if (!existingPhoneSnap.empty) {
+        const anyForeignTenant = existingPhoneSnap.docs.some(
+          (d) => d.data().tenantId !== effectiveTenantId
+        );
+        if (anyForeignTenant) {
+          return {
+            ok: false,
+            error: "This number is already registered as staff under another business account.",
+          };
         }
+
+        const sameRoleDoc = existingPhoneSnap.docs.find(
+          (d) => (d.data().role || "").toUpperCase() === requestedRole
+        );
+        if (sameRoleDoc) {
+          return {
+            ok: false,
+            error: `Staff with this phone and role (${requestedRole}) is already registered. Please edit or reactivate the existing account.`,
+            existingDocId: sameRoleDoc.id,
+            isExisting: true,
+          };
+        }
+        // Different role, same tenant -> allow create (multi-role staff)
       }
     }
 
