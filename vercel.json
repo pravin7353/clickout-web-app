@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/winback-scan",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

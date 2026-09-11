@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export type Campaign = {
   id: string;
@@ -36,4 +37,38 @@ export async function getCampaigns(
       createdAtMs: d.createdAt?.toMillis?.(),
     };
   });
+}
+
+export async function createSystemWinbackCampaign(
+  tenantId: string,
+  branchCode: string,
+  rewardValue: string
+): Promise<string> {
+  const branch = branchCode?.trim().toUpperCase() || "ALL";
+
+  const existingSnap = await adminDb
+    .collection("engagement_campaigns")
+    .where("tenantId", "==", tenantId)
+    .where("branchCode", "==", branch)
+    .where("type", "==", "WINBACK")
+    .where("isActive", "==", true)
+    .limit(1)
+    .get();
+
+  if (!existingSnap.empty) {
+    return existingSnap.docs[0].id;
+  }
+
+  const newDoc = adminDb.collection("engagement_campaigns").doc();
+  await newDoc.set({
+    campaignId: newDoc.id,
+    type: "WINBACK",
+    rewardValue: rewardValue.trim(),
+    branchCode: branch,
+    tenantId,
+    isActive: true,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  return newDoc.id;
 }

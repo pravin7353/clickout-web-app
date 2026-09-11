@@ -1073,8 +1073,47 @@ export function ChurnRadar({
                                 {getInitials(vip.name)}
                               </div>
                               <div>
-                                <div style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: 14 }}>
-                                  {vip.name}
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: 14 }}>
+                                    {vip.name}
+                                  </span>
+                                  {vip.riskLevel === "HIGH" && (
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 800,
+                                        padding: "2px 8px",
+                                        borderRadius: 12,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        background:
+                                          vip.latestWinbackStatus === "TRIGGERED"
+                                            ? "rgba(139, 92, 246, 0.15)"
+                                            : vip.latestWinbackStatus === "SKIPPED_COOLDOWN"
+                                            ? "rgba(245, 158, 11, 0.15)"
+                                            : "rgba(255, 255, 255, 0.05)",
+                                        border:
+                                          vip.latestWinbackStatus === "TRIGGERED"
+                                            ? "1px solid rgba(139, 92, 246, 0.35)"
+                                            : vip.latestWinbackStatus === "SKIPPED_COOLDOWN"
+                                            ? "1px solid rgba(245, 158, 11, 0.35)"
+                                            : "1px solid rgba(255, 255, 255, 0.1)",
+                                        color:
+                                          vip.latestWinbackStatus === "TRIGGERED"
+                                            ? "#c084fc"
+                                            : vip.latestWinbackStatus === "SKIPPED_COOLDOWN"
+                                            ? "#fbbf24"
+                                            : "var(--text-secondary)",
+                                      }}
+                                    >
+                                      {vip.latestWinbackStatus === "TRIGGERED"
+                                        ? "⚡ Triggered"
+                                        : vip.latestWinbackStatus === "SKIPPED_COOLDOWN"
+                                        ? "⏳ Cooldown"
+                                        : "None"}
+                                    </span>
+                                  )}
                                 </div>
                                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
                                   {vip.phone} · Branch {vip.branchCode}

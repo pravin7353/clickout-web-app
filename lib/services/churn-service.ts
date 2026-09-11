@@ -11,6 +11,8 @@ export type VipCustomer = {
   riskLevel: "SAFE" | "MEDIUM" | "HIGH";
   branchCode: string;
   winbackActive?: boolean;
+  winbackLastTriggeredMs?: number;
+  latestWinbackStatus?: "TRIGGERED" | "SKIPPED_COOLDOWN" | "NONE";
 };
 
 export type LiveShopper = {
@@ -40,6 +42,8 @@ export type GrowthConfig = {
   churnMultiplierHigh: number;
   businessType?: string;
   branchCode?: string;
+  winbackRewardValue?: string;
+  winbackCooldownMultiplier?: number;
 };
 
 export async function getGrowthConfig(
@@ -53,6 +57,8 @@ export async function getGrowthConfig(
     churnMultiplierHigh: 2.1,
     businessType: "General Retail",
     branchCode: branchCode ?? "UNKNOWN",
+    winbackRewardValue: "20% OFF",
+    winbackCooldownMultiplier: 2,
   };
 
   if (!tenantId) return defaultConfig;
@@ -74,6 +80,8 @@ export async function getGrowthConfig(
         churnMultiplierHigh: Number(d.churnMultiplierHigh ?? defaultConfig.churnMultiplierHigh),
         businessType: d.businessType ?? defaultConfig.businessType,
         branchCode: branchCode ?? d.branchCode ?? "UNKNOWN",
+        winbackRewardValue: d.winbackRewardValue ?? defaultConfig.winbackRewardValue,
+        winbackCooldownMultiplier: Number(d.winbackCooldownMultiplier ?? defaultConfig.winbackCooldownMultiplier),
       };
     }
   } catch {}
@@ -137,6 +145,8 @@ export async function scanForChurn(
       riskLevel: risk,
       branchCode: userBranchCode,
       winbackActive: data.winbackActive === true,
+      winbackLastTriggeredMs: typeof data.winbackLastTriggeredMs === "number" ? data.winbackLastTriggeredMs : undefined,
+      latestWinbackStatus: (data.latestWinbackStatus as "TRIGGERED" | "SKIPPED_COOLDOWN" | "NONE") || "NONE",
     });
   }
 
