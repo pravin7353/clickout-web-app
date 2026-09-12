@@ -1,13 +1,23 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import {
+  planFromString,
+  effectiveMaxStores,
+  effectiveMaxTx,
+  PLAN_CONFIG,
+} from "@/lib/subscription/plan";
 
-function currentMonthKey(): string {
+export function currentMonthKey(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function usageRef(tenantId: string) {
+export function usageRef(tenantId: string) {
   return adminDb.collection("tenants").doc(tenantId).collection("usageLedger").doc(currentMonthKey());
+}
+
+export async function incrementTransactionUsage(tenantId: string) {
+  await usageRef(tenantId).set({ transactionCount: FieldValue.increment(1), lastUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
 }
 
 export async function incrementStaffUsage(tenantId: string) {
@@ -42,6 +52,7 @@ export type TenantLimits = {
   planDisplayName: string;
   monthlyPrice: number;
   benefits: string[];
+  extraStoresPurchased: number;
 };
 
 export async function getUsage(tenantId: string): Promise<{ usage: UsageData; limits: TenantLimits }> {
@@ -56,59 +67,54 @@ export async function getUsage(tenantId: string): Promise<{ usage: UsageData; li
   const t = tenantDoc.data() ?? {};
 
   const rawPlan = (t.subscriptionPlan ?? "PRO").toString().toUpperCase();
-  let planDisplayName = "Pro Plan";
-  let maxTransactions = 1000;
-  let maxUsers = 4;
-  let maxStores = 3;
+  const normalizedPlan = rawPlan === "ENTERPRISE" ? "business" : planFromString(rawPlan);
+  const extraStoresPurchased = Number(t.extraStoresPurchased ?? 0);
+
+  const cfg = PLAN_CONFIG[normalizedPlan];
+  const planDisplayName = `${cfg.displayName} Plan`;
+
+  const calcMaxTx = effectiveMaxTx(normalizedPlan, extraStoresPurchased);
+  const calcMaxStores = effectiveMaxStores(normalizedPlan, extraStoresPurchased);
+  const maxTransactions = calcMaxTx === "unlimited" ? 999999 : calcMaxTx;
+  const maxStores = calcMaxStores === "unlimited" ? 999999 : calcMaxStores;
+  const maxUsers = cfg.maxStaff === "unlimited" ? 999999 : cfg.maxStaff;
+  const monthlyPrice = cfg.monthlyPrice;
+
   let maxCampaigns = 5;
-  let monthlyPrice = 299;
   let benefits = [
-    "Up to 1,000 POS checkout transactions/month",
-    "Up to 4 active staff accounts (cashier & guard)",
-    "Up to 3 branch stores",
+    `Up to ${maxTransactions.toLocaleString()} checkout transactions/month`,
+    `Up to ${maxUsers === 999999 ? "Unlimited" : maxUsers} active staff accounts`,
+    `Up to ${maxStores === 999999 ? "Unlimited" : maxStores} store locations`,
     "Growth radar and auto-winback engine",
   ];
 
-  if (rawPlan === "MINI") {
-    planDisplayName = "Mini Plan";
-    maxTransactions = 100;
-    maxUsers = 2;
-    maxStores = 1;
+  if (normalizedPlan === "mini") {
     maxCampaigns = 1;
-    monthlyPrice = 99;
     benefits = [
-      "Up to 100 monthly checkout transactions",
-      "Up to 2 staff accounts",
+      `Up to ${maxTransactions.toLocaleString()} monthly checkout transactions`,
+      `Up to ${maxUsers} staff accounts`,
       "Single store location",
       "Basic POS assisted checkout",
     ];
-  } else if (rawPlan === "GROWTH") {
-    planDisplayName = "Growth Plan";
-    maxTransactions = 999999;
-    maxUsers = 999999;
-    maxStores = 10;
+  } else if (normalizedPlan === "growth") {
     maxCampaigns = 20;
-    monthlyPrice = 699;
     benefits = [
-      "Unlimited checkout transactions",
+      `Up to ${maxTransactions === 999999 ? "Unlimited" : maxTransactions.toLocaleString()} checkout transactions`,
       "Unlimited staff & supervisor accounts",
-      "Up to 10 store locations",
+      `Up to ${maxStores} store locations`,
       "Risk engine, QR bailout desk, and AI reorder intelligence",
     ];
-  } else if (rawPlan === "ENTERPRISE") {
-    planDisplayName = "Enterprise HQ";
-    maxTransactions = 999999;
-    maxUsers = 999999;
-    maxStores = 999999;
+  } else if (normalizedPlan === "business") {
     maxCampaigns = 999999;
-    monthlyPrice = 1499;
     benefits = [
       "Unlimited transactions, staff, and stores",
       "Dedicated multi-store ERP integration webhooks",
       "Priority CA audit support and SLA guarantees",
-      "White-labeled tenant custom domain",
+      "Multi-tenant brand management in one login",
     ];
   }
+
+  const effectivePlanName = normalizedPlan === "business" ? "BUSINESS" : rawPlan;
 
   return {
     usage: {
@@ -122,10 +128,11 @@ export async function getUsage(tenantId: string): Promise<{ usage: UsageData; li
       maxStores: t.maxStores ?? maxStores,
       maxTransactions,
       maxCampaigns,
-      subscriptionPlan: rawPlan,
+      subscriptionPlan: effectivePlanName,
       planDisplayName,
       monthlyPrice,
       benefits,
+      extraStoresPurchased,
     },
   };
 }

@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { getFailedDeliveries } from "@/lib/services/webhook-service";
 import { IntegrationsPanel } from "@/components/integrations-panel";
 import { PageHeader } from "@/components/ui";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function IntegrationsPage() {
   const { tenantId } = await requireRole(["tenant_admin"]);
@@ -58,7 +59,8 @@ export default async function IntegrationsPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto", display: "grid", gap: 20 }}>
+    <FeatureLockWidget route="integrations">
+      <div style={{ padding: 24, maxWidth: 1200, margin: "0 auto", display: "grid", gap: 20 }}>
       <PageHeader
         title="Integrations, Payment Gateway & Webhooks"
         subtitle="Manage payment gateway credentials, secure ERP access tokens, and real-time webhook endpoints."
@@ -69,6 +71,7 @@ export default async function IntegrationsPage() {
         failedDeliveries={failedDeliveries}
         paymentConfigStatus={paymentConfigStatus}
       />
-    </div>
+      </div>
+    </FeatureLockWidget>
   );
 }

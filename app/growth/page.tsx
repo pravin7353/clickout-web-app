@@ -6,6 +6,7 @@ import {
   getGrowthConfig,
 } from "@/lib/services/churn-service";
 import { ChurnRadar } from "@/components/churn-radar";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function GrowthPage({
   searchParams,
@@ -30,15 +31,17 @@ export default async function GrowthPage({
   const safeConfig = JSON.parse(JSON.stringify(config));
 
   return (
-    <div style={{ padding: "24px 32px", minHeight: "100vh" }}>
-      <ChurnRadar
-        vips={safeVips}
-        liveShoppers={safeLiveShoppers}
-        ghostVisitors={safeGhostVisitors}
-        config={safeConfig}
-        branchCode={effectiveStoreId}
-        canEdit={canEdit}
-      />
-    </div>
+    <FeatureLockWidget route="growth">
+      <div style={{ padding: "24px 32px", minHeight: "100vh" }}>
+        <ChurnRadar
+          vips={safeVips}
+          liveShoppers={safeLiveShoppers}
+          ghostVisitors={safeGhostVisitors}
+          config={safeConfig}
+          branchCode={effectiveStoreId}
+          canEdit={canEdit}
+        />
+      </div>
+    </FeatureLockWidget>
   );
 }

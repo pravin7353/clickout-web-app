@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { onboardStaffSchema, updateStaffSchema } from "@/lib/schemas/staff-schema";
 import { incrementStaffUsage, decrementStaffUsage } from "@/lib/services/usage-service";
+import { isStaffLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
@@ -32,6 +33,42 @@ export async function onboardStaff(raw: unknown) {
   const requestedRole = data.role.toUpperCase();
   if (isManager && (requestedRole === "TENANT_ADMIN" || requestedRole === "SUPER_ADMIN")) {
     return { ok: false, error: "Managers do not have permission to create administrative accounts." };
+  }
+
+  // Check Staff Quota Hard Block
+  if (effectiveTenantId) {
+    const [tDoc, staffSnap] = await Promise.all([
+      adminDb.collection("tenants").doc(effectiveTenantId).get(),
+      adminDb
+        .collection("staff")
+        .where("tenantId", "==", effectiveTenantId)
+        .where("isDeleted", "==", false)
+        .get(),
+    ]);
+
+    const tData = tDoc.data() || {};
+    const rawPlan = tData.subscriptionPlan ?? "mini";
+    const staffCount = staffSnap.size;
+
+    let trialActive = false;
+    if (tData.trialEndsAt?.toDate) {
+      trialActive = isTrialActive(tData.trialEndsAt.toDate());
+    } else if (tData.trialEndsAt) {
+      trialActive = isTrialActive(new Date(tData.trialEndsAt));
+    } else if (tData.trialStartAt) {
+      const start = tData.trialStartAt.toDate ? tData.trialStartAt.toDate() : new Date();
+      trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
+    }
+
+    if (!trialActive && isStaffLimitReached(rawPlan, staffCount)) {
+      return {
+        ok: false,
+        success: false,
+        reason: "staff_limit_reached",
+        error: "Staff account limit reached for your plan. Upgrade to add more staff.",
+        message: "Staff account limit reached for your plan. Upgrade to add more staff.",
+      };
+    }
   }
 
   try {

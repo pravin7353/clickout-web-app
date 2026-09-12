@@ -6,6 +6,7 @@ import {
   getSuppliers,
 } from "@/lib/services/po-service";
 import { ProcurementHub } from "@/components/procurement-hub";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function ProcurementPage({
   searchParams,
@@ -35,16 +36,18 @@ export default async function ProcurementPage({
   const safePos = JSON.parse(JSON.stringify(pos));
 
   return (
-    <div style={{ padding: "24px 32px", minHeight: "100vh" }}>
-      <ProcurementHub
-        metrics={safeMetrics}
-        products={safeProducts}
-        suppliers={safeSuppliers}
-        suggestions={safeSuggestions}
-        pos={safePos}
-        branchCode={effectiveStoreId}
-        canEdit={canEdit}
-      />
-    </div>
+    <FeatureLockWidget route="procurement">
+      <div style={{ padding: "24px 32px", minHeight: "100vh" }}>
+        <ProcurementHub
+          metrics={safeMetrics}
+          products={safeProducts}
+          suppliers={safeSuppliers}
+          suggestions={safeSuggestions}
+          pos={safePos}
+          branchCode={effectiveStoreId}
+          canEdit={canEdit}
+        />
+      </div>
+    </FeatureLockWidget>
   );
 }

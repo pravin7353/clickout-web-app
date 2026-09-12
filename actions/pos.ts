@@ -5,6 +5,8 @@ import { requireRole, requireEditAccess, resolveStoreScope } from "@/lib/rbac";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { applyOffers, ProductOffer, parseExpiryMs } from "@/lib/services/offer-engine";
+import { isTransactionLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
+import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-service";
 
 export type PosProduct = {
   id?: string;
@@ -252,6 +254,40 @@ export async function createPosOrder(params: {
     return { ok: false, error: "Cart is empty" };
   }
 
+  // Check Subscription Transaction Quota Hard Block
+  if (tenantId) {
+    const [tDoc, uDoc] = await Promise.all([
+      adminDb.collection("tenants").doc(tenantId).get(),
+      usageRef(tenantId).get(),
+    ]);
+    const tData = tDoc.data() || {};
+    const uData = uDoc.data() || {};
+
+    const rawPlan = tData.subscriptionPlan ?? "mini";
+    const extraStores = Number(tData.extraStoresPurchased ?? 0);
+    const currentTx = Number(uData.transactionCount ?? tData.currentTransactions ?? 0);
+
+    let trialActive = false;
+    if (tData.trialEndsAt?.toDate) {
+      trialActive = isTrialActive(tData.trialEndsAt.toDate());
+    } else if (tData.trialEndsAt) {
+      trialActive = isTrialActive(new Date(tData.trialEndsAt));
+    } else if (tData.trialStartAt) {
+      const start = tData.trialStartAt.toDate ? tData.trialStartAt.toDate() : new Date();
+      trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
+    }
+
+    if (!trialActive && isTransactionLimitReached(rawPlan, extraStores, currentTx)) {
+      return {
+        ok: false,
+        success: false,
+        reason: "transaction_limit_reached",
+        error: "Monthly transaction limit reached for your plan. Upgrade to continue.",
+        message: "Monthly transaction limit reached for your plan. Upgrade to continue.",
+      };
+    }
+  }
+
   // ---- fetch active offers + live stock for pricing ----
   let offersQuery: FirebaseFirestore.Query = adminDb.collection("products").where("clearanceActive", "==", true);
   if (tenantId) {
@@ -486,6 +522,9 @@ export async function createPosOrder(params: {
     });
 
     await batch.commit();
+    if (tenantId) {
+      await incrementTransactionUsage(tenantId);
+    }
     revalidatePath("/cashier");
 
     let storeAddress = "N/A";

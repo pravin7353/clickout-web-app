@@ -7,6 +7,7 @@ import {
 import { AuditorConsole } from "@/components/auditor-console";
 import { PageHeader } from "@/components/ui";
 import Link from "next/link";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function AuditorPage({
   searchParams,
@@ -53,7 +54,8 @@ export default async function AuditorPage({
     "Consolidated View";
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
+    <FeatureLockWidget route="auditor">
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader
         title="Super Auditor — CA Reconciliation & Financial Audit"
         subtitle="Item-level sales registers, cash-to-vault reconciliation, leakage detection, and order autopsy."
@@ -166,5 +168,6 @@ export default async function AuditorPage({
         canEdit={canEdit}
       />
     </div>
+    </FeatureLockWidget>
   );
 }

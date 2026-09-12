@@ -3,22 +3,86 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { createStoreSchema } from "@/lib/schemas/store-schema";
+import { isStoreLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
 export async function createStore(raw: unknown) {
   const { session, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
-  const parsed = createStoreSchema.safeParse(raw);
+
+  // Strip untouched default empty rows as a safety net
+  let sanitizedRaw = raw;
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, any>;
+    const licenses = Array.isArray(r.licenses)
+      ? r.licenses.filter((lic: any) => lic && typeof lic.number === "string" && lic.number.trim() !== "")
+      : r.licenses;
+
+    const bankAccounts = Array.isArray(r.bankAccounts)
+      ? r.bankAccounts.filter((bank: any) => {
+          if (!bank || typeof bank !== "object") return false;
+          const name = typeof bank.accountName === "string" ? bank.accountName.trim() : "";
+          const no = typeof bank.accountNo === "string" ? bank.accountNo.trim() : "";
+          const ifsc = typeof bank.ifsc === "string" ? bank.ifsc.trim() : "";
+          return name !== "" || no !== "" || ifsc !== "";
+        })
+      : r.bankAccounts;
+
+    sanitizedRaw = {
+      ...r,
+      licenses,
+      bankAccounts,
+    };
+  }
+
+  const parsed = createStoreSchema.safeParse(sanitizedRaw);
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid data" };
   }
   const data = parsed.data;
-  const effectiveTenantId = tenantId ?? (raw as any).tenantId;
+  const effectiveTenantId = tenantId ?? (sanitizedRaw as any).tenantId;
   if (!effectiveTenantId) return { ok: false, error: "Tenant Identity missing!" };
 
   const branchCode = data.branchCode.toUpperCase();
   const hasManager = !!data.managerEmail;
   const managerEmail = hasManager ? data.managerEmail!.toLowerCase() : "";
+
+  // Check Store Limit Hard Block
+  if (effectiveTenantId) {
+    const [tDoc, existingStoresSnap] = await Promise.all([
+      adminDb.collection("tenants").doc(effectiveTenantId).get(),
+      adminDb
+        .collection("stores")
+        .where("tenantId", "==", effectiveTenantId)
+        .where("isDeleted", "==", false)
+        .get(),
+    ]);
+
+    const tData = tDoc.data() || {};
+    const rawPlan = tData.subscriptionPlan ?? "mini";
+    const extraStores = Number(tData.extraStoresPurchased ?? 0);
+    const storeCount = existingStoresSnap.size;
+
+    let trialActive = false;
+    if (tData.trialEndsAt?.toDate) {
+      trialActive = isTrialActive(tData.trialEndsAt.toDate());
+    } else if (tData.trialEndsAt) {
+      trialActive = isTrialActive(new Date(tData.trialEndsAt));
+    } else if (tData.trialStartAt) {
+      const start = tData.trialStartAt.toDate ? tData.trialStartAt.toDate() : new Date();
+      trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
+    }
+
+    if (!trialActive && isStoreLimitReached(rawPlan, extraStores, storeCount)) {
+      return {
+        ok: false,
+        success: false,
+        reason: "store_limit_reached",
+        error: "Add an extra store to your plan to add more locations.",
+        message: "Add an extra store to your plan to add more locations.",
+      };
+    }
+  }
 
   try {
     // 1. Check Branch Code Uniqueness within Tenant

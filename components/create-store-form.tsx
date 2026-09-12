@@ -3,6 +3,7 @@
 import { useState, useTransition, useRef } from "react";
 import { createStore } from "@/actions/store";
 import { useRouter } from "next/navigation";
+import { createStoreSchema } from "@/lib/schemas/store-schema";
 
 const INDIAN_STATES = [
   "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", "Haryana", 
@@ -126,8 +127,30 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
 
   const handleSubmit = () => {
     setError("");
+
+    // Strip untouched default empty rows before validation and submission
+    const filteredLicenses = data.licenses.filter(lic => lic.number && lic.number.trim() !== "");
+    const filteredBankAccounts = data.bankAccounts.filter(
+      bank =>
+        (bank.accountName && bank.accountName.trim() !== "") ||
+        (bank.accountNo && bank.accountNo.trim() !== "") ||
+        (bank.ifsc && bank.ifsc.trim() !== "")
+    );
+
+    const payload = {
+      ...data,
+      licenses: filteredLicenses,
+      bankAccounts: filteredBankAccounts,
+    };
+
+    const validation = createStoreSchema.safeParse(payload);
+    if (!validation.success) {
+      setError(validation.error.issues[0]?.message ?? "Invalid data");
+      return;
+    }
+
     startTransition(async () => {
-      const res = await createStore(data);
+      const res = await createStore(payload);
       if (!res.ok) setError(res.error ?? "Failed to create store.");
       else { 
         setOpen(false); 

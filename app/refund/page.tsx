@@ -1,6 +1,7 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { RefundDecision } from "@/components/refund-decision";
 import { PageHeader } from "@/components/ui";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function RefundPage({
   searchParams,
@@ -18,17 +19,19 @@ export default async function RefundPage({
   const adminName = session.user?.name || session.user?.email || "Admin";
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
-      <PageHeader
-        title="Refund Decision Engine"
-        subtitle="Process 3-tier customer returns, enforce idempotency fraud locks, and restock physical godown inventory."
-      />
-      <RefundDecision
-        initialStoreId={effectiveStoreId}
-        adminName={adminName}
-        adminRole={role}
-        canEdit={canEdit}
-      />
-    </div>
+    <FeatureLockWidget route="refund">
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
+        <PageHeader
+          title="Refund Decision Engine"
+          subtitle="Process 3-tier customer returns, enforce idempotency fraud locks, and restock physical godown inventory."
+        />
+        <RefundDecision
+          initialStoreId={effectiveStoreId}
+          adminName={adminName}
+          adminRole={role}
+          canEdit={canEdit}
+        />
+      </div>
+    </FeatureLockWidget>
   );
 }

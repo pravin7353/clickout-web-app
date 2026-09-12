@@ -1,6 +1,7 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { QrBailout } from "@/components/qr-bailout";
 import { PageHeader } from "@/components/ui";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function QrReactivationPage({
   searchParams,
@@ -18,17 +19,19 @@ export default async function QrReactivationPage({
   const adminName = session.user?.name || session.user?.email || "Admin";
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
-      <PageHeader
-        title="QR Bailout & Exit Pass Reactivation"
-        subtitle="Manage and re-authorize expired customer exit passes. Every bailout is logged to audit trail."
-      />
-      <QrBailout
-        initialStoreId={effectiveStoreId}
-        adminName={adminName}
-        adminRole={role}
-        canEdit={canEdit}
-      />
-    </div>
+    <FeatureLockWidget route="qr-reactivation">
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
+        <PageHeader
+          title="QR Bailout & Exit Pass Reactivation"
+          subtitle="Manage and re-authorize expired customer exit passes. Every bailout is logged to audit trail."
+        />
+        <QrBailout
+          initialStoreId={effectiveStoreId}
+          adminName={adminName}
+          adminRole={role}
+          canEdit={canEdit}
+        />
+      </div>
+    </FeatureLockWidget>
   );
 }

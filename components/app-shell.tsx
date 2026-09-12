@@ -13,6 +13,8 @@ import {
   EditStoreButton,
   InvoiceSettingsButton,
 } from "./profile-menu";
+import { TrialCountdownBadge } from "./subscription/TrialCountdownBadge";
+import { UsageLimitBanner } from "./subscription/UsageLimitBanner";
 
 type NavItem = { label: string; href: string };
 
@@ -128,9 +130,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
       <aside style={{ width: 240, flexShrink: 0, borderRight: "1px solid var(--border)", padding: 16, background: "var(--card-bg)", height: "100vh", overflowY: "auto" }}>
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 20 }}>
           <span style={{ fontWeight: 900, fontSize: 18 }}>ClickOut</span>
-          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{role}</div>
+          <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 8 }}>{role}</div>
+          <TrialCountdownBadge />
         </div>
 
         {isSuperAdmin && !isStoreContext && <NavSection title="Platform" items={PLATFORM_ITEMS} pathname={pathname} />}
@@ -163,7 +166,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </aside>
 
-      <main style={{ flex: 1, overflow: "auto" }}>{children}</main>
+      <main style={{ flex: 1, overflow: "auto" }}>
+        <UsageLimitBanner />
+        {children}
+      </main>
 
       <aside style={{ width: 64, flexShrink: 0, borderLeft: "1px solid var(--border)", background: "var(--card-bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", padding: "16px 0", height: "100vh" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>

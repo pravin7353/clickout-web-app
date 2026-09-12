@@ -1,6 +1,7 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { IdtDepositsTable } from "@/components/idt-deposits-table";
 import { PageHeader } from "@/components/ui";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function IdtPage({
   searchParams,
@@ -16,12 +17,14 @@ export default async function IdtPage({
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
-      <PageHeader
-        title="IDT Deposits — Inward Inventory Terminal"
-        subtitle="Physical goods intake, barcode scanning, bulk tax enrichment, and live product catalog commits."
-      />
-      <IdtDepositsTable branchCode={effectiveStoreId} canEdit={canEdit} />
-    </div>
+    <FeatureLockWidget route="idt">
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "grid", gap: 20 }}>
+        <PageHeader
+          title="IDT Deposits — Inward Inventory Terminal"
+          subtitle="Physical goods intake, barcode scanning, bulk tax enrichment, and live product catalog commits."
+        />
+        <IdtDepositsTable branchCode={effectiveStoreId} canEdit={canEdit} />
+      </div>
+    </FeatureLockWidget>
   );
 }

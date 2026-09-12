@@ -2,6 +2,7 @@ import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getSuspectStaff, getHighRiskOrders, getLeakageBuckets } from "@/lib/services/fraud-service";
 import { SuspectStaffCard } from "@/components/suspect-staff-card";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function FraudControlPage({
   searchParams,
@@ -19,7 +20,8 @@ export default async function FraudControlPage({
   ]);
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 }}>
+    <FeatureLockWidget route="fraud-control">
+      <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 }}>
       <PageHeader
         title="Fraud Control & Live Leakage Radar"
         subtitle="Monitors paid-but-unexited store leakage, flags low-trust staff members, and tracks high-risk transactions."
@@ -152,7 +154,8 @@ export default async function FraudControlPage({
           </Card>
         )}
       </div>
-    </div>
+      </div>
+    </FeatureLockWidget>
   );
 }
 
