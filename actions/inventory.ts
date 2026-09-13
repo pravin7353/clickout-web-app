@@ -5,6 +5,7 @@ import { requireEditAccess } from "@/lib/rbac";
 import { addProductSchema } from "@/lib/schemas/product-schema";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { detectDelimiter } from "@/lib/csv-utils";
 
 export async function addProduct(raw: unknown) {
   let session, role, tenantId, storeId;
@@ -96,18 +97,6 @@ export type ValidateBulkProductReport = {
   errorCount: number;
 };
 
-function detectProductDelimiter(headerLine: string): string {
-  const commaCount = (headerLine.match(/,/g) || []).length;
-  const tabCount = (headerLine.match(/\t/g) || []).length;
-  const semiCount = (headerLine.match(/;/g) || []).length;
-
-  if (tabCount > commaCount && tabCount > semiCount) return "\t";
-  if (semiCount > commaCount && semiCount > tabCount) return ";";
-  if (commaCount > 0 && commaCount >= tabCount && commaCount >= semiCount) return ",";
-
-  return ",";
-}
-
 export async function validateBulkProductImport(
   products: any[] | string,
   branchParam?: string
@@ -154,7 +143,7 @@ export async function validateBulkProductImport(
       };
     }
 
-    detectedDelimiter = detectProductDelimiter(lines[0]);
+    detectedDelimiter = detectDelimiter(lines[0]);
 
     let startIndex = 0;
     const firstLineLower = lines[0].toLowerCase();

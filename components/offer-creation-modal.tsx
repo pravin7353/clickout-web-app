@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useMemo } from "react";
 import { Modal } from "@/components/profile-menu";
-import { applyProductOffer } from "@/actions/procurement";
+import { applyProductOffer, bulkApplyProductOffers } from "@/actions/procurement";
 import { QuantumPromotionProduct } from "@/lib/services/po-service";
 import { CustomSelect, OptionItem } from "@/components/custom-select";
 import { useRouter } from "next/navigation";
@@ -21,13 +21,24 @@ const OFFER_TYPES: OptionItem[] = [
 
 export function OfferCreationModal({
   product,
+  selectedProducts,
   allProducts,
   onClose,
+  onSuccess,
 }: {
-  product: QuantumPromotionProduct;
+  product?: QuantumPromotionProduct | null;
+  selectedProducts?: QuantumPromotionProduct[];
   allProducts: QuantumPromotionProduct[];
   onClose: () => void;
+  onSuccess?: () => void;
 }) {
+  const isBulk = Boolean(selectedProducts && selectedProducts.length > 0);
+  const targetItems = useMemo(
+    () => (isBulk ? selectedProducts! : product ? [product] : []),
+    [isBulk, selectedProducts, product]
+  );
+  const representative = targetItems[0];
+
   const [selectedType, setSelectedType] = useState<string>("PERCENTAGE");
   const [val1, setVal1] = useState<string>("10");
   const [val2, setVal2] = useState<string>("1");
@@ -36,23 +47,26 @@ export function OfferCreationModal({
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  const targetExcludedIds = useMemo(() => new Set(targetItems.map((p) => p.productId)), [targetItems]);
+
   const targetProductOptions: OptionItem[] = useMemo(() => {
     return allProducts
-      .filter((p) => p.productId !== product.productId)
+      .filter((p) => !targetExcludedIds.has(p.productId))
       .map((p) => ({
         value: p.productId,
         label: `${p.name} (₹${p.price})`,
         icon: "🏷️",
       }));
-  }, [allProducts, product.productId]);
+  }, [allProducts, targetExcludedIds]);
 
   const targetProduct = allProducts.find((p) => p.productId === targetProductId);
 
   // Live preview calculation
   const livePreview = useMemo(() => {
+    if (!representative) return { badge: "PROMOTION OFFER", desc: "" };
     const v1 = parseFloat(val1) || 0;
     const v2 = parseFloat(val2) || 0;
-    const price = product.price;
+    const price = representative.price;
 
     switch (selectedType) {
       case "PERCENTAGE": {
@@ -77,12 +91,12 @@ export function OfferCreationModal({
       case "BUY_X_GET_Y":
         return {
           badge: `BUY ${v1 || 2} GET ${v2 || 1} FREE`,
-          desc: `Customer buys ${v1 || 2} units of ${product.name} and gets ${v2 || 1} unit(s) free`,
+          desc: `Customer buys ${v1 || 2} units of ${representative.name} and gets ${v2 || 1} unit(s) free`,
         };
       case "BUY_X_GET_Y_CROSS":
         return {
           badge: `BUY ${v1 || 1} GET ${targetProduct?.name ?? "ITEM"} FREE`,
-          desc: `Buy ${v1 || 1} ${product.name}, get ${v2 || 1} ${targetProduct?.name ?? "Target Item"} free`,
+          desc: `Buy ${v1 || 1} ${representative.name}, get ${v2 || 1} ${targetProduct?.name ?? "Target Item"} free`,
         };
       case "TIERED_QTY":
         return {
@@ -104,12 +118,12 @@ export function OfferCreationModal({
       case "CROSS_PRODUCT":
         return {
           badge: `CROSS DEAL: ${v1}% OFF ${targetProduct?.name ?? "ITEM"}`,
-          desc: `Purchase ${product.name} to get ${v1}% discount on ${targetProduct?.name ?? "selected item"}`,
+          desc: `Purchase ${representative.name} to get ${v1}% discount on ${targetProduct?.name ?? "selected item"}`,
         };
       default:
         return { badge: "PROMOTION OFFER", desc: "Special store promotion" };
     }
-  }, [selectedType, val1, val2, product, targetProduct]);
+  }, [selectedType, val1, val2, representative, targetProduct]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -177,17 +191,35 @@ export function OfferCreationModal({
     }
 
     startTransition(async () => {
-      const res = await applyProductOffer({
-        productId: product.productId,
-        offerType: selectedType,
-        data: payloadData,
-      });
-
-      if (!res.ok) {
-        setError(res.error ?? "Failed to apply offer.");
+      if (isBulk) {
+        const payloads = targetItems.map((item) => ({
+          productId: item.productId,
+          offerType: selectedType,
+          data: payloadData,
+        }));
+        const res = await bulkApplyProductOffers(payloads);
+        if (!res.ok && res.errors.length > 0) {
+          setError(`Some products failed:\n${res.errors.join("\n")}`);
+        } else {
+          onClose();
+          onSuccess?.();
+          router.refresh();
+        }
       } else {
-        onClose();
-        router.refresh();
+        if (!representative) return;
+        const res = await applyProductOffer({
+          productId: representative.productId,
+          offerType: selectedType,
+          data: payloadData,
+        });
+
+        if (!res.ok) {
+          setError(res.error ?? "Failed to apply offer.");
+        } else {
+          onClose();
+          onSuccess?.();
+          router.refresh();
+        }
       }
     });
   }
@@ -243,10 +275,18 @@ export function OfferCreationModal({
                   color: "var(--text-primary)",
                 }}
               >
-                Configure Quantum Offer
+                {isBulk ? `Configure Bulk Offer (${targetItems.length} Products)` : "Configure Quantum Offer"}
               </h3>
               <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
-                Applying offer for: <strong style={{ color: "var(--text-primary)" }}>{product.name}</strong> (Base: ₹{product.price.toFixed(2)})
+                {isBulk ? (
+                  <span>
+                    Applying to: <strong style={{ color: "var(--text-primary)" }}>{targetItems.length} items</strong> (e.g. {representative?.name})
+                  </span>
+                ) : (
+                  <span>
+                    Applying offer for: <strong style={{ color: "var(--text-primary)" }}>{representative?.name}</strong> (Base: ₹{representative?.price.toFixed(2)})
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -318,7 +358,7 @@ export function OfferCreationModal({
                     setVal2("15");
                   } else if (val === "BUNDLE_PRICE") {
                     setVal1("2");
-                    setVal2(String(product.price * 1.6));
+                    setVal2(String((representative?.price ?? 0) * 1.6));
                   }
                 }}
                 options={OFFER_TYPES}
@@ -559,7 +599,7 @@ export function OfferCreationModal({
                 boxShadow: "0 2px 8px color-mix(in srgb, var(--accent-orange) 35%, transparent)",
               }}
             >
-              {isPending ? "Applying..." : "✓ Activate Offer"}
+              {isPending ? "Applying..." : isBulk ? `✓ Activate Offer for ${targetItems.length} Items` : "✓ Activate Offer"}
             </button>
           </div>
         </form>

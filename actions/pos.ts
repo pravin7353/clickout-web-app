@@ -70,6 +70,35 @@ function resolveOfferTag(data: Record<string, any>, price: number): string {
   return data.clearanceType ?? "OFFER";
 }
 
+function mapDocToPosProduct(doc: FirebaseFirestore.DocumentSnapshot): PosProduct {
+  const data = doc.data() || {};
+  const price = Number(data.price ?? data.mrp ?? 0);
+  return {
+    id: doc.id,
+    barcode: data.barcode ?? doc.id,
+    name: data.name ?? "Unnamed",
+    price,
+    originalPrice: Number(data.mrp ?? data.price ?? 0),
+    gst: data.gst ? String(data.gst) : "0",
+    weight: data.weight ? String(data.weight) : "0",
+    availableStock: Number(data.physicalStock ?? 0),
+    category: data.category ?? "General",
+    clearanceActive: data.clearanceActive === true,
+    clearanceType: data.clearanceType,
+    offerDisplayName: resolveOfferTag(data, price),
+    discountPercent: data.discountPercent,
+    discountAmount: data.discountAmount,
+    buyQty: data.buyQty,
+    freeQty: data.freeQty,
+    expiresAt: data.expiresAt
+      ? typeof data.expiresAt.toDate === "function"
+        ? data.expiresAt.toDate().toISOString()
+        : data.expiresAt
+      : null,
+    flashExpiry: parseExpiryMs(data.expiresAt),
+  } as PosProduct;
+}
+
 export async function searchProductByBarcode(barcode: string, targetBranchCode?: string) {
   const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode) ?? "HQ";
@@ -91,32 +120,9 @@ export async function searchProductByBarcode(barcode: string, targetBranchCode?:
     return { ok: false, error: `Product with barcode "${cleanInput}" not found in store inventory.` };
   }
 
-  const doc = snap.docs[0];
-  const data = doc.data();
-  const price = Number(data.price ?? data.mrp ?? 0);
-
   return {
     ok: true,
-    product: {
-      id: doc.id,
-      barcode: data.barcode ?? cleanInput,
-      name: data.name ?? "Unknown Product",
-      price,
-      originalPrice: Number(data.mrp ?? data.price ?? 0),
-      gst: data.gst ? String(data.gst) : "0",
-      weight: data.weight ? String(data.weight) : "0",
-      availableStock: Number(data.physicalStock ?? 0),
-      category: data.category ?? "General",
-      clearanceActive: data.clearanceActive === true,
-      clearanceType: data.clearanceType,
-      offerDisplayName: resolveOfferTag(data, price),
-      discountPercent: data.discountPercent,
-      discountAmount: data.discountAmount,
-      buyQty: data.buyQty,
-      freeQty: data.freeQty,
-      expiresAt: data.expiresAt ? (typeof data.expiresAt.toDate === "function" ? data.expiresAt.toDate().toISOString() : data.expiresAt) : null,
-      flashExpiry: parseExpiryMs(data.expiresAt),
-    } as PosProduct,
+    product: mapDocToPosProduct(snap.docs[0]),
   };
 }
 
@@ -124,53 +130,77 @@ export async function searchProductsCatalog(query: string, targetBranchCode?: st
   const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode);
 
-  const q = query.trim().toLowerCase();
-  let dbQuery: FirebaseFirestore.Query = adminDb.collection("products");
-  if (role !== "super_admin" && tenantId) {
-    dbQuery = dbQuery.where("tenantId", "==", tenantId);
-  }
-  if (branchCode) {
-    dbQuery = dbQuery.where("branchCode", "==", branchCode);
-  }
-  dbQuery = dbQuery.limit(60);
+  const cleanInput = (query || "").trim();
+  const q = cleanInput.toLowerCase();
 
-  const snap = await dbQuery.get();
-  const all = snap.docs.map((doc) => {
-    const data = doc.data();
-    const price = Number(data.price ?? data.mrp ?? 0);
-    return {
-      id: doc.id,
-      barcode: data.barcode ?? doc.id,
-      name: data.name ?? "Unnamed",
-      price,
-      originalPrice: Number(data.mrp ?? data.price ?? 0),
-      gst: data.gst ? String(data.gst) : "0",
-      weight: data.weight ? String(data.weight) : "0",
-      availableStock: Number(data.physicalStock ?? 0),
-      category: data.category ?? "General",
-      clearanceActive: data.clearanceActive === true,
-      clearanceType: data.clearanceType,
-      offerDisplayName: resolveOfferTag(data, price),
-      discountPercent: data.discountPercent,
-      discountAmount: data.discountAmount,
-      buyQty: data.buyQty,
-      freeQty: data.freeQty,
-      expiresAt: data.expiresAt ? (typeof data.expiresAt.toDate === "function" ? data.expiresAt.toDate().toISOString() : data.expiresAt) : null,
-      flashExpiry: parseExpiryMs(data.expiresAt),
-    } as PosProduct;
-  });
+  function buildScopedQuery(): FirebaseFirestore.Query {
+    let qRef: FirebaseFirestore.Query = adminDb.collection("products");
+    if (role !== "super_admin" && tenantId) {
+      qRef = qRef.where("tenantId", "==", tenantId);
+    }
+    if (branchCode) {
+      qRef = qRef.where("branchCode", "==", branchCode);
+    }
+    return qRef;
+  }
 
+  // 3. Keep current behavior for empty query (no search text): fetch limit(15) for the default browsing grid
   if (!q) {
-    return { ok: true, products: all.slice(0, 15) };
+    const emptySnap = await buildScopedQuery().limit(15).get();
+    return { ok: true, products: emptySnap.docs.map(mapDocToPosProduct) };
   }
 
-  const filtered = all.filter((p) =>
-    p.name.toLowerCase().includes(q) ||
-    p.barcode.toLowerCase().includes(q) ||
-    (p.category && p.category.toLowerCase().includes(q))
-  );
+  // 1. For barcode-looking input (all digits, length 8+): do a direct exact-match query first:
+  // .where("barcode","==",q) scoped to tenantId/branchCode, limit(1) — barcode scans should be exact and fast, not a substring search.
+  const isBarcode = /^\d{8,}$/.test(cleanInput);
+  if (isBarcode) {
+    const barcodeSnap = await buildScopedQuery()
+      .where("barcode", "==", cleanInput)
+      .limit(1)
+      .get();
 
-  return { ok: true, products: filtered.slice(0, 15) };
+    if (!barcodeSnap.empty) {
+      return { ok: true, products: barcodeSnap.docs.map(mapDocToPosProduct) };
+    }
+  }
+
+  // 2. For name/category text search: use the existing searchKey field
+  // (already set at write-time as lowercased name) with a Firestore prefix-range query:
+  // .where("searchKey", ">=", q).where("searchKey", "<", q + '\uf8ff')
+  // scoped to tenantId/branchCode, limit(15) — this searches the FULL catalog for a name-prefix match,
+  // not just an arbitrary 60-doc window.
+  //
+  // NOTE: This only matches PREFIX of the name (not mid-string substring) — this is a Firestore
+  // limitation; full substring search would need a dedicated search service (Algolia/Typesense)
+  // as a future upgrade, out of scope here.
+  //
+  // KNOWN LIMITATION: searchKey is populated at write-time. If any legacy products predate this field,
+  // this search will not find them until they are re-saved.
+  try {
+    const prefixSnap = await buildScopedQuery()
+      .where("searchKey", ">=", q)
+      .where("searchKey", "<", q + "\uf8ff")
+      .limit(15)
+      .get();
+
+    if (!prefixSnap.empty) {
+      return { ok: true, products: prefixSnap.docs.map(mapDocToPosProduct) };
+    }
+  } catch (err: any) {
+    console.warn("searchProductsCatalog prefix range query fallback:", err?.message);
+  }
+
+  // Fallback: If cleanInput is a custom / alphanumeric barcode (e.g. "SKU-999", "SRV-01") or shorter barcode
+  const exactBarcodeSnap = await buildScopedQuery()
+    .where("barcode", "==", cleanInput)
+    .limit(1)
+    .get();
+
+  if (!exactBarcodeSnap.empty) {
+    return { ok: true, products: exactBarcodeSnap.docs.map(mapDocToPosProduct) };
+  }
+
+  return { ok: true, products: [] };
 }
 
 export async function fetchActivePosOffers(targetBranchCode?: string) {

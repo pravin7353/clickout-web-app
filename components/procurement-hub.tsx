@@ -23,6 +23,11 @@ import {
   deletePO,
   receivePoStock,
   createManualPO,
+  bulkApplyProductOffers,
+  bulkApprovePOs,
+  bulkDeletePOs,
+  bulkApproveAiSuggestions,
+  bulkRejectAiSuggestions,
 } from "@/actions/procurement";
 import { useRouter } from "next/navigation";
 
@@ -48,6 +53,26 @@ export function ProcurementHub({
 
   // Top Level Navigation Tabs
   const [activeTab, setActiveTab] = useState<"PROMOTIONS" | "PO_PIPELINE" | "AI_SUGGESTIONS">("PROMOTIONS");
+
+  // Independent Pagination State for each section (pageSize = 20)
+  const [promoPage, setPromoPage] = useState(1);
+  const promoPageSize = 20;
+  const [poPage, setPoPage] = useState(1);
+  const poPageSize = 20;
+  const [aiPage, setAiPage] = useState(1);
+  const aiPageSize = 20;
+
+  // Independent Selection & Bulk Modal States
+  const [selectedPromoProductIds, setSelectedPromoProductIds] = useState<string[]>([]);
+  const [showBulkOfferModal, setShowBulkOfferModal] = useState(false);
+
+  const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
+  const [showBulkApprovePoModal, setShowBulkApprovePoModal] = useState(false);
+  const [showBulkDeletePoModal, setShowBulkDeletePoModal] = useState(false);
+
+  const [selectedAiSuggestionIds, setSelectedAiSuggestionIds] = useState<string[]>([]);
+  const [showBulkApproveAiModal, setShowBulkApproveAiModal] = useState(false);
+  const [showBulkRejectAiModal, setShowBulkRejectAiModal] = useState(false);
 
   // Search & Filter state for Promotions
   const [promoSearch, setPromoSearch] = useState("");
@@ -133,6 +158,145 @@ export function ProcurementHub({
     if (poFilter === "DELIVERED") return deliveredPos;
     return pos;
   }, [pos, poFilter, pendingPos, approvedPos, deliveredPos]);
+
+  // Paginated Promotions
+  const totalPromoPages = Math.max(1, Math.ceil(processedProducts.length / promoPageSize));
+  const currentPromoPage = Math.min(promoPage, totalPromoPages);
+  const paginatedPromoProducts = useMemo(() => {
+    const start = (currentPromoPage - 1) * promoPageSize;
+    return processedProducts.slice(start, start + promoPageSize);
+  }, [processedProducts, currentPromoPage, promoPageSize]);
+
+  const currentPromoPageIds = useMemo(() => paginatedPromoProducts.map((p) => p.productId), [paginatedPromoProducts]);
+  const isAllPromoSelected =
+    paginatedPromoProducts.length > 0 &&
+    currentPromoPageIds.every((id) => selectedPromoProductIds.includes(id));
+
+  function handleToggleAllPromo() {
+    if (isAllPromoSelected) {
+      setSelectedPromoProductIds((prev) => prev.filter((id) => !currentPromoPageIds.includes(id)));
+    } else {
+      const next = new Set(selectedPromoProductIds);
+      currentPromoPageIds.forEach((id) => next.add(id));
+      setSelectedPromoProductIds(Array.from(next));
+    }
+  }
+
+  function handleTogglePromoRow(productId: string) {
+    setSelectedPromoProductIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]
+    );
+  }
+
+  // Paginated POs
+  const totalPoPages = Math.max(1, Math.ceil(filteredPos.length / poPageSize));
+  const currentPoPage = Math.min(poPage, totalPoPages);
+  const paginatedPos = useMemo(() => {
+    const start = (currentPoPage - 1) * poPageSize;
+    return filteredPos.slice(start, start + poPageSize);
+  }, [filteredPos, currentPoPage, poPageSize]);
+
+  const currentPoPageIds = useMemo(() => paginatedPos.map((p) => p.id), [paginatedPos]);
+  const isAllPoSelected =
+    paginatedPos.length > 0 &&
+    currentPoPageIds.every((id) => selectedPoIds.includes(id));
+
+  function handleToggleAllPo() {
+    if (isAllPoSelected) {
+      setSelectedPoIds((prev) => prev.filter((id) => !currentPoPageIds.includes(id)));
+    } else {
+      const next = new Set(selectedPoIds);
+      currentPoPageIds.forEach((id) => next.add(id));
+      setSelectedPoIds(Array.from(next));
+    }
+  }
+
+  function handleTogglePoRow(id: string) {
+    setSelectedPoIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }
+
+  // Paginated AI Suggestions
+  const totalAiPages = Math.max(1, Math.ceil(suggestions.length / aiPageSize));
+  const currentAiPage = Math.min(aiPage, totalAiPages);
+  const paginatedAiSuggestions = useMemo(() => {
+    const start = (currentAiPage - 1) * aiPageSize;
+    return suggestions.slice(start, start + aiPageSize);
+  }, [suggestions, currentAiPage, aiPageSize]);
+
+  const currentAiPageIds = useMemo(() => paginatedAiSuggestions.map((s) => s.id), [paginatedAiSuggestions]);
+  const isAllAiSelected =
+    paginatedAiSuggestions.length > 0 &&
+    currentAiPageIds.every((id) => selectedAiSuggestionIds.includes(id));
+
+  function handleToggleAllAi() {
+    if (isAllAiSelected) {
+      setSelectedAiSuggestionIds((prev) => prev.filter((id) => !currentAiPageIds.includes(id)));
+    } else {
+      const next = new Set(selectedAiSuggestionIds);
+      currentAiPageIds.forEach((id) => next.add(id));
+      setSelectedAiSuggestionIds(Array.from(next));
+    }
+  }
+
+  function handleToggleAiRow(id: string) {
+    setSelectedAiSuggestionIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  }
+
+  function handleConfirmBulkApprovePOs() {
+    if (selectedPoIds.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkApprovePOs(selectedPoIds);
+      if (!res.ok && res.errors.length > 0) {
+        alert(`Bulk approve encountered issues:\n${res.errors.join("\n")}`);
+      }
+      setSelectedPoIds([]);
+      setShowBulkApprovePoModal(false);
+      router.refresh();
+    });
+  }
+
+  function handleConfirmBulkDeletePOs() {
+    if (selectedPoIds.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkDeletePOs(selectedPoIds);
+      if (!res.ok && res.errors.length > 0) {
+        alert(`Bulk discard encountered issues:\n${res.errors.join("\n")}`);
+      }
+      setSelectedPoIds([]);
+      setShowBulkDeletePoModal(false);
+      router.refresh();
+    });
+  }
+
+  function handleConfirmBulkApproveAi() {
+    if (selectedAiSuggestionIds.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkApproveAiSuggestions(selectedAiSuggestionIds, branchCode ?? undefined);
+      if (!res.ok && res.errors.length > 0) {
+        alert(`Bulk approve encountered issues:\n${res.errors.join("\n")}`);
+      }
+      setSelectedAiSuggestionIds([]);
+      setShowBulkApproveAiModal(false);
+      router.refresh();
+    });
+  }
+
+  function handleConfirmBulkRejectAi() {
+    if (selectedAiSuggestionIds.length === 0) return;
+    startTransition(async () => {
+      const res = await bulkRejectAiSuggestions(selectedAiSuggestionIds);
+      if (!res.ok && res.errors.length > 0) {
+        alert(`Bulk reject encountered issues:\n${res.errors.join("\n")}`);
+      }
+      setSelectedAiSuggestionIds([]);
+      setShowBulkRejectAiModal(false);
+      router.refresh();
+    });
+  }
 
   // Handlers
   function handleConfirmRemoveOffer() {
@@ -549,7 +713,10 @@ export function ProcurementHub({
                 type="text"
                 placeholder="Search by name or barcode..."
                 value={promoSearch}
-                onChange={(e) => setPromoSearch(e.target.value)}
+                onChange={(e) => {
+                  setPromoSearch(e.target.value);
+                  setPromoPage(1);
+                }}
                 style={{
                   width: "100%",
                   padding: "9px 12px 9px 36px",
@@ -565,7 +732,10 @@ export function ProcurementHub({
               {promoSearch && (
                 <button
                   type="button"
-                  onClick={() => setPromoSearch("")}
+                  onClick={() => {
+                    setPromoSearch("");
+                    setPromoPage(1);
+                  }}
                   style={{
                     position: "absolute",
                     right: 10,
@@ -597,7 +767,10 @@ export function ProcurementHub({
                 <button
                   key={f.key}
                   type="button"
-                  onClick={() => setPromoSort(f.key)}
+                  onClick={() => {
+                    setPromoSort(f.key);
+                    setPromoPage(1);
+                  }}
                   style={{
                     padding: "7px 12px",
                     borderRadius: 8,
@@ -631,6 +804,22 @@ export function ProcurementHub({
               <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
                 <thead>
                   <tr style={{ background: "rgba(255, 255, 255, 0.02)", borderBottom: "1px solid var(--border)" }}>
+                    {canEdit && (
+                      <th style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={isAllPromoSelected}
+                          onChange={handleToggleAllPromo}
+                          aria-label="Select all on this page"
+                          style={{
+                            cursor: "pointer",
+                            width: 16,
+                            height: 16,
+                            accentColor: "var(--cta-bg-accent, #F9A826)",
+                          }}
+                        />
+                      </th>
+                    )}
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)", letterSpacing: 0.5 }}>
                       PRODUCT / ITEM
                     </th>
@@ -652,14 +841,14 @@ export function ProcurementHub({
                 <tbody>
                   {processedProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
+                      <td colSpan={canEdit ? 6 : 5} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>No Products Found</div>
                         <div style={{ fontSize: 12, marginTop: 4 }}>Try clearing your search query or switching sort filter.</div>
                       </td>
                     </tr>
                   ) : (
-                    processedProducts.map((p) => {
+                    paginatedPromoProducts.map((p) => {
                       const isLowStock = p.stock <= 20;
 
                       return (
@@ -668,8 +857,27 @@ export function ProcurementHub({
                           style={{
                             borderBottom: "1px solid var(--border)",
                             transition: "background 0.1s ease",
+                            background: selectedPromoProductIds.includes(p.productId)
+                              ? "rgba(255, 109, 0, 0.06)"
+                              : "transparent",
                           }}
                         >
+                          {canEdit && (
+                            <td style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedPromoProductIds.includes(p.productId)}
+                                onChange={() => handleTogglePromoRow(p.productId)}
+                                aria-label={`Select ${p.name}`}
+                                style={{
+                                  cursor: "pointer",
+                                  width: 16,
+                                  height: 16,
+                                  accentColor: "var(--cta-bg-accent, #F9A826)",
+                                }}
+                              />
+                            </td>
+                          )}
                           {/* Product Info */}
                           <td style={{ padding: "14px 18px" }}>
                             <div style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: 14 }}>
@@ -866,6 +1074,80 @@ export function ProcurementHub({
               </table>
             </div>
           </div>
+
+          {/* Promotions Pagination Controls */}
+          {processedProducts.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: 6,
+                flexWrap: "wrap",
+                gap: 12,
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
+                Showing {(currentPromoPage - 1) * promoPageSize + 1} –{" "}
+                {Math.min(currentPromoPage * promoPageSize, processedProducts.length)} of {processedProducts.length} products
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  disabled={currentPromoPage === 1}
+                  onClick={() => setPromoPage((p) => Math.max(1, p - 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentPromoPage === 1 ? "transparent" : "var(--scaffold-bg)",
+                    color: currentPromoPage === 1 ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentPromoPage === 1 ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentPromoPage === 1 ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  ← Previous
+                </button>
+
+                <span
+                  style={{
+                    padding: "4px 12px",
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  Page {currentPromoPage} of {totalPromoPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentPromoPage >= totalPromoPages}
+                  onClick={() => setPromoPage((p) => Math.min(totalPromoPages, p + 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentPromoPage >= totalPromoPages ? "transparent" : "var(--scaffold-bg)",
+                    color: currentPromoPage >= totalPromoPages ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentPromoPage >= totalPromoPages ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentPromoPage >= totalPromoPages ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -928,7 +1210,10 @@ export function ProcurementHub({
               <button
                 key={filter.key}
                 type="button"
-                onClick={() => setPoFilter(filter.key)}
+                onClick={() => {
+                  setPoFilter(filter.key);
+                  setPoPage(1);
+                }}
                 style={{
                   padding: "7px 14px",
                   borderRadius: 8,
@@ -960,6 +1245,22 @@ export function ProcurementHub({
               <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
                 <thead>
                   <tr style={{ background: "rgba(255, 255, 255, 0.02)", borderBottom: "1px solid var(--border)" }}>
+                    {canEdit && (
+                      <th style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={isAllPoSelected}
+                          onChange={handleToggleAllPo}
+                          aria-label="Select all on this page"
+                          style={{
+                            cursor: "pointer",
+                            width: 16,
+                            height: 16,
+                            accentColor: "var(--cta-bg-accent, #F9A826)",
+                          }}
+                        />
+                      </th>
+                    )}
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)", letterSpacing: 0.5 }}>
                       PO NUMBER
                     </th>
@@ -984,20 +1285,44 @@ export function ProcurementHub({
                 <tbody>
                   {filteredPos.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
+                      <td colSpan={canEdit ? 7 : 6} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>No Purchase Orders Found</div>
                         <div style={{ fontSize: 12, marginTop: 4 }}>You can create a manual purchase order or wait for AI replenishment alerts.</div>
                       </td>
                     </tr>
                   ) : (
-                    filteredPos.map((order) => {
+                    paginatedPos.map((order) => {
                       const isPendingState = order.status === "DRAFT" || order.status === "PENDING";
                       const isApproved = order.status === "APPROVED";
                       const isDelivered = order.status === "DELIVERED";
 
                       return (
-                        <tr key={order.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <tr
+                          key={order.id}
+                          style={{
+                            borderBottom: "1px solid var(--border)",
+                            background: selectedPoIds.includes(order.id)
+                              ? "rgba(0, 210, 106, 0.06)"
+                              : "transparent",
+                          }}
+                        >
+                          {canEdit && (
+                            <td style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedPoIds.includes(order.id)}
+                                onChange={() => handleTogglePoRow(order.id)}
+                                aria-label={`Select PO ${order.poId}`}
+                                style={{
+                                  cursor: "pointer",
+                                  width: 16,
+                                  height: 16,
+                                  accentColor: "var(--cta-bg-accent, #F9A826)",
+                                }}
+                              />
+                            </td>
+                          )}
                           <td style={{ padding: "14px 18px" }}>
                             <span style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: 13, fontFamily: "monospace" }}>
                               #{order.poId}
@@ -1151,6 +1476,80 @@ export function ProcurementHub({
               </table>
             </div>
           </div>
+
+          {/* Purchase Orders Pagination Controls */}
+          {filteredPos.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: 6,
+                flexWrap: "wrap",
+                gap: 12,
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
+                Showing {(currentPoPage - 1) * poPageSize + 1} –{" "}
+                {Math.min(currentPoPage * poPageSize, filteredPos.length)} of {filteredPos.length} orders
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  disabled={currentPoPage === 1}
+                  onClick={() => setPoPage((p) => Math.max(1, p - 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentPoPage === 1 ? "transparent" : "var(--scaffold-bg)",
+                    color: currentPoPage === 1 ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentPoPage === 1 ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentPoPage === 1 ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  ← Previous
+                </button>
+
+                <span
+                  style={{
+                    padding: "4px 12px",
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  Page {currentPoPage} of {totalPoPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentPoPage >= totalPoPages}
+                  onClick={() => setPoPage((p) => Math.min(totalPoPages, p + 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentPoPage >= totalPoPages ? "transparent" : "var(--scaffold-bg)",
+                    color: currentPoPage >= totalPoPages ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentPoPage >= totalPoPages ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentPoPage >= totalPoPages ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1191,6 +1590,22 @@ export function ProcurementHub({
               <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
                 <thead>
                   <tr style={{ background: "rgba(255, 255, 255, 0.02)", borderBottom: "1px solid var(--border)" }}>
+                    {canEdit && (
+                      <th style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={isAllAiSelected}
+                          onChange={handleToggleAllAi}
+                          aria-label="Select all on this page"
+                          style={{
+                            cursor: "pointer",
+                            width: 16,
+                            height: 16,
+                            accentColor: "var(--cta-bg-accent, #F9A826)",
+                          }}
+                        />
+                      </th>
+                    )}
                     <th style={{ padding: "14px 18px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)", letterSpacing: 0.5 }}>
                       PRODUCT TO REORDER
                     </th>
@@ -1212,15 +1627,39 @@ export function ProcurementHub({
                 <tbody>
                   {suggestions.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
+                      <td colSpan={canEdit ? 6 : 5} style={{ padding: "48px 18px", textAlign: "center", color: "var(--text-secondary)" }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)" }}>Stock Levels Healthy</div>
                         <div style={{ fontSize: 12, marginTop: 4 }}>No automated replenishment alerts required at this time.</div>
                       </td>
                     </tr>
                   ) : (
-                    suggestions.map((s) => (
-                      <tr key={s.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    paginatedAiSuggestions.map((s) => (
+                      <tr
+                        key={s.id}
+                        style={{
+                          borderBottom: "1px solid var(--border)",
+                          background: selectedAiSuggestionIds.includes(s.id)
+                            ? "rgba(0, 210, 106, 0.06)"
+                            : "transparent",
+                        }}
+                      >
+                        {canEdit && (
+                          <td style={{ padding: "14px 18px", width: 40, textAlign: "center" }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedAiSuggestionIds.includes(s.id)}
+                              onChange={() => handleToggleAiRow(s.id)}
+                              aria-label={`Select suggestion for ${s.productName}`}
+                              style={{
+                                cursor: "pointer",
+                                width: 16,
+                                height: 16,
+                                accentColor: "var(--cta-bg-accent, #F9A826)",
+                              }}
+                            />
+                          </td>
+                        )}
                         <td style={{ padding: "14px 18px" }}>
                           <div style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: 14 }}>
                             {s.productName}
@@ -1293,6 +1732,80 @@ export function ProcurementHub({
               </table>
             </div>
           </div>
+
+          {/* AI Suggestions Pagination Controls */}
+          {suggestions.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginTop: 6,
+                flexWrap: "wrap",
+                gap: 12,
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
+                Showing {(currentAiPage - 1) * aiPageSize + 1} –{" "}
+                {Math.min(currentAiPage * aiPageSize, suggestions.length)} of {suggestions.length} suggestions
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  type="button"
+                  disabled={currentAiPage === 1}
+                  onClick={() => setAiPage((p) => Math.max(1, p - 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentAiPage === 1 ? "transparent" : "var(--scaffold-bg)",
+                    color: currentAiPage === 1 ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentAiPage === 1 ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentAiPage === 1 ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  ← Previous
+                </button>
+
+                <span
+                  style={{
+                    padding: "4px 12px",
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  Page {currentAiPage} of {totalAiPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentAiPage >= totalAiPages}
+                  onClick={() => setAiPage((p) => Math.min(totalAiPages, p + 1))}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 10,
+                    border: "1px solid var(--border)",
+                    background: currentAiPage >= totalAiPages ? "transparent" : "var(--scaffold-bg)",
+                    color: currentAiPage >= totalAiPages ? "var(--text-secondary)" : "var(--text-primary)",
+                    opacity: currentAiPage >= totalAiPages ? 0.35 : 1,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: currentAiPage >= totalAiPages ? "not-allowed" : "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1306,6 +1819,16 @@ export function ProcurementHub({
           product={selectedProductForOffer}
           allProducts={products}
           onClose={() => setSelectedProductForOffer(null)}
+        />
+      )}
+
+      {/* Bulk Offer Creation Dialog */}
+      {showBulkOfferModal && selectedPromoProductIds.length > 0 && (
+        <OfferCreationModal
+          selectedProducts={products.filter((p) => selectedPromoProductIds.includes(p.productId))}
+          allProducts={products}
+          onClose={() => setShowBulkOfferModal(false)}
+          onSuccess={() => setSelectedPromoProductIds([])}
         />
       )}
 
@@ -1525,6 +2048,368 @@ export function ProcurementHub({
           onConfirm={handleConfirmReceiveStock}
           onCancel={() => setPoToReceive(null)}
         />
+      )}
+
+      {/* Bulk Confirm Modals */}
+      {showBulkApprovePoModal && (
+        <ConfirmModal
+          isOpen={showBulkApprovePoModal}
+          isPending={isPending}
+          title="Approve Purchase Orders"
+          message={`Are you sure you want to approve ${selectedPoIds.length} selected purchase order(s)?`}
+          confirmLabel="Approve All Selected"
+          variant="primary"
+          onConfirm={handleConfirmBulkApprovePOs}
+          onCancel={() => setShowBulkApprovePoModal(false)}
+        />
+      )}
+
+      {showBulkDeletePoModal && (
+        <ConfirmModal
+          isOpen={showBulkDeletePoModal}
+          isPending={isPending}
+          title="Discard Purchase Orders"
+          message={`Are you sure you want to discard ${selectedPoIds.length} selected purchase order(s)? This action cannot be undone.`}
+          confirmLabel="Discard All Selected"
+          variant="danger"
+          onConfirm={handleConfirmBulkDeletePOs}
+          onCancel={() => setShowBulkDeletePoModal(false)}
+        />
+      )}
+
+      {showBulkApproveAiModal && (
+        <ConfirmModal
+          isOpen={showBulkApproveAiModal}
+          isPending={isPending}
+          title="Approve AI Reorder Suggestions"
+          message={`Are you sure you want to approve ${selectedAiSuggestionIds.length} AI suggestion(s) and generate purchase orders?`}
+          confirmLabel="Approve & Order All"
+          variant="primary"
+          onConfirm={handleConfirmBulkApproveAi}
+          onCancel={() => setShowBulkApproveAiModal(false)}
+        />
+      )}
+
+      {showBulkRejectAiModal && (
+        <ConfirmModal
+          isOpen={showBulkRejectAiModal}
+          isPending={isPending}
+          title="Reject AI Reorder Suggestions"
+          message={`Are you sure you want to reject and remove ${selectedAiSuggestionIds.length} AI reorder suggestion(s)?`}
+          confirmLabel="Reject All Selected"
+          variant="danger"
+          onConfirm={handleConfirmBulkRejectAi}
+          onCancel={() => setShowBulkRejectAiModal(false)}
+        />
+      )}
+
+      {/* Floating Bulk Action Bar - Promotion Engine */}
+      {canEdit && activeTab === "PROMOTIONS" && selectedPromoProductIds.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--card-bg)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 16px 48px rgba(0, 0, 0, 0.45)",
+            borderRadius: 16,
+            padding: "10px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            zIndex: 90,
+            backdropFilter: "blur(16px)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span
+              style={{
+                background: "var(--cta-bg-accent, #F9A826)",
+                color: "#0A0A0A",
+                padding: "2px 8px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              {selectedPromoProductIds.length}
+            </span>
+            selected
+          </span>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setShowBulkOfferModal(true)}
+            style={{
+              background: "color-mix(in srgb, var(--accent-orange) 15%, transparent)",
+              color: "var(--accent-orange)",
+              border: "1px solid color-mix(in srgb, var(--accent-orange) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            🏷️ Apply Offer to {selectedPromoProductIds.length} Selected
+          </button>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setSelectedPromoProductIds([])}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-secondary)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isPending ? "not-allowed" : "pointer",
+              padding: "4px 8px",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Floating Bulk Action Bar - Purchase Orders */}
+      {canEdit && activeTab === "PO_PIPELINE" && selectedPoIds.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--card-bg)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 16px 48px rgba(0, 0, 0, 0.45)",
+            borderRadius: 16,
+            padding: "10px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            zIndex: 90,
+            backdropFilter: "blur(16px)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span
+              style={{
+                background: "var(--cta-bg-accent, #F9A826)",
+                color: "#0A0A0A",
+                padding: "2px 8px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              {selectedPoIds.length}
+            </span>
+            selected
+          </span>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setShowBulkApprovePoModal(true)}
+            style={{
+              background: "color-mix(in srgb, var(--success, #00D26A) 15%, transparent)",
+              color: "var(--success, #00D26A)",
+              border: "1px solid color-mix(in srgb, var(--success, #00D26A) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ✓ Approve {selectedPoIds.length} Selected
+          </button>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setShowBulkDeletePoModal(true)}
+            style={{
+              background: "color-mix(in srgb, var(--danger, #ef4444) 15%, transparent)",
+              color: "var(--danger, #ef4444)",
+              border: "1px solid color-mix(in srgb, var(--danger, #ef4444) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            🗑️ Discard {selectedPoIds.length} Selected
+          </button>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setSelectedPoIds([])}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-secondary)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isPending ? "not-allowed" : "pointer",
+              padding: "4px 8px",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Floating Bulk Action Bar - AI Reorder Engine */}
+      {canEdit && activeTab === "AI_SUGGESTIONS" && selectedAiSuggestionIds.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--card-bg)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 16px 48px rgba(0, 0, 0, 0.45)",
+            borderRadius: 16,
+            padding: "10px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            zIndex: 90,
+            backdropFilter: "blur(16px)",
+            color: "var(--text-primary)",
+          }}
+        >
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <span
+              style={{
+                background: "var(--cta-bg-accent, #F9A826)",
+                color: "#0A0A0A",
+                padding: "2px 8px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              {selectedAiSuggestionIds.length}
+            </span>
+            selected
+          </span>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setShowBulkApproveAiModal(true)}
+            style={{
+              background: "color-mix(in srgb, var(--success, #00D26A) 15%, transparent)",
+              color: "var(--success, #00D26A)",
+              border: "1px solid color-mix(in srgb, var(--success, #00D26A) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ✓ Approve {selectedAiSuggestionIds.length} Selected
+          </button>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setShowBulkRejectAiModal(true)}
+            style={{
+              background: "color-mix(in srgb, var(--danger, #ef4444) 15%, transparent)",
+              color: "var(--danger, #ef4444)",
+              border: "1px solid color-mix(in srgb, var(--danger, #ef4444) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ✕ Reject {selectedAiSuggestionIds.length} Selected
+          </button>
+
+          <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => setSelectedAiSuggestionIds([])}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-secondary)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isPending ? "not-allowed" : "pointer",
+              padding: "4px 8px",
+            }}
+          >
+            Clear
+          </button>
+        </div>
       )}
     </div>
   );

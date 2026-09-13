@@ -1,6 +1,15 @@
 import { adminDb } from "@/lib/firebase-admin";
 
-export type SupplierRow = { id: string; supplierID: string; name: string; email: string; phone: string; categories: string; isActive: boolean };
+export type SupplierRow = {
+  id: string;
+  supplierID: string;
+  name: string;
+  email: string;
+  phone: string;
+  categories: string;
+  isActive: boolean;
+  gstin?: string;
+};
 
 export async function getSuppliers(role: string, tenantId: string | null): Promise<SupplierRow[]> {
   let query: FirebaseFirestore.Query = adminDb.collection("suppliers");
@@ -9,6 +18,15 @@ export async function getSuppliers(role: string, tenantId: string | null): Promi
   const snap = await query.get();
   return snap.docs.map((doc) => {
     const d = doc.data();
-    return { id: doc.id, supplierID: d.supplierID ?? "", name: d.name ?? "", email: d.email ?? "", phone: d.phone ?? "", categories: d.categories ?? "", isActive: d.isActive !== false };
+    return {
+      id: doc.id,
+      supplierID: d.supplierID ?? "",
+      name: d.name ?? "",
+      email: d.email ?? "",
+      phone: d.phone ?? "",
+      categories: d.categories ?? "",
+      isActive: d.isActive !== false,
+      gstin: d.gstin ?? "",
+    };
   });
 }

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Modal } from "@/components/profile-menu";
-import { importSuppliersCsv } from "@/actions/procurement";
+import { bulkImportSuppliersAction } from "@/actions/supplier";
 import { useRouter } from "next/navigation";
 
 export function ImportCsvModal({ onClose }: { onClose: () => void }) {
@@ -31,7 +31,7 @@ export function ImportCsvModal({ onClose }: { onClose: () => void }) {
     setSuccessMsg("");
 
     startTransition(async () => {
-      const res = await importSuppliersCsv(csvContent);
+      const res = await bulkImportSuppliersAction(csvContent);
       if (!res.ok) {
         setError(res.error ?? "Import failed.");
       } else {

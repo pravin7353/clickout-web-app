@@ -7,6 +7,7 @@ import { incrementStaffUsage, decrementStaffUsage } from "@/lib/services/usage-s
 import { isStaffLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { detectDelimiter } from "@/lib/csv-utils";
 
 export async function onboardStaff(raw: unknown) {
   const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
@@ -327,18 +328,6 @@ export async function updateStaff(raw: unknown) {
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Update failed" };
   }
-}
-
-function detectDelimiter(headerLine: string): string {
-  const commaCount = (headerLine.match(/,/g) || []).length;
-  const tabCount = (headerLine.match(/\t/g) || []).length;
-  const semiCount = (headerLine.match(/;/g) || []).length;
-
-  if (tabCount > commaCount && tabCount > semiCount) return "\t";
-  if (semiCount > commaCount && semiCount > tabCount) return ";";
-  if (commaCount > 0 && commaCount >= tabCount && commaCount >= semiCount) return ",";
-
-  return ",";
 }
 
 export type ValidatedBulkStaffRow = {

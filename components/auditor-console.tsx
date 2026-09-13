@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { DailyFinancials, AuditOrder, CashReconciliation } from "@/lib/services/auditor-service";
 import { exportCaSalesReport } from "@/actions/orders";
 import { generateInvoicePdf } from "@/actions/invoice";
@@ -102,6 +102,23 @@ export function AuditorConsole({
       return true;
     });
   }, [initialOrders, activeTab, searchQuery, periodFilter]);
+
+  // Pagination (pageSize = 30)
+  const [page, setPage] = useState(1);
+  const pageSize = 30;
+
+  // Reset to page 1 whenever search query, active tab, or period filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, activeTab, periodFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, currentPage, pageSize]);
 
   // Canonical Calculation Pipeline: summary matches line items with zero discrepancy
   const liveFinancials = useMemo(() => {
@@ -1013,7 +1030,7 @@ export function AuditorConsole({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredOrders.map((o) => {
+                  {paginatedOrders.map((o) => {
                     const isApproved = !o.isRefunded && (o.exitStatus === "APPROVED" || o.exitStatus === "COMPLETED" || o.exitStatus === "EXITED");
                     const isRejected = o.exitStatus === "REJECTED";
                     const isRefunded = o.isRefunded || o.exitStatus === "CANCELLED_AND_REFUNDED";
@@ -1159,6 +1176,94 @@ export function AuditorConsole({
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {filteredOrders.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  padding: "14px 20px",
+                  borderTop: "1px solid var(--border)",
+                  background: "var(--card-bg)",
+                }}
+              >
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
+                  Showing{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {(currentPage - 1) * pageSize + 1}
+                  </strong>
+                  {" "}–{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {Math.min(currentPage * pageSize, filteredOrders.length)}
+                  </strong>
+                  {" "}of{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {filteredOrders.length}
+                  </strong>
+                  {" "}orders
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: currentPage <= 1 ? "transparent" : "var(--scaffold-bg)",
+                      color: currentPage <= 1 ? "var(--text-secondary)" : "var(--text-primary)",
+                      opacity: currentPage <= 1 ? 0.35 : 1,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    ← Previous
+                  </button>
+
+                  <span
+                    style={{
+                      padding: "4px 12px",
+                      fontWeight: 800,
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: currentPage >= totalPages ? "transparent" : "var(--scaffold-bg)",
+                      color: currentPage >= totalPages ? "var(--text-secondary)" : "var(--text-primary)",
+                      opacity: currentPage >= totalPages ? 0.35 : 1,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                      userSelect: "none",
+                    }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
           </Card>
         )}
       </div>

@@ -485,58 +485,6 @@ export async function blockProductBatch(productId: string) {
   }
 }
 
-export async function importSuppliersCsv(csvString: string) {
-  let session, tenantId;
-  try {
-    ({ session, tenantId } = await requireEditAccess(["tenant_admin", "manager"]));
-  } catch {
-    return { ok: false, error: "You have view-only access and cannot import suppliers." };
-  }
-
-  try {
-    const lines = csvString.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-    if (lines.length <= 1) return { ok: false, error: "CSV is empty or missing data rows." };
-
-    const batch = adminDb.batch();
-    let count = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",").map((c) => c.trim());
-      if (cols.length < 2 || !cols[1]) continue;
-
-      const docRef = adminDb.collection("suppliers").doc();
-      batch.set(docRef, {
-        supplierID: cols[0],
-        name: cols[1],
-        email: cols[2] ?? "",
-        phone: cols[3] ?? "",
-        categories: cols[4] ?? "",
-        tenantId,
-        createdAt: FieldValue.serverTimestamp(),
-        createdBy: session.user?.email ?? "Admin",
-      });
-      count++;
-    }
-
-    await batch.commit();
-
-    await adminDb.collection("admin_audit_logs").add({
-      action: "SUPPLIERS_IMPORTED",
-      actionType: "SUPPLIERS_IMPORTED",
-      actorId: session.user?.email,
-      tenantId,
-      details: `Imported ${count} distributors via CSV upload.`,
-      severity: "INFO",
-      timestamp: FieldValue.serverTimestamp(),
-    });
-
-    revalidatePath("/procurement");
-    return { ok: true, count };
-  } catch (e: any) {
-    return { ok: false, error: e.message ?? "Failed to import CSV." };
-  }
-}
-
 export async function createSupplier(supplierData: {
   name: string;
   email?: string;
@@ -580,4 +528,157 @@ export async function createSupplier(supplierData: {
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Failed to create distributor." };
   }
+}
+
+export async function bulkApplyProductOffers(
+  payloads: Array<Parameters<typeof applyProductOffer>[0]>
+) {
+  let session;
+  try {
+    ({ session } = await requireEditAccess(["tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["You have view-only access and cannot apply offers."] };
+  }
+
+  if (!payloads || payloads.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No products selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const p of payloads) {
+    const res = await applyProductOffer(p);
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`${p.productId}: ${res.error ?? "Failed to apply offer"}`);
+    }
+  }
+
+  revalidatePath("/procurement");
+  revalidatePath("/inventory");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+export async function bulkApprovePOs(poIds: string[]) {
+  let session;
+  try {
+    ({ session } = await requireEditAccess(["tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["You have view-only access and cannot approve purchase orders."] };
+  }
+
+  if (!poIds || poIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No purchase orders selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of poIds) {
+    const res = await approvePO(id);
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`${id}: ${res.error ?? "Failed to approve PO"}`);
+    }
+  }
+
+  revalidatePath("/procurement");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+export async function bulkDeletePOs(poIds: string[]) {
+  let session;
+  try {
+    ({ session } = await requireEditAccess(["tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["You have view-only access and cannot discard purchase orders."] };
+  }
+
+  if (!poIds || poIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No purchase orders selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of poIds) {
+    const res = await deletePO(id);
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`${id}: ${res.error ?? "Failed to discard PO"}`);
+    }
+  }
+
+  revalidatePath("/procurement");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+export async function bulkApproveAiSuggestions(suggestionIds: string[], branchCode?: string) {
+  let session;
+  try {
+    ({ session } = await requireEditAccess(["tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["You have view-only access and cannot approve suggestions."] };
+  }
+
+  if (!suggestionIds || suggestionIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No suggestions selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of suggestionIds) {
+    const res = await approveAiSuggestion(id, branchCode);
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`${id}: ${res.error ?? "Failed to approve suggestion"}`);
+    }
+  }
+
+  revalidatePath("/procurement");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+export async function bulkRejectAiSuggestions(suggestionIds: string[]) {
+  let session;
+  try {
+    ({ session } = await requireEditAccess(["tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["You have view-only access and cannot reject suggestions."] };
+  }
+
+  if (!suggestionIds || suggestionIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No suggestions selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of suggestionIds) {
+    const res = await rejectAiSuggestion(id);
+    if (res.ok) {
+      successCount++;
+    } else {
+      failCount++;
+      errors.push(`${id}: ${res.error ?? "Failed to reject suggestion"}`);
+    }
+  }
+
+  revalidatePath("/procurement");
+  return { ok: failCount === 0, successCount, failCount, errors };
 }

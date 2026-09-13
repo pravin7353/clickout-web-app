@@ -23,6 +23,8 @@ export function IdtDepositsTable({
   const [dbItems, setDbItems] = useState<IdtItem[]>([]);
   const [localItems, setLocalItems] = useState<IdtItem[]>([]);
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
 
   // Search & Scan
   const [searchQuery, setSearchQuery] = useState("");
@@ -398,6 +400,13 @@ export function IdtDepositsTable({
     );
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const paginatedItems = filteredItems.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
       {/* 🟦 TOP HEADER & BULK TOOL BAR */}
@@ -442,7 +451,10 @@ export function IdtDepositsTable({
           <div style={{ position: "relative", width: 220 }}>
             <Input
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
               placeholder="Search deposits..."
               style={{ width: "100%", height: 38, fontSize: 13, paddingLeft: 30 }}
             />
@@ -663,7 +675,7 @@ export function IdtDepositsTable({
             </tr>
 
             {/* Render items */}
-            {filteredItems.map((item, idx) => {
+            {paginatedItems.map((item, idx) => {
               const globalIdx = allItems.indexOf(item);
               const isSelected = selectedIndices.has(globalIdx);
 
@@ -831,6 +843,85 @@ export function IdtDepositsTable({
           </tbody>
         </table>
       </div>
+
+      {/* 📄 CLIENT-SIDE PAGINATION CONTROLS */}
+      {totalPages > 1 && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: 14,
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
+            Showing {(currentPage - 1) * pageSize + 1} – {Math.min(currentPage * pageSize, filteredItems.length)} of {filteredItems.length} records
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              type="button"
+              disabled={currentPage === 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: currentPage === 1 ? "transparent" : "var(--scaffold-bg)",
+                color: currentPage === 1 ? "var(--text-secondary)" : "var(--text-primary)",
+                opacity: currentPage === 1 ? 0.35 : 1,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                userSelect: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              ← Previous
+            </button>
+
+            <span
+              style={{
+                padding: "4px 12px",
+                fontWeight: 800,
+                color: "var(--text-primary)",
+                fontSize: 12,
+                background: "var(--scaffold-bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+              }}
+            >
+              Page {currentPage} of {totalPages}
+            </span>
+
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: currentPage >= totalPages ? "transparent" : "var(--scaffold-bg)",
+                color: currentPage >= totalPages ? "var(--text-secondary)" : "var(--text-primary)",
+                opacity: currentPage >= totalPages ? 0.35 : 1,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                userSelect: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 🟩 STICKY FOOTER ACTION BAR */}
       {allItems.length > 0 && (
