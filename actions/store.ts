@@ -165,6 +165,7 @@ export async function createStore(raw: unknown) {
   }
 
   revalidatePath("/tenant-admin");
+  revalidatePath("/usage");
   return { ok: true };
 }
 
@@ -173,12 +174,14 @@ export async function toggleStoreSuspension(storeId: string, currentStatus: stri
   const newStatus = currentStatus === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
   await adminDb.collection("stores").doc(storeId).update({ status: newStatus, isActive: newStatus === "ACTIVE" });
   revalidatePath("/tenant-admin");
+  revalidatePath("/usage");
 }
 
 export async function removeStore(storeId: string) {
   await requireRole(["super_admin", "tenant_admin"]);
   await adminDb.collection("stores").doc(storeId).delete();
   revalidatePath("/tenant-admin");
+  revalidatePath("/usage");
 }
 
 export async function getStoreForEdit(storeId: string) {
@@ -234,6 +237,7 @@ export async function updateStoreProfile(params: {
     });
     revalidatePath("/tenant-admin");
     revalidatePath("/dashboard");
+    revalidatePath("/usage");
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e.message || "Failed to update profile" };

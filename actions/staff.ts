@@ -200,6 +200,7 @@ export async function onboardStaff(raw: unknown) {
   if (effectiveTenantId) await incrementStaffUsage(effectiveTenantId);
 
   revalidatePath("/manager");
+  revalidatePath("/usage");
   return { ok: true };
 }
 
@@ -321,6 +322,7 @@ export async function updateStaff(raw: unknown) {
     });
 
     revalidatePath("/manager");
+    revalidatePath("/usage");
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e.message ?? "Update failed" };
@@ -374,6 +376,7 @@ export async function bulkImportStaff(csvContent: string, defaultBranchCode?: st
   }
 
   revalidatePath("/manager");
+  revalidatePath("/usage");
   return { ok: true, successCount, failCount, errors };
 }
 
@@ -408,6 +411,7 @@ export async function toggleStaffStatus(staffId: string, currentStatus: boolean)
     updatedAt: FieldValue.serverTimestamp(),
   });
   revalidatePath("/manager");
+  revalidatePath("/usage");
 }
 
 export async function softDeleteStaff(staffId: string) {
@@ -441,4 +445,5 @@ export async function softDeleteStaff(staffId: string) {
   });
   if (doc.data()?.tenantId) await decrementStaffUsage(doc.data()?.tenantId);
   revalidatePath("/manager");
+  revalidatePath("/usage");
 }

@@ -526,6 +526,7 @@ export async function createPosOrder(params: {
       await incrementTransactionUsage(tenantId);
     }
     revalidatePath("/cashier");
+    revalidatePath("/usage");
 
     let storeAddress = "N/A";
     let storePhone = "N/A";

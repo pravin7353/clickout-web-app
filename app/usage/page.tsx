@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireRole } from "@/lib/rbac";
 import { getUsage } from "@/lib/services/usage-service";
 import { Card, Badge, PageHeader } from "@/components/ui";
