@@ -329,55 +329,278 @@ export async function updateStaff(raw: unknown) {
   }
 }
 
-export async function bulkImportStaff(csvContent: string, defaultBranchCode?: string) {
-  const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+function detectDelimiter(headerLine: string): string {
+  const commaCount = (headerLine.match(/,/g) || []).length;
+  const tabCount = (headerLine.match(/\t/g) || []).length;
+  const semiCount = (headerLine.match(/;/g) || []).length;
+
+  if (tabCount > commaCount && tabCount > semiCount) return "\t";
+  if (semiCount > commaCount && semiCount > tabCount) return ";";
+  if (commaCount > 0 && commaCount >= tabCount && commaCount >= semiCount) return ",";
+
+  return ",";
+}
+
+export type ValidatedBulkStaffRow = {
+  lineNumber: number;
+  empId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  role: string;
+  branchCode: string;
+  status: "valid" | "error";
+  errors: string[];
+};
+
+export type ValidateBulkStaffReport = {
+  ok: boolean;
+  error?: string;
+  delimiter?: string;
+  rows: ValidatedBulkStaffRow[];
+  validCount: number;
+  errorCount: number;
+};
+
+export async function validateBulkStaffImport(
+  csvContent: string,
+  defaultBranchCode?: string
+): Promise<ValidateBulkStaffReport> {
+  const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
   const lines = csvContent
-    .split("\n")
+    .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
-  if (lines.length === 0) return { ok: false, error: "CSV content is empty." };
+  if (lines.length === 0) {
+    return { ok: false, error: "CSV content is empty.", rows: [], validCount: 0, errorCount: 0 };
+  }
+
+  const delimiter = detectDelimiter(lines[0]);
 
   let startIndex = 0;
-  if (lines[0].toLowerCase().includes("empid") || lines[0].toLowerCase().includes("role")) {
+  const firstLineLower = lines[0].toLowerCase();
+  if (
+    firstLineLower.includes("empid") ||
+    firstLineLower.includes("emp_id") ||
+    firstLineLower.includes("emp id") ||
+    firstLineLower.includes("role")
+  ) {
     startIndex = 1;
+  }
+
+  const isManager = role === "manager";
+  const managerStoreId = ((session.user as any)?.storeId || storeId || "").toUpperCase().trim();
+  if (isManager && !managerStoreId) {
+    return {
+      ok: false,
+      error: "Manager account is not assigned to any store branch.",
+      rows: [],
+      validCount: 0,
+      errorCount: 0,
+    };
+  }
+
+  const effectiveTenantId = tenantId;
+  const existingEmpIds = new Set<string>();
+  const existingPhones = new Set<string>();
+
+  if (effectiveTenantId) {
+    const existingStaffSnap = await adminDb
+      .collection("staff")
+      .where("tenantId", "==", effectiveTenantId)
+      .select("empId", "phone", "isDeleted")
+      .get();
+
+    existingStaffSnap.docs.forEach((doc) => {
+      const d = doc.data();
+      if (d.empId) existingEmpIds.add(String(d.empId).trim().toUpperCase());
+      if (d.phone && !d.isDeleted) {
+        const cleanP = String(d.phone).trim().replace(/\D/g, "");
+        if (cleanP) existingPhones.add(cleanP);
+      }
+    });
+  }
+
+  const batchEmpIds = new Set<string>();
+  const batchPhones = new Set<string>();
+  const CANONICAL_ROLES = ["cashier", "guard", "manager", "auditor", "tenant_admin"];
+
+  const rows: ValidatedBulkStaffRow[] = [];
+
+  for (let i = startIndex; i < lines.length; i++) {
+    const rowErrors: string[] = [];
+    const parts = lines[i].split(delimiter).map((p) => p.replace(/^["']|["']$/g, "").trim());
+
+    if (parts.length < 5) {
+      rows.push({
+        lineNumber: i + 1,
+        empId: parts[0] || `ROW-${i + 1}`,
+        name: parts[1] || "—",
+        email: parts[2] || undefined,
+        phone: parts[3] || undefined,
+        role: parts[4] || "—",
+        branchCode: parts[5] || defaultBranchCode || "HQ",
+        status: "error",
+        errors: ["Insufficient columns. Expected: empId, name, email, phone, role, [branchCode]"],
+      });
+      continue;
+    }
+
+    const rawEmpId = parts[0] || "";
+    const rawName = parts[1] || "";
+    const rawEmail = parts[2] || "";
+    const rawPhone = parts[3] || "";
+    const rawRole = parts[4] || "";
+    const rawBranch = parts[5] || "";
+
+    const empId = rawEmpId.trim().toUpperCase();
+    const name = rawName.trim();
+    const email = rawEmail.trim().toLowerCase();
+    const phone = rawPhone.trim().replace(/\D/g, "");
+    const normalizedRole = rawRole.trim().toLowerCase();
+    const branchCode = isManager
+      ? managerStoreId
+      : (rawBranch || defaultBranchCode || "HQ").trim().toUpperCase();
+
+    // d. Role value check
+    if (!CANONICAL_ROLES.includes(normalizedRole)) {
+      rowErrors.push(
+        `Role '${rawRole}' is not valid. Use one of: ${CANONICAL_ROLES.join(", ")}`
+      );
+    } else if (isManager && (normalizedRole === "tenant_admin" || normalizedRole === "super_admin")) {
+      rowErrors.push("Managers do not have permission to create administrative accounts.");
+    }
+
+    // Schema validation
+    const schemaResult = onboardStaffSchema.safeParse({
+      empId,
+      name,
+      email: email || undefined,
+      phone: phone || undefined,
+      role: normalizedRole,
+      branchCode,
+    });
+
+    if (!schemaResult.success) {
+      for (const issue of schemaResult.error.issues) {
+        rowErrors.push(issue.message);
+      }
+    }
+
+    // a. Duplicate empId within THIS batch
+    if (empId) {
+      if (batchEmpIds.has(empId)) {
+        rowErrors.push(`Duplicate Employee ID '${empId}' within this batch.`);
+      } else {
+        batchEmpIds.add(empId);
+      }
+    }
+
+    // b. Duplicate phone within THIS batch
+    if (phone && phone.length === 10) {
+      if (batchPhones.has(phone)) {
+        rowErrors.push(`Duplicate phone number '${phone}' within this batch.`);
+      } else {
+        batchPhones.add(phone);
+      }
+    }
+
+    // c. Duplicate empId/phone already existing in Firestore
+    if (empId && existingEmpIds.has(empId)) {
+      rowErrors.push(`Employee ID '${empId}' is already registered in your organization.`);
+    }
+
+    if (phone && phone.length === 10 && existingPhones.has(phone)) {
+      rowErrors.push(`Phone number '+91 ${phone}' is already registered in your organization.`);
+    }
+
+    const status = rowErrors.length === 0 ? "valid" : "error";
+    rows.push({
+      lineNumber: i + 1,
+      empId: empId || `ROW-${i + 1}`,
+      name: name || "—",
+      email: email || undefined,
+      phone: phone || undefined,
+      role: normalizedRole || rawRole || "—",
+      branchCode,
+      status,
+      errors: rowErrors,
+    });
+  }
+
+  const validCount = rows.filter((r) => r.status === "valid").length;
+  const errorCount = rows.filter((r) => r.status === "error").length;
+
+  return {
+    ok: true,
+    delimiter,
+    rows,
+    validCount,
+    errorCount,
+  };
+}
+
+export async function commitBulkStaffImport(
+  validatedRows: Array<{
+    empId: string;
+    name: string;
+    email?: string;
+    phone?: string;
+    role: string;
+    branchCode?: string;
+  }>,
+  defaultBranchCode?: string
+) {
+  await requireRole(["super_admin", "tenant_admin", "manager"]);
+
+  if (!validatedRows || validatedRows.length === 0) {
+    return { ok: false, error: "No valid rows provided to commit.", successCount: 0, failCount: 0, errors: [] };
   }
 
   let successCount = 0;
   let failCount = 0;
   const errors: string[] = [];
 
-  for (let i = startIndex; i < lines.length; i++) {
-    const parts = lines[i].split(",").map((p) => p.trim());
-    if (parts.length < 5) {
-      failCount++;
-      errors.push(`Row ${i + 1}: Insufficient columns. Expected: empId, name, email, phone, role, [branchCode]`);
-      continue;
-    }
-
-    const [empId, name, email, phone, staffRole, branchCodeCol] = parts;
-    const branchCode = branchCodeCol || defaultBranchCode || "HQ";
-
+  for (const row of validatedRows) {
     const res = await onboardStaff({
-      empId,
-      name,
-      email: email || undefined,
-      phone,
-      role: staffRole.toLowerCase(),
-      branchCode,
+      empId: row.empId,
+      name: row.name,
+      email: row.email || undefined,
+      phone: row.phone,
+      role: row.role.toLowerCase(),
+      branchCode: row.branchCode || defaultBranchCode || "HQ",
     });
 
     if (res.ok) {
       successCount++;
     } else {
       failCount++;
-      errors.push(`Row ${i + 1} (${empId}): ${res.error}`);
+      errors.push(`${row.empId}: ${res.error}`);
     }
   }
 
   revalidatePath("/manager");
   revalidatePath("/usage");
   return { ok: true, successCount, failCount, errors };
+}
+
+export async function bulkImportStaff(csvContent: string, defaultBranchCode?: string) {
+  const report = await validateBulkStaffImport(csvContent, defaultBranchCode);
+  if (!report.ok) {
+    return { ok: false, error: report.error ?? "Validation failed", successCount: 0, failCount: 0, errors: [] };
+  }
+  const validRows = report.rows.filter((r) => r.status === "valid");
+  if (validRows.length === 0) {
+    return {
+      ok: false,
+      error: "No valid rows found to import.",
+      successCount: 0,
+      failCount: report.errorCount,
+      errors: report.rows.flatMap((r) => r.errors),
+    };
+  }
+  return await commitBulkStaffImport(validRows, defaultBranchCode);
 }
 
 export async function toggleStaffStatus(staffId: string, currentStatus: boolean) {
