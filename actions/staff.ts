@@ -670,3 +670,51 @@ export async function softDeleteStaff(staffId: string) {
   revalidatePath("/manager");
   revalidatePath("/usage");
 }
+
+export async function bulkToggleStaffStatus(staffIds: string[], newStatus: boolean) {
+  if (!staffIds || staffIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No staff members selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of staffIds) {
+    try {
+      await toggleStaffStatus(id, !newStatus);
+      successCount++;
+    } catch (e: any) {
+      failCount++;
+      errors.push(`${id}: ${e.message ?? "Failed to toggle status"}`);
+    }
+  }
+
+  revalidatePath("/manager");
+  revalidatePath("/usage");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+export async function bulkSoftDeleteStaff(staffIds: string[]) {
+  if (!staffIds || staffIds.length === 0) {
+    return { ok: false, successCount: 0, failCount: 0, errors: ["No staff members selected."] };
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+  const errors: string[] = [];
+
+  for (const id of staffIds) {
+    try {
+      await softDeleteStaff(id);
+      successCount++;
+    } catch (e: any) {
+      failCount++;
+      errors.push(`${id}: ${e.message ?? "Failed to delete"}`);
+    }
+  }
+
+  revalidatePath("/manager");
+  revalidatePath("/usage");
+  return { ok: failCount === 0, successCount, failCount, errors };
+}

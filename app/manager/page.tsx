@@ -3,7 +3,7 @@ import { getStaffList } from "@/lib/services/staff-service";
 import { getStores } from "@/lib/services/store-service";
 import { OnboardStaffForm } from "@/components/onboard-staff-form";
 import { BulkImportModal } from "@/components/bulk-import-modal";
-import { StaffRow } from "@/components/staff-row";
+import { StaffTableClient } from "@/components/staff-table-client";
 import { Card, EmptyState, InfoTooltip } from "@/components/ui";
 import Link from "next/link";
 
@@ -18,10 +18,10 @@ const ROLE_TABS = [
 export default async function ManagerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ store?: string; role?: string }>;
+  searchParams: Promise<{ store?: string; role?: string; page?: string }>;
 }) {
   const { role, tenantId, storeId, canEdit } = await requireRole(["super_admin", "tenant_admin", "manager"]);
-  const { store: queryStore, role: queryRole } = await searchParams;
+  const { store: queryStore, role: queryRole, page: pageParam } = await searchParams;
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
   const activeRoleFilter = (queryRole ?? "ALL").toUpperCase();
 
@@ -43,6 +43,23 @@ export default async function ManagerPage({
   const totalCount = staff.length;
   const activeCount = staff.filter((s) => s.isActive).length;
   const atRiskCount = staff.filter((s) => s.trustScore < 80).length;
+
+  // Pagination (pageSize = 25)
+  const pageSize = 25;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const rawPage = parseInt(pageParam || "1", 10);
+  const currentPage = isNaN(rawPage) || rawPage < 1 ? 1 : Math.min(rawPage, totalPages);
+
+  const paginatedStaff = staff.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  function getPageUrl(targetPage: number) {
+    const params = new URLSearchParams();
+    if (effectiveStoreId) params.set("store", effectiveStoreId);
+    if (activeRoleFilter && activeRoleFilter !== "ALL") params.set("role", activeRoleFilter);
+    if (targetPage > 1) params.set("page", String(targetPage));
+    const qs = params.toString();
+    return `/manager${qs ? `?${qs}` : ""}`;
+  }
 
   return (
     <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
@@ -168,61 +185,135 @@ export default async function ManagerPage({
         </div>
       </div>
 
-      {/* Staff Table matching Flutter Columns */}
+      {/* Staff Table */}
       {staff.length === 0 ? (
         <EmptyState message={`No staff members found under category '${activeRoleFilter}'.`} />
       ) : (
-        <Card style={{ padding: 0, overflow: "hidden", borderRadius: 16 }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
-              <thead>
-                <tr
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <StaffTableClient
+            paginatedStaff={paginatedStaff}
+            canEdit={canEdit}
+            branches={branchOptions}
+            isBranchLocked={isManager}
+          />
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 12,
+                padding: "14px 18px",
+                background: "var(--card-bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 16,
+                fontSize: 13,
+                color: "var(--text-secondary)",
+              }}
+            >
+              <div>
+                Showing <strong>{(currentPage - 1) * pageSize + 1}</strong>–
+                <strong>{Math.min(currentPage * pageSize, totalCount)}</strong> of{" "}
+                <strong>{totalCount}</strong> staff members
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {currentPage > 1 ? (
+                  <Link
+                    href={getPageUrl(currentPage - 1)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "var(--scaffold-bg)",
+                      color: "var(--text-primary)",
+                      textDecoration: "none",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    ← Previous
+                  </Link>
+                ) : (
+                  <span
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "transparent",
+                      color: "var(--text-secondary)",
+                      opacity: 0.35,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "not-allowed",
+                      userSelect: "none",
+                    }}
+                  >
+                    ← Previous
+                  </span>
+                )}
+
+                <span
                   style={{
-                    borderBottom: "1px solid var(--border)",
-                    textAlign: "left",
-                    background: "color-mix(in srgb, var(--card-bg) 94%, var(--scaffold-bg))",
+                    padding: "4px 12px",
+                    fontWeight: 800,
+                    color: "var(--text-primary)",
+                    fontSize: 12,
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
                   }}
                 >
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    TENANT ID
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    EMP ID
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    NAME
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    DESIGNATION
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    BRANCH
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    CONTACT
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    SECURITY
-                  </th>
-                  <th style={{ padding: "14px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, letterSpacing: "0.05em" }}>
-                    ACTIONS
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {staff.map((s) => (
-                  <StaffRow
-                    key={s.id}
-                    staff={s}
-                    canEdit={canEdit}
-                    branches={branchOptions}
-                    isBranchLocked={isManager}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                  Page {currentPage} of {totalPages}
+                </span>
+
+                {currentPage < totalPages ? (
+                  <Link
+                    href={getPageUrl(currentPage + 1)}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "var(--scaffold-bg)",
+                      color: "var(--text-primary)",
+                      textDecoration: "none",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    Next →
+                  </Link>
+                ) : (
+                  <span
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "transparent",
+                      color: "var(--text-secondary)",
+                      opacity: 0.35,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "not-allowed",
+                      userSelect: "none",
+                    }}
+                  >
+                    Next →
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

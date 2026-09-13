@@ -11,9 +11,13 @@ import { useRouter } from "next/navigation";
 export function ProductRow({
   row,
   canEdit,
+  isSelected = false,
+  onToggleSelect,
 }: {
   row: LedgerRow;
   canEdit: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const [showEdit, setShowEdit] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -34,12 +38,32 @@ export function ProductRow({
         style={{
           borderBottom: "1px solid var(--border)",
           opacity: row.isBlocked ? 0.5 : 1,
-          background: row.isBlocked
+          background: isSelected
+            ? "color-mix(in srgb, var(--cta-bg-accent, #F9A826) 8%, transparent)"
+            : row.isBlocked
             ? "color-mix(in srgb, var(--danger) 5%, transparent)"
             : "transparent",
           transition: "background 0.12s ease",
         }}
       >
+        {/* CHECKBOX COLUMN */}
+        {canEdit && (
+          <td style={{ padding: "14px 16px", width: 40, textAlign: "center" }}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              aria-label={`Select ${row.name}`}
+              style={{
+                cursor: "pointer",
+                width: 16,
+                height: 16,
+                accentColor: "var(--cta-bg-accent, #F9A826)",
+              }}
+            />
+          </td>
+        )}
+
         {/* BARCODE */}
         <td style={{ padding: "14px 16px", fontFamily: "monospace", fontSize: 12, color: "var(--text-primary)", fontWeight: 700 }}>
           {row.barcode || "N/A"}

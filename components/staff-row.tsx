@@ -13,11 +13,15 @@ export function StaffRow({
   canEdit,
   branches = [],
   isBranchLocked = false,
+  isSelected = false,
+  onToggleSelect,
 }: {
   staff: StaffRowType;
   canEdit: boolean;
   branches?: BranchOption[];
   isBranchLocked?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [showEditModal, setShowEditModal] = useState(false);
@@ -32,9 +36,30 @@ export function StaffRow({
         style={{
           borderBottom: "1px solid var(--border)",
           opacity: staff.isActive ? 1 : 0.55,
+          background: isSelected
+            ? "color-mix(in srgb, var(--cta-bg-accent, #F9A826) 8%, transparent)"
+            : "transparent",
           transition: "background 0.12s ease",
         }}
       >
+        {/* CHECKBOX COLUMN */}
+        {canEdit && (
+          <td style={{ padding: "14px 16px", width: 40, textAlign: "center" }}>
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onToggleSelect}
+              aria-label={`Select ${staff.name}`}
+              style={{
+                cursor: "pointer",
+                width: 16,
+                height: 16,
+                accentColor: "var(--cta-bg-accent, #F9A826)",
+              }}
+            />
+          </td>
+        )}
+
         {/* TENANT ID */}
         <td
           style={{
