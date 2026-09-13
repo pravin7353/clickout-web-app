@@ -4,9 +4,18 @@ import { SupplierList } from "@/components/supplier-list";
 import { PageHeader } from "@/components/ui";
 import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
-export default async function SuppliersPage() {
+export default async function SuppliersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ page?: string }>;
+}) {
   const { role, tenantId, canEdit } = await requireRole(["super_admin", "tenant_admin", "manager"]);
-  const suppliers = await getSuppliers(role, tenantId);
+  const { page: pageParam } = (await searchParams) || {};
+  const rawPage = parseInt(pageParam || "1", 10);
+  const page = isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
+  const pageSize = 25;
+
+  const suppliers = await getSuppliers(role, tenantId, { page, pageSize });
 
   return (
     <FeatureLockWidget route="suppliers">
@@ -19,4 +28,4 @@ export default async function SuppliersPage() {
       </div>
     </FeatureLockWidget>
   );
-}
+}

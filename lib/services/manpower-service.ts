@@ -65,11 +65,11 @@ export async function getStaffingForecast(tenantId: string | null, branchCode: s
         .get();
       history = snap.docs.map((d) => d.data());
     } else {
-      // If branchCode is not specified, query by tenantId and filter/sort in memory
-      // to avoid unindexed Firestore index crash
+      // If branchCode is not specified, bound query by tenantId and sinceStr
       const snap = await adminDb
         .collection("daily_store_stats")
         .where("tenantId", "==", tenantId)
+        .where("date", ">=", sinceStr)
         .get();
       history = snap.docs
         .map((d) => d.data())

@@ -1572,7 +1572,7 @@ export function ProcurementHub({
           >
             <span style={{ fontSize: 20 }}>🤖</span>
             <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>
-              <strong>AI Inventory Replenishment:</strong> AI monitors live sales velocity, safety stock, and distributor lead times to recommend purchase orders automatically before stockouts occur.
+              <strong>AI Inventory Replenishment:</strong> AI scans sales velocity and stock levels daily to recommend purchase orders before stockouts occur.
             </div>
           </div>
 

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/winback-scan",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/ai-reorder-scan",
+      "schedule": "0 2 * * *"
     }
   ]
 }

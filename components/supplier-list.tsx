@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo, useRef } from "react";
+import { useState, useTransition, useMemo, useRef, useEffect } from "react";
 import {
   addSupplier,
   updateSupplier,
@@ -9,6 +9,7 @@ import {
   bulkDeleteSuppliers,
   validateBulkSupplierImport,
   commitBulkSupplierImport,
+  getSuppliersAction,
   ValidateBulkSupplierReport,
 } from "@/actions/supplier";
 import { SupplierRow } from "@/lib/services/supplier-service";
@@ -28,9 +29,34 @@ export function SupplierList({
   const [openCsvModal, setOpenCsvModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<SupplierRow | null>(null);
 
+  const [suppliersList, setSuppliersList] = useState<SupplierRow[]>(suppliers);
+  const [totalCount, setTotalCount] = useState<number>(
+    (suppliers as any).totalCount ?? suppliers.length
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 25;
+
+  // Sync with prop when parent revalidates
+  useEffect(() => {
+    setSuppliersList(suppliers);
+    setTotalCount((suppliers as any).totalCount ?? suppliers.length);
+  }, [suppliers]);
+
+  // Request current page from Firestore via server action instead of full-array client slice
+  useEffect(() => {
+    let active = true;
+    startTransition(async () => {
+      const res = await getSuppliersAction({ page, pageSize });
+      if (res.ok && active) {
+        setSuppliersList(res.suppliers);
+        setTotalCount(res.totalCount);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [page]);
 
   // Bulk row selection state (independent)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -68,8 +94,8 @@ export function SupplierList({
   // Filtered list based on search query
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return suppliers;
-    return suppliers.filter(
+    if (!q) return suppliersList;
+    return suppliersList.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.supplierID.toLowerCase().includes(q) ||
@@ -77,15 +103,12 @@ export function SupplierList({
         s.phone.toLowerCase().includes(q) ||
         (s.gstin && s.gstin.toLowerCase().includes(q))
     );
-  }, [suppliers, searchQuery]);
+  }, [suppliersList, searchQuery]);
 
   // Main list pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const paginatedSuppliers = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, currentPage, pageSize]);
+  const paginatedSuppliers = filtered;
 
   // Selection toggle logic (current page)
   const currentPageIds = useMemo(() => paginatedSuppliers.map((s) => s.id), [paginatedSuppliers]);
@@ -522,8 +545,8 @@ export function SupplierList({
           }}
         >
           <span style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600 }}>
-            Showing {(currentPage - 1) * pageSize + 1} –{" "}
-            {Math.min(currentPage * pageSize, filtered.length)} of {filtered.length} distributors
+            Showing {totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1} –{" "}
+            {Math.min(currentPage * pageSize, totalCount)} of {totalCount} distributors
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button

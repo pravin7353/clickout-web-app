@@ -42,6 +42,7 @@ export type SupplierRow = {
   email?: string;
   phone?: string;
   categories?: string;
+  gstin?: string;
 };
 
 export type QuantumPromotionProduct = {
@@ -433,6 +434,7 @@ export async function getSuppliers(tenantId?: string | null): Promise<SupplierRo
         email: data.email ?? "",
         phone: data.phone ?? "",
         categories: data.categories ?? "",
+        gstin: data.gstin ?? "",
       };
     });
   } catch {

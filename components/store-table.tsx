@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { StoreRow } from "@/lib/services/store-service";
 import { toggleStoreSuspension, removeStore } from "@/actions/store";
+import { getBrandInfo } from "@/actions/brand";
 import { EditStoreForm } from "@/components/edit-store-form";
 import { Modal } from "@/components/profile-menu";
 import { Card, Button, Badge } from "@/components/ui";
@@ -12,7 +13,28 @@ import { Card, Button, Badge } from "@/components/ui";
 export function StoreTable({ stores, tenantId }: { stores: StoreRow[]; tenantId?: string }) {
   const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
   const [qrStore, setQrStore] = useState<StoreRow | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (qrStore) {
+      getBrandInfo(qrStore.branchCode)
+        .then((res) => {
+          if (active && res.ok) {
+            setLogoUrl(res.storeLogoUrl || res.companyLogoUrl || null);
+          }
+        })
+        .catch(() => {
+          if (active) setLogoUrl(null);
+        });
+    } else {
+      setLogoUrl(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [qrStore]);
 
   // Custom confirmation modal state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -142,36 +164,171 @@ export function StoreTable({ stores, tenantId }: { stores: StoreRow[]; tenantId?
       {/* Store Entrance QR Modal */}
       {qrStore && (
         <Modal onClose={() => setQrStore(null)}>
-          <Card style={{ width: 360, textAlign: "center", display: "grid", gap: 16 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text-primary)" }}>
-                {qrStore.storeName}
-              </h3>
-              <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "var(--text-secondary)", fontFamily: "monospace" }}>
-                BRANCH CODE: {qrStore.branchCode}
-              </p>
+          <div style={{ width: 380, maxWidth: "94vw" }}>
+            <style>{`
+              @media print {
+                body * { visibility: hidden !important; }
+                #qr-standee, #qr-standee * { visibility: visible !important; }
+                #qr-standee {
+                  position: absolute !important;
+                  top: 0 !important;
+                  left: 0 !important;
+                  width: 100% !important;
+                  box-shadow: none !important;
+                  border-radius: 0 !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+                @page { margin: 0; }
+                .no-print { display: none !important; }
+              }
+            `}</style>
+
+            {/* Printable Standee Card */}
+            <div
+              id="qr-standee"
+              style={{
+                background: "#161616",
+                border: "2px solid #10B981",
+                borderRadius: 24,
+                padding: "32px 24px",
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 18,
+                boxShadow: "0 20px 50px rgba(0, 0, 0, 0.6)",
+                color: "#FFFFFF",
+              }}
+            >
+              {/* Centered Circular Logo */}
+              <div
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: "50%",
+                  background: "#222222",
+                  border: "2px solid #10B981",
+                  overflow: "hidden",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: "0 4px 14px rgba(16, 185, 129, 0.2)",
+                  flexShrink: 0,
+                }}
+              >
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt="Store Logo"
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: "linear-gradient(135deg, #10B981, #059669)",
+                      color: "#FFFFFF",
+                      fontWeight: 900,
+                      fontSize: 20,
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    CO
+                  </div>
+                )}
+              </div>
+
+              {/* Store Name in Bold */}
+              <div>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: 20,
+                    fontWeight: 800,
+                    color: "#FFFFFF",
+                    letterSpacing: "-0.3px",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {qrStore.storeName}
+                </h3>
+                <p
+                  style={{
+                    margin: "6px 0 0 0",
+                    fontSize: 12,
+                    color: "#9CA3AF",
+                    fontFamily: "monospace",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  BRANCH: {qrStore.branchCode}
+                </p>
+              </div>
+
+              {/* QR Code in White Rounded Box */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  padding: 16,
+                  background: "#FFFFFF",
+                  borderRadius: 16,
+                  boxShadow: "0 8px 24px rgba(0, 0, 0, 0.3)",
+                }}
+              >
+                <QRCodeSVG
+                  value={`https://app.clickout.in/entry?t=${tenantId || ""}&b=${qrStore.branchCode}&s=${qrStore.branchCode}`}
+                  size={190}
+                  level="H"
+                />
+              </div>
+
+              {/* Footer Caption */}
+              <div>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "6px 14px",
+                    borderRadius: 20,
+                    background: "rgba(16, 185, 129, 0.12)",
+                    border: "1px solid rgba(16, 185, 129, 0.3)",
+                    color: "#10B981",
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  <span>📱</span>
+                  <span>Scan to enter via ClickOut App</span>
+                </div>
+              </div>
             </div>
 
-            <div style={{ display: "flex", justifyContent: "center", padding: 16, background: "#fff", borderRadius: 12 }}>
-              <QRCodeSVG
-                value={`https://app.clickout.com/entry?t=${tenantId || ""}&b=${qrStore.branchCode}&s=${qrStore.branchCode}`}
-                size={180}
-              />
-            </div>
-
-            <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)" }}>
-              Display or print this QR at shop entrance. Shoppers scan with ClickOut app to activate self-checkout.
-            </p>
-
-            <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
+            {/* Non-printable action buttons outside the #qr-standee container */}
+            <div
+              className="no-print"
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 12,
+                marginTop: 16,
+              }}
+            >
               <Button variant="secondary" onClick={() => setQrStore(null)}>
                 Close
               </Button>
               <Button variant="primary" onClick={() => window.print()}>
-                Print QR Standee
+                🖨️ Print QR Standee
               </Button>
             </div>
-          </Card>
+          </div>
         </Modal>
       )}
 

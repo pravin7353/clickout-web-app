@@ -9,8 +9,13 @@ import { TenantOnboardingForm } from "@/components/tenant-onboarding-form";
 import { StoreTable } from "@/components/store-table";
 import { Card, Badge, PageHeader } from "@/components/ui";
 
-export default async function TenantAdminPage() {
+export default async function TenantAdminPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ page?: string }>;
+}) {
   const { role, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
+  const { page: pageParam } = (await searchParams) || {};
 
   if (role === "tenant_admin") {
     const { isOnboardingComplete } = await getTenantOnboardingStatus(tenantId);
@@ -22,9 +27,24 @@ export default async function TenantAdminPage() {
     tenantId ? getTenantById(tenantId) : null,
   ]);
 
-  const metrics = await getTenantMetrics(tenantId as string, stores.length);
+  const totalStores = stores.length;
+  const metrics = await getTenantMetrics(tenantId as string, totalStores);
   const companyName = tenantProfile?.companyName || "Organization HQ";
   const plan = tenantProfile?.subscriptionPlan || "PRO";
+
+  // Pagination (pageSize = 25)
+  const pageSize = 25;
+  const totalPages = Math.max(1, Math.ceil(totalStores / pageSize));
+  const rawPage = parseInt(pageParam || "1", 10);
+  const currentPage = isNaN(rawPage) || rawPage < 1 ? 1 : Math.min(rawPage, totalPages);
+  const paginatedStores = stores.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  function getPageUrl(targetPage: number) {
+    const params = new URLSearchParams();
+    if (targetPage > 1) params.set("page", String(targetPage));
+    const qs = params.toString();
+    return qs ? `/tenant-admin?${qs}` : "/tenant-admin";
+  }
 
   return (
     <div style={{ padding: 24, maxWidth: 1280, margin: "0 auto", display: "grid", gap: 24 }}>
@@ -126,7 +146,127 @@ export default async function TenantAdminPage() {
             </div>
           </Card>
         ) : (
-          <StoreTable stores={stores} tenantId={tenantId ?? undefined} />
+          <>
+            <StoreTable stores={paginatedStores} tenantId={tenantId ?? undefined} />
+
+            {/* Pagination Controls */}
+            {totalStores > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  marginTop: 10,
+                  padding: "12px 18px",
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "var(--card-bg)",
+                }}
+              >
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
+                  Showing{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {(currentPage - 1) * pageSize + 1}
+                  </strong>
+                  {" "}–{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {Math.min(currentPage * pageSize, totalStores)}
+                  </strong>
+                  {" "}of{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>{totalStores}</strong>
+                  {" "}store locations
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {currentPage > 1 ? (
+                    <Link
+                      href={getPageUrl(currentPage - 1)}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 10,
+                        border: "1px solid var(--border)",
+                        background: "var(--scaffold-bg)",
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                        fontWeight: 700,
+                        fontSize: 12,
+                      }}
+                    >
+                      ← Previous
+                    </Link>
+                  ) : (
+                    <span
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 10,
+                        border: "1px solid var(--border)",
+                        background: "transparent",
+                        color: "var(--text-secondary)",
+                        opacity: 0.35,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "not-allowed",
+                        userSelect: "none",
+                      }}
+                    >
+                      ← Previous
+                    </span>
+                  )}
+
+                  <span
+                    style={{
+                      padding: "4px 12px",
+                      fontWeight: 800,
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                      background: "var(--scaffold-bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    Page {currentPage} of {totalPages}
+                  </span>
+
+                  {currentPage < totalPages ? (
+                    <Link
+                      href={getPageUrl(currentPage + 1)}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 10,
+                        border: "1px solid var(--border)",
+                        background: "var(--scaffold-bg)",
+                        color: "var(--text-primary)",
+                        textDecoration: "none",
+                        fontWeight: 700,
+                        fontSize: 12,
+                      }}
+                    >
+                      Next →
+                    </Link>
+                  ) : (
+                    <span
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 10,
+                        border: "1px solid var(--border)",
+                        background: "transparent",
+                        color: "var(--text-secondary)",
+                        opacity: 0.35,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "not-allowed",
+                        userSelect: "none",
+                      }}
+                    >
+                      Next →
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

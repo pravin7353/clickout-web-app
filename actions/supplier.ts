@@ -1,7 +1,8 @@
 "use server";
 
 import { adminDb } from "@/lib/firebase-admin";
-import { requireEditAccess } from "@/lib/rbac";
+import { requireEditAccess, requireRole } from "@/lib/rbac";
+import { getSuppliers } from "@/lib/services/supplier-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
@@ -581,4 +582,20 @@ export async function bulkImportSuppliersAction(input: string | CsvSupplierRecor
 
   const commitRes = await commitBulkSupplierImport(validRows);
   return commitRes;
+}
+
+export async function getSuppliersAction(options?: {
+  page?: number;
+  pageSize?: number;
+}) {
+  let session, role, tenantId;
+  try {
+    ({ session, role, tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, suppliers: [], totalCount: 0, error: "Unauthorized" };
+  }
+
+  const suppliers = await getSuppliers(role, tenantId, options);
+  const totalCount = (suppliers as any).totalCount ?? suppliers.length;
+  return { ok: true, suppliers, totalCount };
 }

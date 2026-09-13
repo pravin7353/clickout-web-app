@@ -32,7 +32,8 @@ export async function calculateRevenueMetrics(
   // 1. Query today's orders
   let query: FirebaseFirestore.Query = adminDb
     .collection("orders")
-    .where("timestamp", ">=", Timestamp.fromDate(startOfDay));
+    .where("timestamp", ">=", Timestamp.fromDate(startOfDay))
+    .limit(2000);
 
   if (role !== "super_admin" && tenantId) {
     query = query.where("tenantId", "==", tenantId);

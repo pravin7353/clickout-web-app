@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { getTenants } from "@/lib/services/tenant-service";
+import { getAllTenants } from "@/lib/services/tenant-service";
 import { scanForChurn, getGrowthConfig } from "@/lib/services/churn-service";
 import { createSystemWinbackCampaign } from "@/lib/services/campaign-service";
 
@@ -12,7 +12,7 @@ async function handleScan(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const tenants = await getTenants();
+  const tenants = await getAllTenants();
   let tenantsScanned = 0;
   let triggered = 0;
   let skippedCooldown = 0;

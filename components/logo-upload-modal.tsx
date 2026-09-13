@@ -14,6 +14,61 @@ interface LogoUploadModalProps {
   onSuccess?: () => void;
 }
 
+async function resizeImageIfNeeded(file: File, maxDimension = 800): Promise<File> {
+  if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
+    return file;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width <= maxDimension && height <= maxDimension) {
+        resolve(file);
+        return;
+      }
+      if (width > height) {
+        height = Math.round((height * maxDimension) / width);
+        width = maxDimension;
+      } else {
+        width = Math.round((width * maxDimension) / height);
+        height = maxDimension;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      const mimeType = file.type === "image/png" ? "image/png" : "image/jpeg";
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          const resizedFile = new File([blob], file.name, {
+            type: mimeType,
+            lastModified: Date.now(),
+          });
+          resolve(resizedFile);
+        },
+        mimeType,
+        0.88
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+}
+
 export function LogoUploadModal({
   onClose,
   currentCompanyLogoUrl,
@@ -34,7 +89,7 @@ export function LogoUploadModal({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -43,23 +98,30 @@ export function LogoUploadModal({
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError("File size exceeds 5MB limit.");
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Image too large — please choose a file under 8MB");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     setError("");
-    setSelectedFile(file);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (activeTab === "company") {
-        setCompanyPreview(reader.result as string);
-      } else {
-        setStorePreview(reader.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const processedFile = await resizeImageIfNeeded(file, 800);
+      setSelectedFile(processedFile);
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (activeTab === "company") {
+          setCompanyPreview(reader.result as string);
+        } else {
+          setStorePreview(reader.result as string);
+        }
+      };
+      reader.readAsDataURL(processedFile);
+    } catch {
+      setSelectedFile(file);
+    }
   };
 
   const handleUpload = () => {
@@ -305,7 +367,7 @@ export function LogoUploadModal({
               {selectedFile ? selectedFile.name : "Click or drag to select new logo"}
             </div>
             <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
-              PNG, JPG, SVG or WebP • Recommended size 512x512px (Max 5MB)
+              PNG, JPG, SVG or WebP • Recommended size 512x512px (Max 8MB)
             </div>
           </div>
 

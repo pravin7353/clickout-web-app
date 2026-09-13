@@ -7,17 +7,116 @@ import { revalidatePath } from "next/cache";
 
 const MAX_STORES: Record<string, number> = { ENTERPRISE: 1000, PRO: 50, BASIC: 5 };
 
-export async function updateTenantProfile(params: { companyName: string; ownerName: string }) {
-  const { tenantId } = await requireRole(["tenant_admin", "super_admin"]);
+export async function updateTenantProfile(raw: {
+  ownerName: string;
+  phone?: string;
+  email?: string;
+  recoveryEmail?: string;
+  companyName?: string;
+}) {
+  let session, role, tenantId;
+  try {
+    ({ session, role, tenantId } = await requireRole(["tenant_admin", "super_admin"]));
+  } catch {
+    return { ok: false, error: "Unauthorized" };
+  }
+
   if (!tenantId) return { ok: false, error: "No tenant found for this account." };
 
-  await adminDb.collection("tenants").doc(tenantId).update({
-    companyName: params.companyName.trim(),
-    ownerName: params.ownerName.trim(),
-  });
+  const ownerName = raw.ownerName?.trim();
+  if (!ownerName) {
+    return { ok: false, error: "Owner name is required." };
+  }
 
-  revalidatePath("/tenant-admin");
-  return { ok: true };
+  const docRef = adminDb.collection("tenants").doc(tenantId);
+  const docSnap = await docRef.get();
+  if (!docSnap.exists) {
+    return { ok: false, error: "Tenant record not found." };
+  }
+
+  const existingData = docSnap.data() || {};
+  const existingContact = existingData.contact || {};
+
+  const updatedContact: Record<string, any> = { ...existingContact };
+
+  if (raw.phone !== undefined) {
+    const phone = raw.phone.trim();
+    if (!/^\d{10}$/.test(phone)) {
+      return { ok: false, error: "Phone number must be exactly 10 digits." };
+    }
+    updatedContact.phone = phone;
+  }
+
+  if (raw.email !== undefined) {
+    const email = raw.email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { ok: false, error: "Please provide a valid business email address." };
+    }
+    updatedContact.email = email;
+  }
+
+  const updatePayload: Record<string, any> = {
+    ownerName,
+    contact: updatedContact,
+  };
+
+  if (raw.recoveryEmail !== undefined) {
+    const recoveryEmail = raw.recoveryEmail.trim().toLowerCase();
+    const storedRecoveryEmail = (
+      existingContact.recoveryEmail ??
+      existingData.recoveryEmail ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (recoveryEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(recoveryEmail)) {
+        return { ok: false, error: "Please provide a valid alternate login email address." };
+      }
+
+      // Only check difference from current login email if the user is actually changing it
+      const isChangingRecoveryEmail = recoveryEmail !== storedRecoveryEmail;
+      if (isChangingRecoveryEmail) {
+        const currentLoginEmail = (session.user?.email || "").trim().toLowerCase();
+        if (currentLoginEmail && recoveryEmail === currentLoginEmail) {
+          return { ok: false, error: "Alternate login email must be different from your current login email." };
+        }
+
+        const userId = (session.user as any)?.uid || (session.user as any)?.id;
+        if (userId) {
+          const staffDoc = await adminDb.collection("staff").doc(userId).get();
+          if (staffDoc.exists && (staffDoc.data()?.email || "").trim().toLowerCase() === recoveryEmail) {
+            return { ok: false, error: "Alternate login email must be different from your current login email." };
+          }
+        }
+      }
+
+      updatedContact.recoveryEmail = recoveryEmail;
+      updatePayload.recoveryEmail = recoveryEmail;
+    } else {
+      updatedContact.recoveryEmail = "";
+      updatePayload.recoveryEmail = "";
+    }
+  }
+
+  if (raw.companyName !== undefined) {
+    const companyName = raw.companyName.trim();
+    if (!companyName) {
+      return { ok: false, error: "Company name is required." };
+    }
+    updatePayload.companyName = companyName;
+  }
+
+  try {
+    await docRef.set(updatePayload, { merge: true });
+    revalidatePath("/tenant-admin");
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Failed to update tenant profile." };
+  }
 }
 
 export async function onboardTenant(params: {

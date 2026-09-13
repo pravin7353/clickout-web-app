@@ -11,12 +11,25 @@ export type StoreRow = {
   status: string;
 };
 
-export async function getStores(role: string, tenantId: string | null): Promise<StoreRow[]> {
+export type StorePaginationOptions = {
+  page?: number;
+  pageSize?: number;
+};
+
+/**
+ * Fetch stores with defensive .limit(200) cap and optional pagination support.
+ */
+export async function getStores(
+  role: string,
+  tenantId: string | null,
+  options?: StorePaginationOptions
+): Promise<StoreRow[]> {
   let query: FirebaseFirestore.Query = adminDb.collection("stores");
   if (role !== "super_admin" && tenantId) query = query.where("tenantId", "==", tenantId);
 
-  const snap = await query.orderBy("createdAt", "desc").get();
-  return snap.docs.map((doc) => {
+  // Immediate safety cap: limit(200) prevents unbounded growth
+  const snap = await query.orderBy("createdAt", "desc").limit(200).get();
+  const allStores: StoreRow[] = snap.docs.map((doc) => {
     const data = doc.data();
     return {
       id: doc.id,
@@ -29,4 +42,14 @@ export async function getStores(role: string, tenantId: string | null): Promise<
       status: data.status ?? "ACTIVE",
     };
   });
+
+  if (options?.page && options?.pageSize) {
+    const start = (Math.max(1, options.page) - 1) * options.pageSize;
+    const paged = allStores.slice(start, start + options.pageSize);
+    (paged as any).totalCount = allStores.length;
+    return paged;
+  }
+
+  (allStores as any).totalCount = allStores.length;
+  return allStores;
 }

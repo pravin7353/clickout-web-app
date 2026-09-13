@@ -106,9 +106,9 @@ export async function uploadBrandLogo(formData: FormData): Promise<{ ok: boolean
       return { ok: false, error: "No image file provided" };
     }
 
-    // Maximum 5MB size limit
-    if (file.size > 5 * 1024 * 1024) {
-      return { ok: false, error: "Image file too large. Max 5MB allowed." };
+    // Maximum 8MB size limit
+    if (file.size > 8 * 1024 * 1024) {
+      return { ok: false, error: "Image file too large. Max 8MB allowed." };
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
