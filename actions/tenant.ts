@@ -7,6 +7,37 @@ import { revalidatePath } from "next/cache";
 
 const MAX_STORES: Record<string, number> = { ENTERPRISE: 1000, PRO: 50, BASIC: 5 };
 
+export async function getTenantProfile() {
+  let tenantId;
+  try {
+    ({ tenantId } = await requireRole(["tenant_admin", "super_admin"]));
+  } catch {
+    return { ok: false, error: "Unauthorized" };
+  }
+
+  if (!tenantId) return { ok: false, error: "No tenant found for this account." };
+
+  const docRef = adminDb.collection("tenants").doc(tenantId);
+  const docSnap = await docRef.get();
+  if (!docSnap.exists) {
+    return { ok: false, error: "Tenant record not found." };
+  }
+
+  const data = docSnap.data() || {};
+  const contact = data.contact || {};
+
+  return {
+    ok: true,
+    data: {
+      companyName: data.companyName || "",
+      ownerName: data.ownerName || "",
+      phone: contact.phone || "",
+      email: contact.email || "",
+      recoveryEmail: contact.recoveryEmail || data.recoveryEmail || "",
+    },
+  };
+}
+
 export async function updateTenantProfile(raw: {
   ownerName: string;
   phone?: string;

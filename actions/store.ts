@@ -204,13 +204,28 @@ export async function getStoreForEdit(storeId: string) {
     state: data.location?.state || "",
     pincode: data.location?.pincode || "",
     licenses: data.licenses || [],
-    bankAccounts: data.bankAccounts || []
+    bankAccounts: data.bankAccounts || [],
+    managerEmpId: data.managerEmpId || "",
+    managerName: data.managerName || "",
+    managerPhone: data.managerPhone || "",
+    managerEmail: data.managerEmail || "",
   };
 }
 
 export async function updateStoreProfile(params: { 
-  storeId: string; storeName: string; gstin: string; address: string; city: string; state: string; pincode: string;
-  licenses: any[]; bankAccounts: any[];
+  storeId: string;
+  storeName: string;
+  gstin: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  licenses: any[];
+  bankAccounts: any[];
+  managerEmpId?: string;
+  managerName?: string;
+  managerPhone?: string;
+  managerEmail?: string;
 }) {
   try {
     await requireRole(["super_admin", "tenant_admin", "manager"]);
@@ -223,7 +238,7 @@ export async function updateStoreProfile(params: {
       }
     }
 
-    await docRef.update({
+    const updatePayload: Record<string, any> = {
       storeName: params.storeName.trim(),
       gstin: params.gstin.trim(),
       gstNumber: params.gstin.trim(),
@@ -233,8 +248,23 @@ export async function updateStoreProfile(params: {
       "location.pincode": params.pincode.trim(),
       licenses: params.licenses,
       bankAccounts: params.bankAccounts,
-      bankDetailsPending: !params.bankAccounts?.length
-    });
+      bankDetailsPending: !params.bankAccounts?.length,
+    };
+
+    if (params.managerEmpId !== undefined) {
+      updatePayload.managerEmpId = params.managerEmpId ? params.managerEmpId.trim() : null;
+    }
+    if (params.managerName !== undefined) {
+      updatePayload.managerName = params.managerName ? params.managerName.trim() : null;
+    }
+    if (params.managerPhone !== undefined) {
+      updatePayload.managerPhone = params.managerPhone ? params.managerPhone.trim() : null;
+    }
+    if (params.managerEmail !== undefined) {
+      updatePayload.managerEmail = params.managerEmail ? params.managerEmail.trim().toLowerCase() : null;
+    }
+
+    await docRef.update(updatePayload);
     revalidatePath("/tenant-admin");
     revalidatePath("/dashboard");
     revalidatePath("/usage");

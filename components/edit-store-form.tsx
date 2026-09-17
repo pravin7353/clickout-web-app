@@ -24,7 +24,11 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
   const [data, setData] = useState({
     storeName: "", gstin: "", city: "", address: "", state: "", pincode: "",
     licenses: [] as { type: string; number: string }[],
-    bankAccounts: [] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[]
+    bankAccounts: [] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[],
+    managerEmpId: "",
+    managerName: "",
+    managerPhone: "",
+    managerEmail: ""
   });
 
   useEffect(() => {
@@ -32,7 +36,15 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
       if (res) {
         const cleanedBanks = (res.bankAccounts || []).map((b: any) => ({ label: b.label || "Primary Settlement", accountName: b.accountName || "", accountNo: b.accountNo || "", ifsc: b.ifsc || "", bankName: b.bankName || "", upi: b.upi || "" }));
         const lics = res.licenses && res.licenses.length > 0 ? res.licenses : [{ type: "GSTIN", number: "" }];
-        setData({ ...res, bankAccounts: cleanedBanks, licenses: lics } as any);
+        setData({
+          ...res,
+          managerEmpId: res.managerEmpId || "",
+          managerName: res.managerName || "",
+          managerPhone: res.managerPhone || "",
+          managerEmail: res.managerEmail || "",
+          bankAccounts: cleanedBanks,
+          licenses: lics,
+        } as any);
       }
       setIsLoading(false);
     });
@@ -82,6 +94,29 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
+
+    const hasManagerField = Boolean(
+      (data.managerEmpId && data.managerEmpId.trim()) ||
+      (data.managerName && data.managerName.trim()) ||
+      (data.managerPhone && data.managerPhone.trim()) ||
+      (data.managerEmail && data.managerEmail.trim())
+    );
+
+    if (hasManagerField) {
+      if (!data.managerName || !data.managerName.trim()) {
+        setError("Manager name is required.");
+        return;
+      }
+      if (data.managerPhone && data.managerPhone.trim() && !/^\d{10}$/.test(data.managerPhone.trim())) {
+        setError("Valid 10-digit manager phone required.");
+        return;
+      }
+      if (data.managerEmail && data.managerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.managerEmail.trim())) {
+        setError("Valid manager email required.");
+        return;
+      }
+    }
+
     startTransition(async () => {
       const res = await updateStoreProfile({ storeId, ...data });
       if (!res?.ok) setError(res?.error ?? "Failed to update");
@@ -191,6 +226,54 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
                 {data.bankAccounts.length < 5 && (
                   <button type="button" onClick={() => updateData({ bankAccounts: [...data.bankAccounts, { label: "Primary Settlement", accountName: "", accountNo: "", ifsc: "", bankName: "", upi: "" }] })} style={{ color: "var(--success)", background: "transparent", border: "none", cursor: "pointer", fontSize: 13, alignSelf: "center", marginTop: 8, fontWeight: 600 }}>+ Add Another Account</button>
                 )}
+              </div>
+
+              <div style={sectionHeaderStyle}><span>5. Manager Details</span></div>
+              <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Manager Name</label>
+                  <input
+                    className="co-input"
+                    style={{ width: "100%" }}
+                    placeholder="e.g. Rahul Sharma"
+                    value={data.managerName}
+                    onChange={e => updateData({ managerName: e.target.value })}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Employee ID (Optional)</label>
+                  <input
+                    className="co-input"
+                    style={{ width: "100%" }}
+                    placeholder="e.g. EMP-001"
+                    value={data.managerEmpId}
+                    onChange={e => updateData({ managerEmpId: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Phone (10 digits)</label>
+                  <input
+                    className="co-input"
+                    style={{ width: "100%" }}
+                    placeholder="e.g. 9876543210"
+                    maxLength={10}
+                    value={data.managerPhone}
+                    onChange={e => updateData({ managerPhone: e.target.value.replace(/\D/g, "") })}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={labelStyle}>Manager Email</label>
+                  <input
+                    className="co-input"
+                    style={{ width: "100%" }}
+                    type="email"
+                    placeholder="e.g. manager@store.com"
+                    value={data.managerEmail}
+                    onChange={e => updateData({ managerEmail: e.target.value })}
+                  />
+                </div>
               </div>
             </form>
           </div>

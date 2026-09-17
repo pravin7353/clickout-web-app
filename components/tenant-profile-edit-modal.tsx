@@ -1,39 +1,70 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { updateTenantProfile } from "@/actions/tenant";
+import { useState, useTransition, useEffect } from "react";
+import { updateTenantProfile, getTenantProfile } from "@/actions/tenant";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/profile-menu";
 
-interface TenantProfileEditModalProps {
-  initialData: {
-    companyName?: string;
-    ownerName: string;
-    phone: string;
-    email: string;
-    recoveryEmail?: string;
-  };
+interface TenantProfileData {
+  companyName?: string;
+  ownerName: string;
+  phone: string;
+  email: string;
+  recoveryEmail?: string;
 }
 
-export function TenantProfileEditModal({ initialData }: TenantProfileEditModalProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [companyName, setCompanyName] = useState(initialData.companyName || "");
-  const [ownerName, setOwnerName] = useState(initialData.ownerName);
-  const [phone, setPhone] = useState(initialData.phone);
-  const [email, setEmail] = useState(initialData.email);
-  const [recoveryEmail, setRecoveryEmail] = useState(initialData.recoveryEmail || "");
+interface TenantProfileEditModalProps {
+  initialData?: TenantProfileData;
+  onClose?: () => void;
+}
+
+export function TenantProfileEditModal({ initialData, onClose }: TenantProfileEditModalProps) {
+  const isControlled = typeof onClose === "function";
+  const [isOpen, setIsOpen] = useState(isControlled);
+  const [isLoading, setIsLoading] = useState(!initialData);
+
+  const [companyName, setCompanyName] = useState(initialData?.companyName || "");
+  const [ownerName, setOwnerName] = useState(initialData?.ownerName || "");
+  const [phone, setPhone] = useState(initialData?.phone || "");
+  const [email, setEmail] = useState(initialData?.email || "");
+  const [recoveryEmail, setRecoveryEmail] = useState(initialData?.recoveryEmail || "");
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  useEffect(() => {
+    if (!initialData) {
+      setIsLoading(true);
+      getTenantProfile().then((res) => {
+        if (res.ok && res.data) {
+          setCompanyName(res.data.companyName || "");
+          setOwnerName(res.data.ownerName || "");
+          setPhone(res.data.phone || "");
+          setEmail(res.data.email || "");
+          setRecoveryEmail(res.data.recoveryEmail || "");
+        }
+        setIsLoading(false);
+      });
+    } else {
+      setCompanyName(initialData.companyName || "");
+      setOwnerName(initialData.ownerName || "");
+      setPhone(initialData.phone || "");
+      setEmail(initialData.email || "");
+      setRecoveryEmail(initialData.recoveryEmail || "");
+      setIsLoading(false);
+    }
+  }, [initialData]);
+
   function handleOpen() {
-    setCompanyName(initialData.companyName || "");
-    setOwnerName(initialData.ownerName);
-    setPhone(initialData.phone);
-    setEmail(initialData.email);
-    setRecoveryEmail(initialData.recoveryEmail || "");
+    if (initialData) {
+      setCompanyName(initialData.companyName || "");
+      setOwnerName(initialData.ownerName);
+      setPhone(initialData.phone);
+      setEmail(initialData.email);
+      setRecoveryEmail(initialData.recoveryEmail || "");
+    }
     setError(null);
     setSuccess(null);
     setIsOpen(true);
@@ -42,6 +73,7 @@ export function TenantProfileEditModal({ initialData }: TenantProfileEditModalPr
   function handleClose() {
     if (isPending) return;
     setIsOpen(false);
+    onClose?.();
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -89,6 +121,7 @@ export function TenantProfileEditModal({ initialData }: TenantProfileEditModalPr
         router.refresh();
         setTimeout(() => {
           setIsOpen(false);
+          onClose?.();
         }, 600);
       }
     });
@@ -96,29 +129,31 @@ export function TenantProfileEditModal({ initialData }: TenantProfileEditModalPr
 
   return (
     <>
-      <button
-        type="button"
-        onClick={handleOpen}
-        title="Edit Organization Profile"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 5,
-          padding: "3px 9px",
-          borderRadius: 6,
-          border: "1px solid var(--border)",
-          background: "color-mix(in srgb, var(--primary) 10%, var(--card-bg))",
-          color: "var(--text-primary)",
-          fontSize: 11,
-          fontWeight: 700,
-          cursor: "pointer",
-          transition: "all 0.15s ease",
-          userSelect: "none",
-        }}
-      >
-        <span>✏️</span>
-        <span>Edit Profile</span>
-      </button>
+      {!isControlled && (
+        <button
+          type="button"
+          onClick={handleOpen}
+          title="Edit Organization Profile"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "3px 9px",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            background: "color-mix(in srgb, var(--primary) 10%, var(--card-bg))",
+            color: "var(--text-primary)",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            userSelect: "none",
+          }}
+        >
+          <span>✏️</span>
+          <span>Edit Profile</span>
+        </button>
+      )}
 
       {isOpen && (
         <Modal onClose={handleClose}>
@@ -183,8 +218,13 @@ export function TenantProfileEditModal({ initialData }: TenantProfileEditModalPr
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit}>
+            {isLoading ? (
+              <div style={{ padding: "40px 22px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
+                Loading organization profile...
+              </div>
+            ) : (
+              /* Form */
+              <form onSubmit={handleSubmit}>
               <div style={{ padding: "20px 22px", display: "grid", gap: 14 }}>
                 {error && (
                   <div
@@ -508,6 +548,7 @@ export function TenantProfileEditModal({ initialData }: TenantProfileEditModalPr
                 </button>
               </div>
             </form>
+            )}
           </div>
         </Modal>
       )}

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useSession, signOut } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { QRCodeSVG, QRCodeCanvas } from "qrcode.react";
-import { updateTenantProfile } from "@/actions/tenant";
+import { TenantProfileEditModal } from "@/components/tenant-profile-edit-modal";
 import { getBrandInfo, BrandInfo, getCurrentUserProfile, UserProfileInfo } from "@/actions/brand";
 import { EditStoreForm } from "@/components/edit-store-form";
 import { LogoUploadModal } from "@/components/logo-upload-modal";
@@ -656,7 +656,7 @@ export function CompanyEditButton() {
       >
         🏢
       </button>
-      {open && <CompanyProfileForm onClose={() => setOpen(false)} />}
+      {open && <TenantProfileEditModal onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -732,47 +732,5 @@ export function Modal({ children, onClose }: { children: React.ReactNode; onClos
       <div onClick={(e) => e.stopPropagation()}>{children}</div>
     </div>,
     document.body
-  );
-}
-
-function CompanyProfileForm({ onClose }: { onClose: () => void }) {
-  const [error, setError] = useState("");
-  const [isPending, startTransition] = useTransition();
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-    const form = new FormData(e.currentTarget);
-    startTransition(async () => {
-      const res = await updateTenantProfile({
-        companyName: form.get("companyName") as string,
-        ownerName: form.get("ownerName") as string,
-      });
-      if (!res.ok) setError(res.error ?? "Failed");
-      else onClose();
-    });
-  }
-
-  return (
-    <Modal onClose={onClose}>
-      <Card style={{ width: 380, borderRadius: 18 }}>
-        <h3 style={{ fontWeight: 800, fontSize: 17, marginBottom: 16, color: "var(--text-primary)" }}>
-          Company Profile
-        </h3>
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
-          <Input name="companyName" placeholder="Company name" required />
-          <Input name="ownerName" placeholder="Owner name" required />
-          {error && <ErrorBanner message={error} />}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-            <Button variant="secondary" type="button" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : "Save"}
-            </Button>
-          </div>
-        </form>
-      </Card>
-    </Modal>
   );
 }
