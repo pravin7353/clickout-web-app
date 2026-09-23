@@ -23,6 +23,9 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
 
   const [data, setData] = useState({
     storeName: "", gstin: "", city: "", address: "", state: "", pincode: "",
+    geoLatitude: "" as string | number,
+    geoLongitude: "" as string | number,
+    geoRadiusMeters: 100,
     licenses: [] as { type: string; number: string }[],
     bankAccounts: [] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[],
     managerEmpId: "",
@@ -38,6 +41,9 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
         const lics = res.licenses && res.licenses.length > 0 ? res.licenses : [{ type: "GSTIN", number: "" }];
         setData({
           ...res,
+          geoLatitude: res.geoLatitude ?? "",
+          geoLongitude: res.geoLongitude ?? "",
+          geoRadiusMeters: res.geoRadiusMeters ?? 100,
           managerEmpId: res.managerEmpId || "",
           managerName: res.managerName || "",
           managerPhone: res.managerPhone || "",
@@ -118,7 +124,14 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
     }
 
     startTransition(async () => {
-      const res = await updateStoreProfile({ storeId, ...data });
+      const payload = {
+        storeId,
+        ...data,
+        geoLatitude: data.geoLatitude !== "" && !isNaN(Number(data.geoLatitude)) ? Number(data.geoLatitude) : null,
+        geoLongitude: data.geoLongitude !== "" && !isNaN(Number(data.geoLongitude)) ? Number(data.geoLongitude) : null,
+        geoRadiusMeters: Number(data.geoRadiusMeters) || 100,
+      };
+      const res = await updateStoreProfile(payload);
       if (!res?.ok) setError(res?.error ?? "Failed to update");
       else onClose();
     });
@@ -149,7 +162,7 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
                 <div style={{ flex: 1 }}><label style={labelStyle}>Primary GSTIN</label><input className="co-input" style={{ width: "100%" }} value={data.gstin} onChange={e => updateData({gstin: e.target.value.toUpperCase()})} /></div>
               </div>
 
-              <div style={sectionHeaderStyle}><span>2. Location Details</span></div>
+              <div style={sectionHeaderStyle}><span>2. Location & Geo-Fence</span></div>
               <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
                 <div style={{ flex: 1, position: "relative" }}>
                   <label style={labelStyle}>Pincode *</label>
@@ -165,6 +178,42 @@ export function EditStoreForm({ storeId, onClose }: { storeId: string; onClose: 
                 </div>
               </div>
               <div><label style={labelStyle}>Complete Address *</label><textarea className="co-input" style={{ width: "100%", minHeight: 60, resize: "vertical" }} required value={data.address} onChange={e => updateData({address: e.target.value})} /></div>
+
+              {/* Geo-Fencing Section */}
+              <div style={{ marginTop: 12, padding: 14, background: "rgba(168, 85, 247, 0.05)", border: "1px solid rgba(168, 85, 247, 0.2)", borderRadius: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#A855F7" }}>📍 Geo-Fence Attendance Boundary (Lat/Long)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => updateData({ geoLatitude: pos.coords.latitude, geoLongitude: pos.coords.longitude }),
+                          (err) => console.warn("GPS fetch failed", err),
+                          { enableHighAccuracy: true }
+                        );
+                      }
+                    }}
+                    style={{ background: "transparent", border: "1px solid #A855F7", color: "#A855F7", fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}
+                  >
+                    🎯 Use My Location
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Latitude</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" step="any" placeholder="e.g. 19.0760" value={data.geoLatitude} onChange={e => updateData({ geoLatitude: e.target.value })} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Longitude</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" step="any" placeholder="e.g. 72.8777" value={data.geoLongitude} onChange={e => updateData({ geoLongitude: e.target.value })} />
+                  </div>
+                  <div style={{ width: 90 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Radius (m)</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" min={10} max={5000} value={data.geoRadiusMeters} onChange={e => updateData({ geoRadiusMeters: Number(e.target.value) || 100 })} />
+                  </div>
+                </div>
+              </div>
 
               <div style={sectionHeaderStyle}>
                 <span>3. Legal & Compliance</span>

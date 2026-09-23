@@ -116,3 +116,24 @@ export function getRequiredPlanName(route: string): string {
   const resolved = planFromString(minPlan);
   return PLAN_CONFIG[resolved]?.displayName ?? '';
 }
+
+/**
+ * Checks if a tenant has a specific paid addon enabled (or on active addon trial).
+ * Note: Blanket platform trial or base subscription tiers do NOT automatically grant addon access.
+ */
+export function hasTenantAddon(
+  tenantData: { enabledAddons?: string[]; trialAddons?: string[] } | null | undefined,
+  addonKey: string
+): boolean {
+  if (!tenantData) return false;
+  const key = addonKey.toLowerCase().trim();
+  const enabled = Array.isArray(tenantData.enabledAddons)
+    ? tenantData.enabledAddons.map((a) => a.toLowerCase().trim())
+    : [];
+  const trial = Array.isArray(tenantData.trialAddons)
+    ? tenantData.trialAddons.map((a) => a.toLowerCase().trim())
+    : [];
+
+  return enabled.includes(key) || trial.includes(key);
+}
+

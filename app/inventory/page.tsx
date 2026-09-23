@@ -1,4 +1,4 @@
-import { requireRole, resolveStoreScope } from "@/lib/rbac";
+﻿import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getLedger } from "@/lib/services/inventory-service";
 import { AddProductForm } from "@/components/add-product-form";
 import { CsvImport } from "@/components/csv-import";
@@ -54,12 +54,32 @@ export default async function InventoryPage({
         title="Product Control & Godown Ledger"
         subtitle={!canEdit ? "View-only — contact your store manager to modify stock or add products" : "Enterprise master product catalog, barcode tracking, and godown reconciliation."}
         action={
-          canEdit ? (
-            <div style={{ display: "flex", gap: 10 }}>
-              <CsvImport branchParam={effectiveStoreId ?? undefined} />
-              <AddProductForm branchParam={effectiveStoreId ?? undefined} />
-            </div>
-          ) : undefined
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <Link
+              href={`/inventory/aging${effectiveStoreId ? `?store=${effectiveStoreId}` : ""}`}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                background: "var(--card-bg)",
+                color: "var(--text-primary)",
+                textDecoration: "none",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              📊 Aging Analysis
+            </Link>
+            {canEdit && (
+              <>
+                <CsvImport branchParam={effectiveStoreId ?? undefined} />
+                <AddProductForm branchParam={effectiveStoreId ?? undefined} />
+              </>
+            )}
+          </div>
         }
       />
 

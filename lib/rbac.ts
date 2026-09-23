@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "./auth";
+import { adminDb } from "./firebase-admin";
+import { hasTenantAddon } from "./subscription/access-engine";
 
 type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor";
 
@@ -50,6 +52,26 @@ export function assertStoreScope(userStoreId: string | null, targetStoreId: stri
   if (!userStoreId || userStoreId !== targetStoreId) {
     throw new Error("FORBIDDEN_STORE_SCOPE");
   }
+}
+
+/**
+ * Validates that the specified tenant has the required paid addon enabled (or active trial for the addon).
+ * Throws "ADDON_NOT_ENABLED" if missing.
+ */
+export async function requireAddon(tenantId: string | null, addonKey: string) {
+  if (!tenantId) {
+    throw new Error("ADDON_NOT_ENABLED");
+  }
+  const tenantDoc = await adminDb.collection("tenants").doc(tenantId).get();
+  if (!tenantDoc.exists) {
+    throw new Error("TENANT_NOT_FOUND");
+  }
+  const tenantData = tenantDoc.data() || {};
+  const isEnabled = hasTenantAddon(tenantData, addonKey);
+  if (!isEnabled) {
+    throw new Error("ADDON_NOT_ENABLED");
+  }
+  return tenantData;
 }
 
 /**

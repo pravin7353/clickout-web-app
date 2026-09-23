@@ -139,6 +139,9 @@ export async function createStore(raw: unknown) {
         state: data.state ?? "",
         pincode: data.pincode ?? "",
       },
+      geoLatitude: data.geoLatitude ?? null,
+      geoLongitude: data.geoLongitude ?? null,
+      geoRadiusMeters: data.geoRadiusMeters ?? 100,
       licenses: data.licenses ?? [],
       bankAccounts: data.bankAccounts ?? [],
       bankDetailsPending: !data.bankAccounts?.length,
@@ -203,6 +206,9 @@ export async function getStoreForEdit(storeId: string) {
     city: data.location?.city || "",
     state: data.location?.state || "",
     pincode: data.location?.pincode || "",
+    geoLatitude: data.geoLatitude ?? data.location?.geoLatitude ?? null,
+    geoLongitude: data.geoLongitude ?? data.location?.geoLongitude ?? null,
+    geoRadiusMeters: data.geoRadiusMeters ?? data.location?.geoRadiusMeters ?? 100,
     licenses: data.licenses || [],
     bankAccounts: data.bankAccounts || [],
     managerEmpId: data.managerEmpId || "",
@@ -220,6 +226,9 @@ export async function updateStoreProfile(params: {
   city: string;
   state: string;
   pincode: string;
+  geoLatitude?: number | null;
+  geoLongitude?: number | null;
+  geoRadiusMeters?: number | null;
   licenses: any[];
   bankAccounts: any[];
   managerEmpId?: string;
@@ -250,6 +259,16 @@ export async function updateStoreProfile(params: {
       bankAccounts: params.bankAccounts,
       bankDetailsPending: !params.bankAccounts?.length,
     };
+
+    if (params.geoLatitude !== undefined) {
+      updatePayload.geoLatitude = params.geoLatitude;
+    }
+    if (params.geoLongitude !== undefined) {
+      updatePayload.geoLongitude = params.geoLongitude;
+    }
+    if (params.geoRadiusMeters !== undefined) {
+      updatePayload.geoRadiusMeters = params.geoRadiusMeters;
+    }
 
     if (params.managerEmpId !== undefined) {
       updatePayload.managerEmpId = params.managerEmpId ? params.managerEmpId.trim() : null;

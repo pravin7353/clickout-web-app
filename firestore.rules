@@ -26,8 +26,20 @@ service cloud.firestore {
       return request.auth.token.storeId;
     }
 
+    function tenantId() {
+      return request.auth.token.tenantId;
+    }
+
     function isAdminOrCompliance() {
       return isSignedIn() && (role() == 'admin' || role() == 'compliance');
+    }
+
+    function isHrRole() {
+      return isSignedIn() && (
+        role() == 'manager' ||
+        role() == 'tenant_admin' ||
+        role() == 'super_admin'
+      );
     }
 
     // ---- admin_users: admin-panel logins only ----
@@ -83,6 +95,66 @@ service cloud.firestore {
     match /{path=**}/reports/{reportId} {
       allow read: if isSignedIn() && (role() == 'exporter' || isAdminOrCompliance());
       allow write: if false; // reports are generated server-side only
+    }
+
+    // ---- staff HR subcollections (attendance & leaves) ----
+    match /staff/{staffId}/attendance/{date} {
+      allow read: if isSignedIn() && (
+        (isHrRole() && resource.data.tenantId == tenantId()) ||
+        (request.auth.uid == staffId && resource.data.tenantId == tenantId())
+      );
+      allow write: if isSignedIn() && isHrRole() && (
+        (resource == null && request.resource.data.tenantId == tenantId()) ||
+        (resource != null && resource.data.tenantId == tenantId() && request.resource.data.tenantId == tenantId())
+      );
+    }
+
+    match /staff/{staffId}/leaves/{leaveId} {
+      allow read: if isSignedIn() && (
+        (isHrRole() && resource.data.tenantId == tenantId()) ||
+        (request.auth.uid == staffId && resource.data.tenantId == tenantId())
+      );
+      allow write: if isSignedIn() && (
+        (isHrRole() && (
+          (resource == null && request.resource.data.tenantId == tenantId()) ||
+          (resource != null && resource.data.tenantId == tenantId() && request.resource.data.tenantId == tenantId())
+        )) ||
+        (request.auth.uid == staffId && request.resource.data.tenantId == tenantId())
+      );
+    }
+
+    // ---- staff HR subcollections (regularizations) ----
+    match /staff/{staffId}/regularizations/{reqId} {
+      allow read: if isSignedIn() && (
+        (isHrRole() && resource.data.tenantId == tenantId()) ||
+        (request.auth.uid == staffId && resource.data.tenantId == tenantId())
+      );
+      allow write: if isSignedIn() && (
+        (isHrRole() && (
+          (resource == null && request.resource.data.tenantId == tenantId()) ||
+          (resource != null && resource.data.tenantId == tenantId() && request.resource.data.tenantId == tenantId())
+        )) ||
+        (request.auth.uid == staffId && request.resource.data.tenantId == tenantId())
+      );
+    }
+
+    // ---- staff leave balances ----
+    match /leave_balances/{staffId} {
+      allow read: if isSignedIn() && (
+        (isHrRole() && resource.data.tenantId == tenantId()) ||
+        (request.auth.uid == staffId && resource.data.tenantId == tenantId())
+      );
+      allow write: if isSignedIn() && isHrRole() && (
+        (resource == null && request.resource.data.tenantId == tenantId()) ||
+        (resource != null && resource.data.tenantId == tenantId() && request.resource.data.tenantId == tenantId())
+      );
+    }
+
+    // ---- salary structures (append-only history) ----
+    match /salary_structures/{structureId} {
+      allow read: if isSignedIn() && isHrRole() && resource.data.tenantId == tenantId();
+      allow create: if isSignedIn() && isHrRole() && request.resource.data.tenantId == tenantId();
+      allow update, delete: if false; // Append-only audit trail
     }
   }
 }

@@ -46,6 +46,10 @@ export const createStoreSchema = z.object({
 
   licenses: z.array(licenseSchema).max(5, "Max 5 licenses allowed").optional(),
   bankAccounts: z.array(bankSchema).max(5, "Max 5 bank accounts allowed").optional(),
+
+  geoLatitude: z.number().optional().nullable(),
+  geoLongitude: z.number().optional().nullable(),
+  geoRadiusMeters: z.number().min(10, "Radius must be at least 10m").max(5000, "Radius max 5000m").default(100).optional().nullable(),
 }).superRefine((val, ctx) => {
   const hasManager = !!(val.managerEmail || val.managerName || val.managerPhone);
   if (hasManager) {

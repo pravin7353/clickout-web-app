@@ -13,6 +13,12 @@ export const onboardStaffSchema = z
       .or(z.literal("")),
     email: z.string().trim().email("Invalid email format").optional().or(z.literal("")),
     branchCode: z.string().trim().min(1, "Branch is required"),
+    reportsToStaffId: z.string().trim().nullable().optional(),
+    dateOfBirth: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Format must be YYYY-MM-DD").optional().or(z.literal("")),
+    dateOfJoining: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Format must be YYYY-MM-DD").optional().or(z.literal("")),
+    emergencyContact: z.string().trim().optional().or(z.literal("")),
+    bloodGroup: z.string().trim().optional().or(z.literal("")),
+    photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
   })
   .superRefine((data, ctx) => {
     const isAuditor = data.role.toUpperCase() === "AUDITOR";
@@ -46,4 +52,10 @@ export const updateStaffSchema = z.object({
     .or(z.literal("")),
   email: z.string().trim().email("Invalid email format").optional().or(z.literal("")),
   branchCode: z.string().trim().min(1, "Branch is required"),
+  reportsToStaffId: z.string().trim().nullable().optional(),
+  dateOfBirth: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Format must be YYYY-MM-DD").optional().or(z.literal("")),
+  dateOfJoining: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, "Format must be YYYY-MM-DD").optional().or(z.literal("")),
+  emergencyContact: z.string().trim().optional().or(z.literal("")),
+  bloodGroup: z.string().trim().optional().or(z.literal("")),
+  photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
 });

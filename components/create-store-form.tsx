@@ -35,6 +35,9 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
     storeName: "", branchCode: "", storePhone: "",
     managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "",
     pincode: "", city: "", state: "", address: "",
+    geoLatitude: "" as string | number,
+    geoLongitude: "" as string | number,
+    geoRadiusMeters: 100,
     licenses: [defaultLicense] as { type: string; number: string }[],
     bankAccounts: [defaultBank] as { label: string; accountName: string; accountNo: string; ifsc: string; bankName: string; upi: string }[]
   });
@@ -139,6 +142,9 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
 
     const payload = {
       ...data,
+      geoLatitude: data.geoLatitude !== "" && !isNaN(Number(data.geoLatitude)) ? Number(data.geoLatitude) : undefined,
+      geoLongitude: data.geoLongitude !== "" && !isNaN(Number(data.geoLongitude)) ? Number(data.geoLongitude) : undefined,
+      geoRadiusMeters: Number(data.geoRadiusMeters) || 100,
       licenses: filteredLicenses,
       bankAccounts: filteredBankAccounts,
     };
@@ -155,7 +161,13 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
       else { 
         setOpen(false); 
         setStep(1); 
-        setData({ storeName: "", branchCode: "", storePhone: "", managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "", pincode: "", city: "", state: "", address: "", licenses: [defaultLicense], bankAccounts: [defaultBank] });
+        setData({ 
+          storeName: "", branchCode: "", storePhone: "", 
+          managerEmpId: "", managerName: "", managerPhone: "", managerEmail: "", 
+          pincode: "", city: "", state: "", address: "", 
+          geoLatitude: "", geoLongitude: "", geoRadiusMeters: 100,
+          licenses: [defaultLicense], bankAccounts: [defaultBank] 
+        });
         router.refresh(); 
       }
     });
@@ -270,7 +282,43 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6, display: "block" }}>Complete Address *</label>
-                <textarea className="co-input" style={{ width: "100%", minHeight: 80, resize: "vertical" }} value={data.address} onChange={e => updateData({ address: e.target.value })} placeholder="Shop no, Building, Street..." />
+                <textarea className="co-input" style={{ width: "100%", minHeight: 70, resize: "vertical" }} value={data.address} onChange={e => updateData({ address: e.target.value })} placeholder="Shop no, Building, Street..." />
+              </div>
+
+              {/* Geo-Fencing for HR & Attendance */}
+              <div style={{ marginTop: 12, padding: 14, background: "rgba(168, 85, 247, 0.05)", border: "1px solid rgba(168, 85, 247, 0.2)", borderRadius: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#A855F7" }}>📍 Geo-Fence Attendance Boundary (Optional)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => updateData({ geoLatitude: pos.coords.latitude, geoLongitude: pos.coords.longitude }),
+                          (err) => console.warn("GPS fetch failed", err),
+                          { enableHighAccuracy: true }
+                        );
+                      }
+                    }}
+                    style={{ background: "transparent", border: "1px solid #A855F7", color: "#A855F7", fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}
+                  >
+                    🎯 Use My Location
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Latitude</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" step="any" placeholder="e.g. 19.0760" value={data.geoLatitude} onChange={e => updateData({ geoLatitude: e.target.value })} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Longitude</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" step="any" placeholder="e.g. 72.8777" value={data.geoLongitude} onChange={e => updateData({ geoLongitude: e.target.value })} />
+                  </div>
+                  <div style={{ width: 90 }}>
+                    <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Radius (m)</label>
+                    <input className="co-input" style={{ width: "100%", fontSize: 12 }} type="number" min={10} max={5000} value={data.geoRadiusMeters} onChange={e => updateData({ geoRadiusMeters: Number(e.target.value) || 100 })} />
+                  </div>
+                </div>
               </div>
             </div>
           )}

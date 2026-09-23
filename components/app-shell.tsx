@@ -32,6 +32,8 @@ const TENANT_HQ_ITEMS: NavItem[] = [
 const OPERATIONS_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Staff", href: "/manager" },
+  { label: "HR & Workforce", href: "/hr" },
+  { label: "Employee Portal", href: "/employee" },
   { label: "Inventory", href: "/inventory" },
   { label: "Service Catalog", href: "/service" },
   { label: "IDT Deposits", href: "/idt" },
@@ -114,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const storeCode = searchParams.get("store");
   const { data: session, status } = useSession();
 
-  if (pathname === "/login" || status !== "authenticated") {
+  if (pathname === "/login" || pathname?.startsWith("/employee") || status !== "authenticated") {
     return <>{children}</>;
   }
 
