@@ -7,6 +7,8 @@ import {
   RegularizationDocument,
   RegularizationStatus,
   LeaveBalanceDocument,
+  AttendanceSettingsDocument,
+  DEFAULT_ATTENDANCE_SETTINGS,
 } from "@/lib/schemas/hr-schema";
 import { haversineDistanceMeters } from "@/lib/utils/geo";
 import { FieldValue } from "firebase-admin/firestore";
@@ -18,6 +20,9 @@ export type AttendanceSummary = {
   absent: number;
   halfDay: number;
   leave: number;
+  late?: number;
+  penaltyAbsentDays?: number;
+  effectiveAbsentDays?: number;
   totalRecords: number;
   records: AttendanceDocument[];
 };
@@ -110,6 +115,7 @@ export async function getStaffAttendanceSummary(
   let absent = 0;
   let halfDay = 0;
   let leave = 0;
+  let late = 0;
 
   const records: AttendanceDocument[] = [];
 
@@ -119,7 +125,10 @@ export async function getStaffAttendanceSummary(
 
     switch (data.status) {
       case "PRESENT":
+        present++;
+        break;
       case "LATE":
+        late++;
         present++;
         break;
       case "ABSENT":
@@ -134,6 +143,11 @@ export async function getStaffAttendanceSummary(
     }
   });
 
+  const { penaltyAbsentDays, effectiveAbsentDays } = await applyLateAbsentPenalty(
+    staffId,
+    month
+  );
+
   return {
     staffId,
     month,
@@ -141,9 +155,55 @@ export async function getStaffAttendanceSummary(
     absent,
     halfDay,
     leave,
+    late,
+    penaltyAbsentDays,
+    effectiveAbsentDays,
     totalRecords: records.length,
     records,
   };
+}
+
+export const getAttendanceSummary = getStaffAttendanceSummary;
+
+/**
+ * Reads the month's attendance docs, counts LATE-status days, and for every multiple
+ * of lateCountForAbsent reached, adds one to effectiveAbsentDays.
+ * Does NOT modify any individual attendance document's stored status.
+ */
+export async function applyLateAbsentPenalty(
+  staffId: string,
+  month: string
+): Promise<{ penaltyAbsentDays: number; effectiveAbsentDays: number; lateCount: number; baseAbsentCount: number }> {
+  const staff = await getStaffDoc(staffId);
+  const settings = staff?.tenantId ? await getAttendanceSettings(staff.tenantId) : DEFAULT_ATTENDANCE_SETTINGS;
+  const lateThreshold = settings.lateCountForAbsent || 3;
+
+  const startDate = `${month}-01`;
+  const endDate = `${month}-31`;
+
+  const snapshot = await adminDb
+    .collection("staff")
+    .doc(staffId)
+    .collection("attendance")
+    .where("date", ">=", startDate)
+    .where("date", "<=", endDate)
+    .get();
+
+  let lateCount = 0;
+  let baseAbsentCount = 0;
+
+  snapshot.forEach((doc) => {
+    const data = doc.data() as AttendanceDocument;
+    if (data.status === "LATE") {
+      lateCount++;
+    } else if (data.status === "ABSENT") {
+      baseAbsentCount++;
+    }
+  });
+
+  const penaltyAbsentDays = Math.floor(lateCount / lateThreshold);
+  const effectiveAbsentDays = baseAbsentCount + penaltyAbsentDays;
+  return { penaltyAbsentDays, effectiveAbsentDays, lateCount, baseAbsentCount };
 }
 
 /**
@@ -333,25 +393,44 @@ export async function getPendingLeavesAcrossStaff(
 
 /**
  * Processes periodic GPS ping for staff geo-attendance.
- * Enforces anti-spoofing velocity validation and re-entrant attendance lifecycle.
+ * Enforces tenant attendance settings, anti-spoofing velocity validation, and re-entrant attendance lifecycle.
  */
 export async function recordGeoPing(
   staffId: string,
   latitude: number,
   longitude: number,
-  timestampMs: number
+  timestampMs: number,
+  selfieUrl?: string | null
 ): Promise<{
   ok: boolean;
   status?: AttendanceStatus;
   isInside?: boolean;
-  distanceMeters?: number;
+  distanceMeters?: number | null;
   checkInMs?: number | null;
   checkOutMs?: number | null;
+  selfieUrl?: string | null;
   error?: string;
 }> {
   const staff = await getStaffDoc(staffId);
   if (!staff) {
     return { ok: false, error: "Staff member not found." };
+  }
+
+  // 1. Fetch tenant attendance settings
+  const settings = await getAttendanceSettings(staff.tenantId);
+
+  // 2. Skip processing entirely if today's day-of-week is in weeklyOffDays
+  const pingDate = new Date(timestampMs);
+  const dayOfWeek = pingDate.getDay(); // 0=Sunday...6=Saturday
+  const weeklyOffDays = settings.weeklyOffDays ?? [0];
+  if (weeklyOffDays.includes(dayOfWeek)) {
+    return {
+      ok: true,
+      isInside: false,
+      distanceMeters: null,
+      checkInMs: null,
+      checkOutMs: null,
+    };
   }
 
   // Resolve assigned store geofence
@@ -373,7 +452,9 @@ export async function recordGeoPing(
   const storeData = storeDoc.data() || {};
   const storeLat = storeData.geoLatitude ?? storeData.location?.geoLatitude;
   const storeLng = storeData.geoLongitude ?? storeData.location?.geoLongitude;
-  const storeRadius = Number(storeData.geoRadiusMeters ?? storeData.location?.geoRadiusMeters ?? 100);
+  const storeRadius = Number(
+    storeData.geoRadiusMeters ?? storeData.location?.geoRadiusMeters ?? settings.geoRadiusMeters ?? 100
+  );
 
   if (storeLat === null || storeLat === undefined || storeLng === null || storeLng === undefined) {
     return { ok: false, error: "STORE_GEOFENCE_NOT_CONFIGURED" };
@@ -382,7 +463,7 @@ export async function recordGeoPing(
   const distance = haversineDistanceMeters(latitude, longitude, Number(storeLat), Number(storeLng));
   const isInside = distance <= storeRadius;
 
-  const dateStr = new Date(timestampMs).toISOString().split("T")[0];
+  const dateStr = pingDate.toISOString().split("T")[0];
   const attRef = adminDb.collection("staff").doc(staffId).collection("attendance").doc(dateStr);
   const attSnap = await attRef.get();
   const existing = attSnap.exists ? (attSnap.data() as AttendanceDocument) : null;
@@ -418,12 +499,23 @@ export async function recordGeoPing(
   // Attendance Lifecycle State Engine
   if (!existing) {
     if (isInside) {
-      // First detection inside -> Check-in
-      const dateObj = new Date(timestampMs);
-      const hours = dateObj.getHours();
-      const minutes = dateObj.getMinutes();
-      const isLate = hours > 9 || (hours === 9 && minutes > 45); // 09:45 AM threshold
-      const initialStatus: AttendanceStatus = isLate ? "LATE" : "PRESENT";
+      // First detection inside -> Check-in with configurable shift timings
+      const [shiftH, shiftM] = (settings.shiftStartTime || "09:00").split(":").map(Number);
+      const shiftStartObj = new Date(pingDate);
+      shiftStartObj.setHours(shiftH, shiftM, 0, 0);
+      const shiftStartMs = shiftStartObj.getTime();
+
+      const gracePeriodMs = (settings.gracePeriodMinutes ?? 15) * 60 * 1000;
+      const halfDayThresholdMs = (settings.halfDayThresholdMinutes ?? 240) * 60 * 1000;
+
+      let initialStatus: AttendanceStatus;
+      if (timestampMs <= shiftStartMs + gracePeriodMs) {
+        initialStatus = "PRESENT";
+      } else if (timestampMs < shiftStartMs + halfDayThresholdMs) {
+        initialStatus = "LATE";
+      } else {
+        initialStatus = "HALF_DAY";
+      }
 
       const newDoc: AttendanceDocument = {
         date: dateStr,
@@ -437,6 +529,7 @@ export async function recordGeoPing(
         lastPingMs: timestampMs,
         lastPingLat: latitude,
         lastPingLng: longitude,
+        selfieUrl: selfieUrl || null,
         branchCode: staff.branchCode,
         tenantId: staff.tenantId,
         markedBy: "GEO_AUTO_SYSTEM",
@@ -450,6 +543,7 @@ export async function recordGeoPing(
         distanceMeters: Math.round(distance),
         checkInMs: timestampMs,
         checkOutMs: null,
+        selfieUrl: selfieUrl || null,
       };
     } else {
       // Outside and no check-in yet today
@@ -468,6 +562,10 @@ export async function recordGeoPing(
       lastPingLat: latitude,
       lastPingLng: longitude,
     };
+
+    if (selfieUrl && !existing.selfieUrl) {
+      updates.selfieUrl = selfieUrl;
+    }
 
     let updatedCheckOutMs = existing.checkOutMs;
 
@@ -496,18 +594,100 @@ export async function recordGeoPing(
       distanceMeters: Math.round(distance),
       checkInMs: existing.checkInMs,
       checkOutMs: updatedCheckOutMs,
+      selfieUrl: existing.selfieUrl || selfieUrl || null,
     };
   }
 }
 
 /**
+ * Processes remote / WFH check-in without store geo-fence check.
+ * Only allowed when tenant has allowRemoteCheckIn enabled, otherwise throws an error.
+ */
+export async function remoteCheckIn(
+  staffId: string,
+  timestampMs?: number,
+  reason?: string,
+  selfieUrl?: string | null
+): Promise<{
+  ok: boolean;
+  status: AttendanceStatus;
+  checkInMs: number;
+  selfieUrl?: string | null;
+}> {
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    throw new Error("Staff member not found.");
+  }
+
+  const settings = await getAttendanceSettings(staff.tenantId);
+  if (!settings.allowRemoteCheckIn) {
+    throw new Error("Remote check-in is not permitted for your organization. Please check in at your store location.");
+  }
+
+  const effectiveMs = timestampMs || Date.now();
+  const pingDate = new Date(effectiveMs);
+  const dayOfWeek = pingDate.getDay();
+  if ((settings.weeklyOffDays ?? [0]).includes(dayOfWeek)) {
+    throw new Error("Today is a scheduled weekly off day. Check-in is not required.");
+  }
+
+  const dateStr = pingDate.toISOString().split("T")[0];
+  const attRef = adminDb.collection("staff").doc(staffId).collection("attendance").doc(dateStr);
+  const attSnap = await attRef.get();
+
+  if (attSnap.exists && attSnap.data()?.checkInMs) {
+    return {
+      ok: true,
+      status: attSnap.data()?.status || "PRESENT",
+      checkInMs: attSnap.data()?.checkInMs,
+      selfieUrl: attSnap.data()?.selfieUrl || null,
+    };
+  }
+
+  const record: AttendanceDocument = {
+    date: dateStr,
+    checkInMs: effectiveMs,
+    checkOutMs: null,
+    status: "PRESENT",
+    source: "MANUAL",
+    lastLocationState: "INSIDE",
+    lastPingMs: effectiveMs,
+    selfieUrl: selfieUrl || null,
+    branchCode: staff.branchCode || "REMOTE",
+    tenantId: staff.tenantId,
+    markedBy: staff.email || staffId,
+  };
+
+  await attRef.set(record, { merge: true });
+
+  return {
+    ok: true,
+    status: "PRESENT",
+    checkInMs: effectiveMs,
+    selfieUrl: selfieUrl || null,
+  };
+}
+
+/**
  * Scheduled/cron absentee batch job.
- * Note: Wire to Google Cloud Scheduler or Next.js cron route (e.g. /api/cron/mark-absentees).
+ * Note: Respects autoMarkAbsentEnabled and skips weekly off days.
  */
 export async function markAbsentees(
   tenantId: string,
   date: string
 ): Promise<{ markedCount: number }> {
+  const settings = await getAttendanceSettings(tenantId);
+  if (!settings.autoMarkAbsentEnabled) {
+    return { markedCount: 0 };
+  }
+
+  // Skip weekly off days
+  const dateObj = new Date(date);
+  const dayOfWeek = dateObj.getDay();
+  if ((settings.weeklyOffDays ?? [0]).includes(dayOfWeek)) {
+    return { markedCount: 0 };
+  }
+
   const staffSnap = await adminDb
     .collection("staff")
     .where("tenantId", "==", tenantId)
@@ -753,5 +933,63 @@ export async function deductStaffLeaveBalance(
       updatedAt: FieldValue.serverTimestamp(),
     });
   }
+}
+
+/**
+ * Fetches configured attendance settings for a tenant, or returns defaults.
+ * Path: tenants/{tenantId}/settings/attendance
+ */
+export async function getAttendanceSettings(tenantId: string): Promise<AttendanceSettingsDocument> {
+  const docSnap = await adminDb
+    .collection("tenants")
+    .doc(tenantId)
+    .collection("settings")
+    .doc("attendance")
+    .get();
+
+  if (!docSnap.exists) {
+    return { ...DEFAULT_ATTENDANCE_SETTINGS };
+  }
+
+  const data = docSnap.data() || {};
+  return {
+    shiftStartTime: data.shiftStartTime ?? DEFAULT_ATTENDANCE_SETTINGS.shiftStartTime,
+    shiftEndTime: data.shiftEndTime ?? DEFAULT_ATTENDANCE_SETTINGS.shiftEndTime,
+    gracePeriodMinutes: Number(data.gracePeriodMinutes ?? DEFAULT_ATTENDANCE_SETTINGS.gracePeriodMinutes),
+    weeklyOffDays: Array.isArray(data.weeklyOffDays) ? data.weeklyOffDays : DEFAULT_ATTENDANCE_SETTINGS.weeklyOffDays,
+    geoRadiusMeters: Number(data.geoRadiusMeters ?? DEFAULT_ATTENDANCE_SETTINGS.geoRadiusMeters),
+    halfDayThresholdMinutes: Number(data.halfDayThresholdMinutes ?? DEFAULT_ATTENDANCE_SETTINGS.halfDayThresholdMinutes),
+    lateCountForAbsent: Number(data.lateCountForAbsent ?? DEFAULT_ATTENDANCE_SETTINGS.lateCountForAbsent),
+    autoMarkAbsentEnabled: data.autoMarkAbsentEnabled !== false,
+    allowRemoteCheckIn: data.allowRemoteCheckIn === true,
+    requireSelfieOnCheckIn: data.requireSelfieOnCheckIn === true,
+    updatedBy: data.updatedBy ?? null,
+    updatedAtMs: data.updatedAtMs ?? null,
+  };
+}
+
+/**
+ * Updates attendance settings for a tenant.
+ */
+export async function saveAttendanceSettings(
+  tenantId: string,
+  settings: Partial<AttendanceSettingsDocument>,
+  updatedBy: string
+): Promise<void> {
+  const docRef = adminDb
+    .collection("tenants")
+    .doc(tenantId)
+    .collection("settings")
+    .doc("attendance");
+
+  await docRef.set(
+    {
+      ...settings,
+      updatedBy,
+      updatedAtMs: Date.now(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 

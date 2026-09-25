@@ -1,18 +1,20 @@
 "use server";
 
-import { adminDb } from "@/lib/firebase-admin";
+import { adminDb, adminStorage } from "@/lib/firebase-admin";
+import { randomUUID } from "crypto";
 import {
   requireRole,
   requireEditAccess,
   assertTenantScope,
   assertStoreScope,
-  requireAddon,
+  requireRoutePlan,
 } from "@/lib/rbac";
 import {
   markAttendanceSchema,
   applyLeaveSchema,
   createSalaryStructureSchema,
   createRegularizationSchema,
+  attendanceSettingsSchema,
   AttendanceStatus,
   LeaveType,
   RegularizationType,
@@ -29,12 +31,16 @@ import {
   getStaffSalaryHistory,
   getPendingLeavesAcrossStaff,
   recordGeoPing,
+  remoteCheckIn,
+  applyLateAbsentPenalty,
   createRegularizationRecord,
   getStaffRegularizations,
   getPendingRegularizationsAcrossStaff,
   updateRegularizationStatus,
   getOrCreateStaffLeaveBalance,
   deductStaffLeaveBalance,
+  getAttendanceSettings,
+  saveAttendanceSettings,
 } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
@@ -61,7 +67,7 @@ export async function markAttendance(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   // Multi-tenant scope check
@@ -154,7 +160,7 @@ export async function applyLeave(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const callerUid = (session.user as any)?.id || (session.user as any)?.uid || session.user?.email;
@@ -277,7 +283,7 @@ export async function approveLeave(staffId: string, leaveId: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -355,7 +361,7 @@ export async function rejectLeave(staffId: string, leaveId: string, rejectionRea
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -414,7 +420,7 @@ export async function getAttendanceSummary(staffId: string, month: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   // Tenant Check
@@ -461,7 +467,7 @@ export async function setSalaryStructure(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -554,7 +560,7 @@ export async function getStaffLeavesAction(staffId: string) {
   if (!staff) return { ok: false, error: "Staff member not found.", leaves: [] };
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -578,7 +584,7 @@ export async function getStaffSalaryHistoryAction(staffId: string) {
   if (!staff) return { ok: false, error: "Staff member not found.", history: [] };
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -601,7 +607,7 @@ export async function getPendingLeavesAction() {
   const effectiveStoreId = role === "manager" ? storeId : null;
 
   if (effectiveTenantId) {
-    await requireAddon(effectiveTenantId, "hr");
+    await requireRoutePlan(effectiveTenantId, "hr");
   }
 
   const pendingLeaves = await getPendingLeavesAcrossStaff(effectiveTenantId, effectiveStoreId);
@@ -614,7 +620,8 @@ export async function getPendingLeavesAction() {
 export async function recordGeoPingAction(
   latitude: number,
   longitude: number,
-  timestampMs?: number
+  timestampMs?: number,
+  selfieUrl?: string | null
 ) {
   const session = await auth();
   if (!session?.user) {
@@ -632,12 +639,128 @@ export async function recordGeoPingAction(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const effectiveTimestamp = timestampMs || Date.now();
-  const res = await recordGeoPing(staffId, latitude, longitude, effectiveTimestamp);
+  const res = await recordGeoPing(staffId, latitude, longitude, effectiveTimestamp, selfieUrl);
   return res;
+}
+
+// =========================================================================
+// 6B. REMOTE CHECK-IN (Employee Self-Attendance Action - Policy Gated)
+// =========================================================================
+export async function remoteCheckInAction(
+  reason?: string,
+  timestampMs?: number,
+  selfieUrl?: string | null
+) {
+  const session = await auth();
+  if (!session?.user) {
+    return { ok: false, error: "UNAUTHORIZED" };
+  }
+
+  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
+  if (!staffId) {
+    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
+  }
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, error: "STAFF_NOT_FOUND" };
+  }
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  try {
+    const res = await remoteCheckIn(staffId, timestampMs, reason, selfieUrl);
+
+    // Audit log
+    await adminDb.collection("admin_audit_logs").add({
+      actorId: (session.user as any)?.id || (session.user as any)?.uid || session.user?.email || "unknown",
+      actorEmail: session.user?.email || "unknown",
+      action: "HR_REMOTE_CHECKIN",
+      tenantId: staff.tenantId,
+      branchCode: staff.branchCode || null,
+      details: {
+        staffId,
+        staffName: staff.name,
+        timestampMs: res.checkInMs,
+        reason: reason || null,
+        selfieUrl: res.selfieUrl || null,
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/employee");
+    revalidatePath("/hr");
+    revalidatePath("/manager");
+
+    return { ok: true, status: res.status, checkInMs: res.checkInMs, selfieUrl: res.selfieUrl };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Failed to complete remote check-in." };
+  }
+}
+
+// =========================================================================
+// 6C. UPLOAD ATTENDANCE SELFIE (Employee Self-Attendance Action)
+// =========================================================================
+export async function uploadAttendanceSelfieAction(base64Image: string, date?: string) {
+  const session = await auth();
+  if (!session?.user) {
+    return { ok: false, error: "UNAUTHORIZED" };
+  }
+
+  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
+  if (!staffId) {
+    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
+  }
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, error: "STAFF_NOT_FOUND" };
+  }
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  try {
+    const effectiveDate = date || new Date().toISOString().split("T")[0];
+    const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(cleanBase64, "base64");
+
+    if (buffer.length > 5 * 1024 * 1024) {
+      return { ok: false, error: "Selfie image file too large. Max 5MB allowed." };
+    }
+
+    const token = randomUUID();
+    const storagePath = `attendance_selfies/${staff.tenantId}/${staffId}/${effectiveDate}.jpg`;
+    const bucket = adminStorage.bucket();
+    const fileRef = bucket.file(storagePath);
+
+    await fileRef.save(buffer, {
+      metadata: {
+        contentType: "image/jpeg",
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+          staffId,
+          tenantId: staff.tenantId,
+          date: effectiveDate,
+        },
+      },
+    });
+
+    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+      storagePath
+    )}?alt=media&token=${token}`;
+
+    return { ok: true, selfieUrl: downloadUrl };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Failed to upload attendance selfie photo." };
+  }
 }
 
 // =========================================================================
@@ -664,7 +787,7 @@ export async function submitRegularization(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const actorEmail = session.user?.email || staffId;
@@ -743,7 +866,7 @@ export async function approveRegularization(staffId: string, reqId: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -833,7 +956,7 @@ export async function rejectRegularization(
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -900,7 +1023,7 @@ export async function getStaffRegularizationsAction(staffId?: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const regularizations = await getStaffRegularizations(targetStaffId);
@@ -919,7 +1042,7 @@ export async function getPendingRegularizationsAction() {
   const effectiveStoreId = role === "manager" ? storeId : null;
 
   if (effectiveTenantId) {
-    await requireAddon(effectiveTenantId, "hr");
+    await requireRoutePlan(effectiveTenantId, "hr");
   }
 
   const pendingRegularizations = await getPendingRegularizationsAcrossStaff(
@@ -948,7 +1071,7 @@ export async function getStaffLeaveBalanceAction(staffId?: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const balance = await getOrCreateStaffLeaveBalance(targetStaffId, staff.tenantId);
@@ -975,7 +1098,7 @@ export async function getEmployeeDashboardDataAction() {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   // Get store details for geofence
@@ -1009,6 +1132,7 @@ export async function getEmployeeDashboardDataAction() {
   const leaveBalance = await getOrCreateStaffLeaveBalance(staffId, staff.tenantId);
   const leaves = await getStaffLeaves(staffId);
   const regularizations = await getStaffRegularizations(staffId);
+  const settings = await getAttendanceSettings(staff.tenantId);
 
   return {
     ok: true,
@@ -1023,15 +1147,97 @@ export async function getEmployeeDashboardDataAction() {
             city: store.city,
             geoLatitude: store.geoLatitude ?? null,
             geoLongitude: store.geoLongitude ?? null,
-            geoRadiusMeters: store.geoRadiusMeters ?? 100,
+            geoRadiusMeters: store.geoRadiusMeters ?? settings.geoRadiusMeters ?? 100,
           }
         : null,
       todayAttendance,
       leaveBalance,
       leaves: leaves.slice(0, 10),
       regularizations: regularizations.slice(0, 10),
+      settings: {
+        allowRemoteCheckIn: settings.allowRemoteCheckIn,
+        requireSelfieOnCheckIn: settings.requireSelfieOnCheckIn,
+        shiftStartTime: settings.shiftStartTime,
+        shiftEndTime: settings.shiftEndTime,
+        weeklyOffDays: settings.weeklyOffDays,
+        gracePeriodMinutes: settings.gracePeriodMinutes,
+      },
     },
   };
+}
+
+// =========================================================================
+// 12. ATTENDANCE SETTINGS (Configurable per Tenant)
+// =========================================================================
+export async function getAttendanceSettingsAction(tenantId?: string) {
+  const { role, tenantId: sessionTenantId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || sessionTenantId) : sessionTenantId;
+  if (!effectiveTenantId) {
+    return { ok: false, error: "Tenant ID required.", settings: null };
+  }
+
+  if (role !== "super_admin" && tenantId && tenantId !== sessionTenantId) {
+    return { ok: false, error: "Unauthorized tenant access.", settings: null };
+  }
+
+  await requireRoutePlan(effectiveTenantId, "hr");
+
+  const settings = await getAttendanceSettings(effectiveTenantId);
+  return { ok: true, settings };
+}
+
+export async function updateAttendanceSettingsAction(tenantId: string | undefined, rawSettings: unknown) {
+  const { session, role, tenantId: sessionTenantId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || sessionTenantId) : sessionTenantId;
+  if (!effectiveTenantId) {
+    return { ok: false, error: "Tenant ID required." };
+  }
+
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(sessionTenantId, tenantId);
+  }
+
+  await requireRoutePlan(effectiveTenantId, "hr");
+
+  const parsed = attendanceSettingsSchema.safeParse(rawSettings);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message || "Invalid attendance settings.",
+    };
+  }
+
+  const actorEmail = session.user?.email || (session.user as any)?.uid || "Admin";
+
+  await saveAttendanceSettings(effectiveTenantId, parsed.data, actorEmail);
+
+  // Audit Log
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_ATTENDANCE_SETTINGS_UPDATED",
+    actionType: "HR_ATTENDANCE_SETTINGS_UPDATED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: effectiveTenantId,
+    target: `tenants/${effectiveTenantId}/settings/attendance`,
+    details: `Updated attendance configuration: Shift (${parsed.data.shiftStartTime}-${parsed.data.shiftEndTime}), Grace (${parsed.data.gracePeriodMinutes}m), Radius (${parsed.data.geoRadiusMeters}m), Weekly Offs (${parsed.data.weeklyOffDays.join(",")}).`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/employee");
+  revalidatePath("/manager");
+
+  return { ok: true, message: "Attendance settings saved successfully." };
 }
 
 

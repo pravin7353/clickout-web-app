@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useTransition } from "react";
 import { Card, Button, Input, Select, ErrorBanner } from "@/components/ui";
 import { setSalaryStructure, getStaffSalaryHistoryAction } from "@/actions/hr";
+import { postSalaryVoucherAction } from "@/actions/finance";
 import { SalaryStructureDocument } from "@/lib/schemas/hr-schema";
 import { useRouter } from "next/navigation";
 import { SimpleStaff } from "./hr-attendance-table";
@@ -90,6 +91,31 @@ export function HrSalaryEditor({ staffList, userRole }: HrSalaryEditorProps) {
 
   const currentStructure = history[0];
 
+  const [postingSalary, setPostingSalary] = useState<boolean>(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [financeMonth, setFinanceMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+
+  const handlePostSalaryToFinance = async () => {
+    if (!selectedStaffId) return;
+    setPostingSalary(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await postSalaryVoucherAction(selectedStaffId, financeMonth);
+      if (!res.ok) {
+        setErrorMsg(res.error || "Failed to post salary to Finance.");
+      } else if (res.alreadyPosted) {
+        setSuccessMsg(`Salary for ${activeStaff?.name} (${financeMonth}) was already posted as Voucher #${res.voucherNo || ""}.`);
+      } else {
+        setSuccessMsg(`Successfully booked salary for ${activeStaff?.name} (${financeMonth}) as Voucher #${res.voucherNo || ""}.`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to post salary voucher.");
+    } finally {
+      setPostingSalary(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <Card style={{ padding: 18 }}>
@@ -111,22 +137,50 @@ export function HrSalaryEditor({ staffList, userRole }: HrSalaryEditorProps) {
                 ))}
               </Select>
             </div>
+
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                POSTING PERIOD
+              </label>
+              <Input
+                type="month"
+                value={financeMonth}
+                onChange={(e) => setFinanceMonth(e.target.value)}
+                style={{ minWidth: 150 }}
+              />
+            </div>
           </div>
 
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEffectiveDate(todayStr);
-              setShowEditModal(true);
-            }}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <span>💰</span> Edit Salary Structure
-          </Button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Button
+              variant="secondary"
+              onClick={handlePostSalaryToFinance}
+              disabled={postingSalary || !currentStructure}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <span>📑</span> {postingSalary ? "Posting..." : "Post to Finance"}
+            </Button>
+
+            <Button
+              variant="primary"
+              onClick={() => {
+                setEffectiveDate(todayStr);
+                setShowEditModal(true);
+              }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <span>💰</span> Edit Salary Structure
+            </Button>
+          </div>
         </div>
       </Card>
 
       {errorMsg && <ErrorBanner message={errorMsg} />}
+      {successMsg && (
+        <div style={{ padding: "10px 16px", borderRadius: 10, background: "rgba(34, 197, 94, 0.15)", border: "1px solid rgba(34, 197, 94, 0.3)", color: "#22c55e", fontSize: 13, fontWeight: 600 }}>
+          ✓ {successMsg}
+        </div>
+      )}
 
       {/* Current Active Structure Card */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>

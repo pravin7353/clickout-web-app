@@ -49,6 +49,7 @@ export function useTenantSubscription() {
   const trialActive = isTrialActive(trialEndsAtDate);
 
   return {
+    tenantId,
     plan: info?.plan ?? ("mini" as SubscriptionPlan),
     billingStatus: info?.billingStatus ?? "active",
     trialEndsAt: trialEndsAtDate,

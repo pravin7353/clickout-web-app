@@ -15,6 +15,9 @@ export const ROUTE_MIN_PLAN: Record<string, SubscriptionPlan> = {
   'manpower': 'growth',
   'idt': 'pro',
   'integrations': 'business',
+  'hr': 'growth',
+  'finance': 'growth',
+  'employee': 'growth',
 };
 
 export const ROUTE_UPGRADE_MESSAGE: Record<string, string> = {
@@ -32,6 +35,9 @@ export const ROUTE_UPGRADE_MESSAGE: Record<string, string> = {
   'manpower': 'Upgrade to Growth for Shift Planning & Manpower',
   'idt': 'Upgrade to Pro for Intelligent Deposit Tracking',
   'integrations': 'Upgrade to Business for Custom Integrations & ERP API',
+  'hr': 'Upgrade to Growth for HR, Workforce & Incentive Operations',
+  'finance': 'Upgrade to Growth for CA-Suitable Finance & Ledger Suite',
+  'employee': 'Upgrade to Growth for Employee Self-Service Portal',
 };
 
 export const ROUTE_FEATURE_BULLETS: Record<string, string[]> = {
@@ -104,5 +110,20 @@ export const ROUTE_FEATURE_BULLETS: Record<string, string[]> = {
     'Custom ERP & accounting API access',
     'Enterprise webhook dispatchers',
     'Third-party POS & logistics synchronization',
+  ],
+  'hr': [
+    'Geo-fenced mobile attendance & auto-checkin',
+    'Staff leave balances & approval workflows',
+    'Performance incentives & payroll compensation',
+  ],
+  'finance': [
+    'CA-grade financial reports & ledger export',
+    'Automated GST reconciliation & filing records',
+    'Multi-store profit & loss operational matrix',
+  ],
+  'employee': [
+    'One-touch GPS attendance check-in & ping',
+    'Leave quota tracker & regularization requests',
+    'Digital profile & employment milestones',
   ],
 };

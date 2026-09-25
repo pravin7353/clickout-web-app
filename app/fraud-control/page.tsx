@@ -1,5 +1,6 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getSuspectStaff, getHighRiskOrders, getLeakageBuckets } from "@/lib/services/fraud-service";
+import { getResellerFlags } from "@/lib/services/trust-service";
 import { SuspectStaffCard } from "@/components/suspect-staff-card";
 import { PageHeader, Card, Badge, EmptyState } from "@/components/ui";
 import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
@@ -13,10 +14,11 @@ export default async function FraudControlPage({
   const { store: queryStore } = await searchParams;
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
 
-  const [suspects, highRiskOrders, leakage] = await Promise.all([
+  const [suspects, highRiskOrders, leakage, resellerFlags] = await Promise.all([
     getSuspectStaff(role, tenantId, effectiveStoreId),
     getHighRiskOrders(role, tenantId),
     getLeakageBuckets(role, tenantId, effectiveStoreId),
+    role === "super_admin" ? getResellerFlags() : Promise.resolve([]),
   ]);
 
   return (
@@ -26,6 +28,66 @@ export default async function FraudControlPage({
         title="Fraud Control & Live Leakage Radar"
         subtitle="Monitors paid-but-unexited store leakage, flags low-trust staff members, and tracks high-risk transactions."
       />
+
+      {/* Super Admin: Anti-Reseller & Multi-Tenant Account Sharing Radar */}
+      {role === "super_admin" && (
+        <div style={{ background: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: 16, padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: "#f59e0b", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>🛡️</span> Platform Trust: Anti-Reseller IP Radar (Super Admin Only)
+              </h2>
+              <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "var(--text-secondary)" }}>
+                Flags IP addresses shared by &gt;10 distinct tenants over rolling 7-day windows. Human review only (never auto-suspends).
+              </p>
+            </div>
+            <Badge color="#f59e0b">{resellerFlags.length} Flagged</Badge>
+          </div>
+
+          {resellerFlags.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--success)", fontWeight: 600, padding: "8px 0" }}>
+              ✓ No shared IP anomalies detected across tenants in the past 7 days.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {resellerFlags.map((flag) => (
+                <div
+                  key={flag.id}
+                  style={{
+                    padding: "12px 16px",
+                    background: "var(--card-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
+                      IP Address: <span style={{ fontFamily: "monospace" }}>{flag.ipAddress}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                      Shared across {flag.tenantCount} distinct tenant accounts: {flag.distinctTenantIds.slice(0, 4).join(", ")}
+                      {flag.distinctTenantIds.length > 4 ? ` +${flag.distinctTenantIds.length - 4} more` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: "4px 8px", borderRadius: 6, background: "rgba(239, 68, 68, 0.15)", color: "#ef4444" }}>
+                      Risk Score: {flag.riskScore}/100
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 6, background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b" }}>
+                      {flag.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Scope banner */}
       {effectiveStoreId && (

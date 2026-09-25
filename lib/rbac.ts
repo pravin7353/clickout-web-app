@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth } from "./auth";
 import { adminDb } from "./firebase-admin";
-import { hasTenantAddon } from "./subscription/access-engine";
+import { isRouteAllowed, isTrialActive } from "./subscription/access-engine";
+import { planFromString } from "./subscription/plan";
 
 type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor";
 
@@ -55,21 +56,38 @@ export function assertStoreScope(userStoreId: string | null, targetStoreId: stri
 }
 
 /**
- * Validates that the specified tenant has the required paid addon enabled (or active trial for the addon).
- * Throws "ADDON_NOT_ENABLED" if missing.
+ * Validates that the specified tenant's active plan or trial grants access to the specified route.
+ * Throws "PLAN_UPGRADE_REQUIRED" if unauthorized.
  */
-export async function requireAddon(tenantId: string | null, addonKey: string) {
+export async function requireRoutePlan(tenantId: string | null, route: string) {
   if (!tenantId) {
-    throw new Error("ADDON_NOT_ENABLED");
+    throw new Error("PLAN_UPGRADE_REQUIRED");
   }
   const tenantDoc = await adminDb.collection("tenants").doc(tenantId).get();
   if (!tenantDoc.exists) {
     throw new Error("TENANT_NOT_FOUND");
   }
   const tenantData = tenantDoc.data() || {};
-  const isEnabled = hasTenantAddon(tenantData, addonKey);
-  if (!isEnabled) {
-    throw new Error("ADDON_NOT_ENABLED");
+  const plan = planFromString(tenantData.subscriptionPlan);
+
+  let trialActive = false;
+  if (tenantData.trialEndsAt?.toDate) {
+    trialActive = isTrialActive(tenantData.trialEndsAt.toDate());
+  } else if (tenantData.trialEndsAt) {
+    trialActive = isTrialActive(new Date(tenantData.trialEndsAt));
+  } else if (tenantData.trialStartAt) {
+    const start = tenantData.trialStartAt.toDate ? tenantData.trialStartAt.toDate() : new Date();
+    trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
+  }
+
+  const allowed = isRouteAllowed({
+    route,
+    plan,
+    isTrialActive: trialActive,
+  });
+
+  if (!allowed) {
+    throw new Error("PLAN_UPGRADE_REQUIRED");
   }
   return tenantData;
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 export const addProductSchema = z.object({
   barcode: z.string().trim().min(1, "Barcode is required"),
   name: z.string().trim().min(1, "Name is required"),
+  category: z.string().trim().optional(),
   price: z.coerce.number().min(0),
   unitCost: z.coerce.number().min(0).default(0),
   gst: z.string().default("0"),
@@ -15,6 +16,7 @@ export const updateProductSchema = z.object({
   productId: z.string().optional(),
   barcode: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1),
+  category: z.string().trim().optional(),
   price: z.coerce.number().min(0),
   unitCost: z.coerce.number().min(0).optional(),
   gst: z.string().optional(),

@@ -1,6 +1,7 @@
-﻿import { requireRole } from "@/lib/rbac";
+import { requireRole } from "@/lib/rbac";
 import { getStaffList } from "@/lib/services/staff-service";
 import { HrDashboardClient } from "@/components/hr-dashboard-client";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function HrPage() {
   const { role, tenantId, storeId, canEdit } = await requireRole([
@@ -21,12 +22,14 @@ export default async function HrPage() {
   }));
 
   return (
-    <HrDashboardClient
-      staffList={simpleStaff}
-      userRole={role}
-      canEdit={canEdit}
-      storeId={storeId}
-      tenantId={tenantId}
-    />
+    <FeatureLockWidget route="hr">
+      <HrDashboardClient
+        staffList={simpleStaff}
+        userRole={role}
+        canEdit={canEdit}
+        storeId={storeId}
+        tenantId={tenantId}
+      />
+    </FeatureLockWidget>
   );
 }

@@ -9,6 +9,7 @@ import {
   receivePoStock,
   createManualPO,
 } from "@/actions/procurement";
+import { postPurchaseVoucherAction } from "@/actions/finance";
 import { AiSuggestion, PORow } from "@/lib/services/po-service";
 import { Modal } from "@/components/profile-menu";
 import { ConfirmModal } from "@/components/confirm-modal";
@@ -102,6 +103,26 @@ export function POList({
     });
   }
 
+  const [postingPoId, setPostingPoId] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  function handlePostToFinance(id: string) {
+    setGlobalError("");
+    setSuccessMsg(null);
+    setPostingPoId(id);
+    startTransition(async () => {
+      const res = await postPurchaseVoucherAction(id);
+      setPostingPoId(null);
+      if (!res.ok) {
+        setGlobalError(res.error ?? "Failed to post purchase voucher to Finance.");
+      } else if (res.alreadyPosted) {
+        setSuccessMsg(`PO #${id.slice(0, 8)} is already posted to Finance as Voucher #${res.voucherNo || ""}.`);
+      } else {
+        setSuccessMsg(`Successfully posted to Finance as Purchase Voucher #${res.voucherNo || ""}.`);
+      }
+    });
+  }
+
   function handleDeletePo(id: string) {
     setPoToDelete(id);
   }
@@ -165,6 +186,11 @@ export function POList({
       </div>
 
       {globalError && <ErrorBanner message={globalError} />}
+      {successMsg && (
+        <div style={{ padding: "10px 16px", borderRadius: 10, background: "rgba(34, 197, 94, 0.15)", border: "1px solid rgba(34, 197, 94, 0.3)", color: "#22c55e", fontSize: 13, fontWeight: 600 }}>
+          ✓ {successMsg}
+        </div>
+      )}
 
       {/* KPI Metrics Summary */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
@@ -459,15 +485,27 @@ export function POList({
                           {new Date(po.createdAtMs).toLocaleDateString()}
                         </td>
                         <td style={{ padding: 12, textAlign: "right" }}>
-                          {canEdit && po.status === "APPROVED" && (
-                            <Button
-                              onClick={() => handleReceiveStock(po.id)}
-                              disabled={isPending}
-                              style={{ background: "var(--success)", color: "#000", fontSize: 12, padding: "6px 12px" }}
-                            >
-                              Receive Delivery
-                            </Button>
-                          )}
+                          <div style={{ display: "inline-flex", gap: 8, justifyContent: "flex-end" }}>
+                            {canEdit && (po.status === "APPROVED" || po.status === "DELIVERED") && (
+                              <Button
+                                variant="secondary"
+                                onClick={() => handlePostToFinance(po.id)}
+                                disabled={isPending || postingPoId === po.id}
+                                style={{ fontSize: 12, padding: "6px 12px" }}
+                              >
+                                {postingPoId === po.id ? "Posting..." : "📑 Post to Finance"}
+                              </Button>
+                            )}
+                            {canEdit && po.status === "APPROVED" && (
+                              <Button
+                                onClick={() => handleReceiveStock(po.id)}
+                                disabled={isPending}
+                                style={{ background: "var(--success)", color: "#000", fontSize: 12, padding: "6px 12px" }}
+                              >
+                                Receive Delivery
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

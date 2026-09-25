@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getEmployeeDashboardDataAction } from "@/actions/hr";
 import { EmployeeDashboardClient } from "@/components/employee-dashboard-client";
+import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 
 export default async function EmployeePage() {
   const session = await auth();
@@ -39,5 +40,9 @@ export default async function EmployeePage() {
     );
   }
 
-  return <EmployeeDashboardClient initialData={res.data} />;
+  return (
+    <FeatureLockWidget route="employee">
+      <EmployeeDashboardClient initialData={res.data} />
+    </FeatureLockWidget>
+  );
 }

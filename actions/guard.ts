@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebase-admin";
 import { requireRole, requireEditAccess, resolveStoreScope } from "@/lib/rbac";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { postSalesVoucher } from "@/lib/services/finance-service";
 
 export async function authorizeExit(orderId: string, targetBranchCode?: string) {
   let session, role, tenantId, storeId;
@@ -94,6 +95,15 @@ export async function authorizeExit(orderId: string, targetBranchCode?: string) 
     });
 
     await batch.commit();
+
+    // Auto-post sales voucher to Finance asynchronously (never blocks exit authorization)
+    const effectiveTenantId = tenantId || data.tenantId;
+    if (effectiveTenantId) {
+      postSalesVoucher(effectiveTenantId, cleanId).catch((err) => {
+        console.warn("[Finance AutoPost] Sales voucher posting failed for order:", cleanId, err?.message);
+      });
+    }
+
     revalidatePath("/guard");
     return { ok: true, msg: "CLEAR EXIT: Gate Authorized!" };
   } catch (e: any) {

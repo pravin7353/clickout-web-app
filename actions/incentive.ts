@@ -6,7 +6,7 @@ import {
   requireEditAccess,
   assertTenantScope,
   assertStoreScope,
-  requireAddon,
+  requireRoutePlan,
 } from "@/lib/rbac";
 import {
   incentiveRuleSchema,
@@ -19,6 +19,8 @@ import {
   getTenantIncentiveRules,
   saveIncentiveRule,
   deleteIncentiveRule,
+  approveIncentivePayout as approveIncentivePayoutService,
+  getPendingIncentivePayouts as getPendingIncentivePayoutsService,
 } from "@/lib/services/incentive-service";
 import { getStaffDoc } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
@@ -41,7 +43,7 @@ export async function getMonthlyIncentiveReport(
   const effectiveTenantId = tenantId || (role === "super_admin" ? "DEFAULT" : "");
 
   if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
-    await requireAddon(effectiveTenantId, "hr");
+    await requireRoutePlan(effectiveTenantId, "hr");
   }
 
   // 🛡️ SECURITY: Managers can ONLY access their assigned branch
@@ -79,7 +81,7 @@ export async function getMyIncentive(staffId: string, month?: string) {
   }
 
   if (staff.tenantId) {
-    await requireAddon(staff.tenantId, "hr");
+    await requireRoutePlan(staff.tenantId, "hr");
   }
 
   // Multi-tenant check
@@ -150,7 +152,7 @@ export async function setIncentiveRule(raw: unknown) {
   const data = parsed.data;
 
   if (data.tenantId) {
-    await requireAddon(data.tenantId, "hr");
+    await requireRoutePlan(data.tenantId, "hr");
   }
 
   // Multi-tenant check
@@ -198,7 +200,7 @@ export async function deleteIncentiveRuleAction(ruleId: string, targetTenantId: 
   const { session, role, tenantId } = await requireEditAccess(["super_admin", "tenant_admin"]);
 
   if (targetTenantId) {
-    await requireAddon(targetTenantId, "hr");
+    await requireRoutePlan(targetTenantId, "hr");
   }
 
   if (role !== "super_admin" && tenantId) {
@@ -237,9 +239,95 @@ export async function getIncentiveRulesAction(roleFilter?: "cashier" | "guard") 
 
   const effectiveTenantId = role === "super_admin" ? (tenantId || "DEFAULT") : tenantId!;
   if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
-    await requireAddon(effectiveTenantId, "hr");
+    await requireRoutePlan(effectiveTenantId, "hr");
   }
   const rules = await getTenantIncentiveRules(effectiveTenantId, roleFilter);
 
   return { ok: true, rules };
+}
+
+// =========================================================================
+// 4. APPROVE INCENTIVE PAYOUT (Manager / Tenant Admin / Super Admin)
+// =========================================================================
+export async function approveIncentivePayout(
+  staffId: string,
+  month: string,
+  status: "APPROVED" | "REJECTED",
+  rejectionReason?: string
+) {
+  const { session, role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, error: "Staff member not found." };
+  }
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  // Tenant check
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(tenantId, staff.tenantId);
+  }
+
+  // Store check for manager
+  if (role === "manager") {
+    const callerUid = (session.user as any)?.id || (session.user as any)?.uid;
+    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+    const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+    const isDirectReport = staff.reportsToStaffId && staff.reportsToStaffId === callerUid;
+    if (!isDirectReport && managerStore !== staffBranch) {
+      assertStoreScope(managerStore, staffBranch);
+    }
+  }
+
+  const actorEmail = session.user?.email || "Manager";
+
+  await approveIncentivePayoutService(staffId, month, status, actorEmail, rejectionReason);
+
+  // Audit Log
+  await adminDb.collection("admin_audit_logs").add({
+    action: status === "APPROVED" ? "INCENTIVE_PAYOUT_APPROVED" : "INCENTIVE_PAYOUT_REJECTED",
+    actionType: status === "APPROVED" ? "INCENTIVE_PAYOUT_APPROVED" : "INCENTIVE_PAYOUT_REJECTED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: staff.tenantId,
+    branchCode: staff.branchCode,
+    target: `staff/${staffId}/incentive_payouts/${month}`,
+    details: `${status === "APPROVED" ? "Approved" : "Rejected"} incentive payout for staff ${staff.name || staffId} (${staff.empId}) for period ${month}.${rejectionReason ? ` Reason: ${rejectionReason}` : ""}`,
+    severity: status === "APPROVED" ? "INFO" : "WARNING",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/manager");
+  revalidatePath("/hr");
+  revalidatePath("/employee");
+
+  return { ok: true, message: `Incentive payout marked as ${status}.` };
+}
+
+// =========================================================================
+// 5. GET PENDING INCENTIVE PAYOUTS (Manager / Admin Action)
+// =========================================================================
+export async function getPendingIncentivePayoutsAction(branchCode?: string) {
+  const { role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || null) : tenantId;
+  if (effectiveTenantId) {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const effectiveStore = role === "manager" ? (storeId || null) : (branchCode || null);
+  const pending = await getPendingIncentivePayoutsService(effectiveTenantId, effectiveStore);
+
+  return { ok: true, pending };
 }

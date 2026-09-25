@@ -6,6 +6,7 @@ import { signIn, useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { clientAuth } from "@/lib/firebase-client";
 import { sendMagicLink } from "@/actions/magic-link";
+import { getClientDeviceFingerprint } from "@/lib/utils/fingerprint";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -48,7 +49,8 @@ export default function LoginPage() {
           const cred = await signInWithEmailLink(clientAuth, storedEmail, window.location.href);
           window.localStorage.removeItem("emailForSignIn");
           const idToken = await cred.user.getIdToken(true);
-          const res = await signIn("credentials", { idToken, redirect: false });
+          const fingerprint = await getClientDeviceFingerprint();
+          const res = await signIn("credentials", { idToken, fingerprint, redirect: false });
           if (res?.error) setError("Access denied.");
           else router.push("/");
         } catch {
@@ -83,7 +85,8 @@ export default function LoginPage() {
       provider.setCustomParameters({ prompt: "select_account" });
       const cred = await signInWithPopup(clientAuth, provider);
       const idToken = await cred.user.getIdToken();
-      const res = await signIn("credentials", { idToken, redirect: false });
+      const fingerprint = await getClientDeviceFingerprint();
+      const res = await signIn("credentials", { idToken, fingerprint, redirect: false });
       if (res?.error) {
         setError("Access denied: You do not have command center privileges.");
       } else {

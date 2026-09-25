@@ -42,6 +42,13 @@ service cloud.firestore {
       );
     }
 
+    function isFinanceRole() {
+      return isSignedIn() && (
+        role() == 'tenant_admin' ||
+        role() == 'super_admin'
+      );
+    }
+
     // ---- admin_users: admin-panel logins only ----
     // Never touched by any client SDK — only the Admin SDK (server-side, bypasses
     // rules) should ever read/write this. Deny everything from the client.
@@ -155,6 +162,34 @@ service cloud.firestore {
       allow read: if isSignedIn() && isHrRole() && resource.data.tenantId == tenantId();
       allow create: if isSignedIn() && isHrRole() && request.resource.data.tenantId == tenantId();
       allow update, delete: if false; // Append-only audit trail
+    }
+
+    // ---- tenant attendance settings ----
+    match /tenants/{tenantDocId}/settings/attendance {
+      allow read: if isSignedIn() && (isHrRole() || tenantDocId == tenantId());
+      allow write: if isSignedIn() && isHrRole() && tenantDocId == tenantId();
+    }
+
+    // ---- finance: chart of accounts ----
+    match /ledger_accounts/{accountId} {
+      allow read: if isFinanceRole() && (resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow create: if isFinanceRole() && (request.resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow update: if isFinanceRole() && (resource.data.tenantId == tenantId() || role() == 'super_admin') && (request.resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow delete: if false; // System and ledger accounts are preserved
+    }
+
+    // ---- finance: vouchers (append-only) ----
+    match /ledger_vouchers/{voucherId} {
+      allow read: if isFinanceRole() && (resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow create: if isFinanceRole() && (request.resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow update, delete: if false; // Append-only audit trail: corrections via reversing journal vouchers
+    }
+
+    // ---- finance: ledger entries (append-only) ----
+    match /ledger_entries/{entryId} {
+      allow read: if isFinanceRole() && (resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow create: if isFinanceRole() && (request.resource.data.tenantId == tenantId() || role() == 'super_admin');
+      allow update, delete: if false; // Append-only double-entry ledger: corrections via reversing journal entries
     }
   }
 }

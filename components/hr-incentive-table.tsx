@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
-import { Card, Badge, Input, Select, ErrorBanner } from "@/components/ui";
+import { Card, Badge, Input, Select, Button, ErrorBanner } from "@/components/ui";
 import { getMonthlyIncentiveReport } from "@/actions/incentive";
+import { postIncentiveVoucherAction } from "@/actions/finance";
 import { MonthlyIncentiveReport } from "@/lib/services/incentive-service";
 
 interface HrIncentiveTableProps {
@@ -18,11 +19,36 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
   const [report, setReport] = useState<MonthlyIncentiveReport | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [postingStaffId, setPostingStaffId] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
   const isManager = userRole === "manager";
+  const canPostFinance = userRole === "tenant_admin" || userRole === "super_admin";
+
+  const handlePostIncentive = async (staffId: string, staffName: string, amount: number) => {
+    setPostingStaffId(staffId);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await postIncentiveVoucherAction(staffId, selectedMonth, amount);
+      if (!res.ok) {
+        setErrorMsg(res.error || `Failed to post incentive for ${staffName}.`);
+      } else if (res.alreadyPosted) {
+        setSuccessMsg(`Incentive for ${staffName} (${selectedMonth}) was already posted as Voucher #${res.voucherNo || ""}.`);
+      } else {
+        setSuccessMsg(`Successfully booked incentive of ₹${amount.toLocaleString("en-IN")} for ${staffName} (${selectedMonth}) as Voucher #${res.voucherNo || ""}.`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to post incentive voucher.");
+    } finally {
+      setPostingStaffId(null);
+    }
+  };
 
   const loadReport = async (branch: string, month: string) => {
     setLoading(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
     try {
       const res = await getMonthlyIncentiveReport(branch, month);
       if (res.ok && res.report) {
@@ -96,6 +122,11 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
       </Card>
 
       {errorMsg && <ErrorBanner message={errorMsg} />}
+      {successMsg && (
+        <div style={{ padding: "10px 16px", borderRadius: 10, background: "rgba(34, 197, 94, 0.15)", border: "1px solid rgba(34, 197, 94, 0.3)", color: "#22c55e", fontSize: 13, fontWeight: 600 }}>
+          ✓ {successMsg}
+        </div>
+      )}
 
       {/* Aggregate KPI Summary Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
@@ -164,18 +195,21 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
                 <th style={{ padding: "12px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>BASE SALARY</th>
                 <th style={{ padding: "12px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>INCENTIVE</th>
                 <th style={{ padding: "12px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>TOTAL PAYOUT</th>
+                {canPostFinance && (
+                  <th style={{ padding: "12px 16px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, textAlign: "right" }}>ACTIONS</th>
+                )}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-secondary)" }}>
+                  <td colSpan={canPostFinance ? 7 : 6} style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-secondary)" }}>
                     Computing performance metrics...
                   </td>
                 </tr>
               ) : !report || report.staffPayouts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-secondary)", fontSize: 13 }}>
+                  <td colSpan={canPostFinance ? 7 : 6} style={{ textAlign: "center", padding: "36px 16px", color: "var(--text-secondary)", fontSize: 13 }}>
                     No staff records found for this branch and month.
                   </td>
                 </tr>
@@ -242,6 +276,18 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
                     <td style={{ padding: "14px 16px", fontWeight: 900, color: "var(--text-primary)" }}>
                       ₹{s.totalPayout.toLocaleString("en-IN")}
                     </td>
+                    {canPostFinance && (
+                      <td style={{ padding: "14px 16px", textAlign: "right" }}>
+                        <Button
+                          variant="secondary"
+                          onClick={() => handlePostIncentive(s.staffId, s.name, s.incentiveAmount)}
+                          disabled={postingStaffId === s.staffId || s.incentiveAmount <= 0}
+                          style={{ fontSize: 12, padding: "6px 12px" }}
+                        >
+                          {postingStaffId === s.staffId ? "Posting..." : "📑 Post to Finance"}
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

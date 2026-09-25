@@ -1,0 +1,50 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Authentication & Scope Helpers
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isSameTenant(tenantId) {
+      return isAuthenticated() && (
+        request.auth.token.tenantId == tenantId ||
+        request.auth.token.role == 'super_admin'
+      );
+    }
+
+    function isSelf(staffId) {
+      return isAuthenticated() && request.auth.uid == staffId;
+    }
+
+    function isHrRole() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'tenant_admin' ||
+        request.auth.token.role == 'super_admin' ||
+        request.auth.token.role == 'manager' ||
+        request.auth.token.role == 'auditor'
+      );
+    }
+
+    // Attendance Selfies: attendance_selfies/{tenantId}/{staffId}/{fileName}
+    match /attendance_selfies/{tenantId}/{staffId}/{fileName} {
+      // Write only by authenticated staff member for their own staffId path in their tenant
+      allow write: if isAuthenticated() && isSameTenant(tenantId) && isSelf(staffId)
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+
+      // Read only by HR roles within the same tenant or by the staff member themselves
+      allow read: if isAuthenticated() && isSameTenant(tenantId) && (isSelf(staffId) || isHrRole());
+    }
+
+    // Tenant & Store Brand Logos
+    match /logos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if isAuthenticated() && isSameTenant(tenantId) && (
+        request.auth.token.role == 'tenant_admin' ||
+        request.auth.token.role == 'super_admin'
+      );
+    }
+  }
+}

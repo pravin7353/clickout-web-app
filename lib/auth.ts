@@ -2,15 +2,18 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { adminDb, adminAuth } from "./firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { handleLoginFingerprint, checkDeviceLock } from "@/lib/services/trust-service";
 
 const ALLOWED_WEB_ROLES = ["super_admin", "tenant_admin", "manager", "auditor"];
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
-      credentials: { idToken: {} },
+      credentials: { idToken: {}, fingerprint: {}, ipAddress: {} },
       async authorize(credentials) {
         const idToken = credentials?.idToken as string;
+        const deviceFingerprint = (credentials?.fingerprint as string) || ((credentials as any)?.deviceFingerprint as string) || "";
+        const ipAddress = (credentials?.ipAddress as string) || "";
         if (!idToken) return null;
 
         let decoded;
@@ -111,6 +114,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const role = (data.role ?? "").toString().toLowerCase();
         if (!ALLOWED_WEB_ROLES.includes(role)) return null; // cashier/guard: no admin portal access
 
+        const effectiveTenantId = accessibleTenants[0]?.tenantId ?? data.tenantId ?? null;
+
+        // 🛡️ 30-Day Terminal Lock Check across tenants
+        if (deviceFingerprint && effectiveTenantId) {
+          const lockResult = await checkDeviceLock(deviceFingerprint, effectiveTenantId);
+          if (lockResult.isLocked) {
+            // Log security event for cross-tenant quarantine
+            await adminDb.collection("admin_audit_logs").add({
+              tenantId: effectiveTenantId,
+              timestamp: FieldValue.serverTimestamp(),
+              actorId: email,
+              actorEmail: email,
+              action: "BLOCKED_LOCKED_DEVICE_LOGIN",
+              actionType: "BLOCKED_LOCKED_DEVICE_LOGIN",
+              details: lockResult.reason,
+              severity: "WARNING",
+              fingerprint: deviceFingerprint,
+            });
+            throw new Error(lockResult.reason || "Device terminal is locked for 30 days due to deactivation from another tenant.");
+          }
+        }
+
         // single-session enforcement + login audit trail
         await staffRef.update({
           activeSessionId: Date.now().toString(),
@@ -118,15 +143,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           deviceInfo: "Web Browser",
         });
 
+        // 🛡️ Handle Device Fingerprint Anomaly Warning & 7-Day IP event tracking
+        await handleLoginFingerprint({
+          staffRef,
+          staffData: data,
+          role,
+          email,
+          tenantId: effectiveTenantId,
+          deviceFingerprint,
+          ipAddress,
+        });
+
         return {
           id: staffRef.id,
           email: data.email,
           name: data.name ?? email.split("@")[0],
           role,
-          tenantId: accessibleTenants[0]?.tenantId ?? data.tenantId ?? null,
+          tenantId: effectiveTenantId,
           storeId: accessibleTenants[0]?.branchCode ?? data.branchCode ?? null,
           canEdit: role === "manager" || role === "tenant_admin",
           accessibleTenants,
+          fingerprint: deviceFingerprint || null,
         };
       },
     }),
@@ -139,6 +176,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.storeId = (user as any).storeId;
         token.canEdit = (user as any).canEdit;
         token.accessibleTenants = (user as any).accessibleTenants;
+        token.fingerprint = (user as any).fingerprint;
       }
       return token;
     },
@@ -148,6 +186,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       (session.user as any).storeId = token.storeId;
       (session.user as any).canEdit = token.canEdit;
       (session.user as any).accessibleTenants = token.accessibleTenants || [];
+      (session.user as any).fingerprint = token.fingerprint;
       return session;
     },
   },

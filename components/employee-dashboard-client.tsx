@@ -3,6 +3,8 @@
 import { useState, useEffect, useTransition, useCallback } from "react";
 import {
   recordGeoPingAction,
+  remoteCheckInAction,
+  uploadAttendanceSelfieAction,
   submitRegularization,
   applyLeave,
   getEmployeeDashboardDataAction,
@@ -11,6 +13,60 @@ import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
 
 interface EmployeeDashboardClientProps {
   initialData: any;
+}
+
+/**
+ * Captures a single still frame from the user's front camera.
+ */
+async function captureSelfieFrame(): Promise<{ ok: boolean; base64?: string; error?: string }> {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return { ok: false, error: "Camera is not supported on this device or browser." };
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } },
+      audio: false,
+    });
+
+    const video = document.createElement("video");
+    video.playsInline = true;
+    video.muted = true;
+    video.srcObject = stream;
+
+    await new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => {
+        video.play().then(() => resolve()).catch(reject);
+      };
+      video.onerror = (e) => reject(e);
+      setTimeout(() => resolve(), 2500);
+    });
+
+    // Brief stabilization pause
+    await new Promise((r) => setTimeout(r, 400));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+
+    // Stop all media stream tracks immediately
+    stream.getTracks().forEach((track) => track.stop());
+
+    const base64 = canvas.toDataURL("image/jpeg", 0.82);
+    return { ok: true, base64 };
+  } catch (err: any) {
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      return {
+        ok: false,
+        error: "Camera permission denied. Please allow camera access in your browser to complete check-in.",
+      };
+    }
+    return { ok: false, error: err?.message || "Failed to access camera for check-in selfie." };
+  }
 }
 
 export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClientProps) {
@@ -53,7 +109,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
   };
 
   // Perform single Geo Ping
-  const executePing = useCallback(() => {
+  const executePing = useCallback(async () => {
     if (!navigator.geolocation) {
       setGeoError("Geolocation is not supported by your browser or device.");
       return;
@@ -62,11 +118,32 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     setIsPinging(true);
     setGeoError(null);
 
+    let selfieUrl: string | null = null;
+    const requireSelfie = Boolean(data?.settings?.requireSelfieOnCheckIn && !data?.todayAttendance?.checkInMs);
+
+    if (requireSelfie) {
+      const selfieResult = await captureSelfieFrame();
+      if (!selfieResult.ok || !selfieResult.base64) {
+        setIsPinging(false);
+        setGeoError(selfieResult.error || "Camera selfie is required for check-in.");
+        return;
+      }
+
+      const todayStr = new Date().toISOString().split("T")[0];
+      const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
+      if (!uploadRes.ok || !uploadRes.selfieUrl) {
+        setIsPinging(false);
+        setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+        return;
+      }
+      selfieUrl = uploadRes.selfieUrl;
+    }
+
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         try {
-          const res = await recordGeoPingAction(latitude, longitude);
+          const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl);
           if (res.ok) {
             setCurrentDistanceMeters(res.distanceMeters ?? null);
             setIsInsideGeofence(res.isInside ?? null);
@@ -93,7 +170,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, []);
+  }, [data]);
 
   // Periodic ping if tracking is active
   useEffect(() => {
@@ -377,6 +454,90 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
             {geoTrackingActive ? "🟢 Auto: ON" : "⚪ Auto: OFF"}
           </button>
         </div>
+
+        {data?.settings?.allowRemoteCheckIn && (
+          <button
+            type="button"
+            onClick={async () => {
+              const reason = prompt("Enter optional note/reason for remote check-in:") || undefined;
+              setGeoError(null);
+
+              let selfieUrl: string | null = null;
+              const requireSelfie = Boolean(data?.settings?.requireSelfieOnCheckIn && !data?.todayAttendance?.checkInMs);
+
+              if (requireSelfie) {
+                const selfieResult = await captureSelfieFrame();
+                if (!selfieResult.ok || !selfieResult.base64) {
+                  setGeoError(selfieResult.error || "Camera selfie is required for check-in.");
+                  return;
+                }
+
+                const todayStr = new Date().toISOString().split("T")[0];
+                const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
+                if (!uploadRes.ok || !uploadRes.selfieUrl) {
+                  setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+                  return;
+                }
+                selfieUrl = uploadRes.selfieUrl;
+              }
+
+              startTransition(async () => {
+                const res = await remoteCheckInAction(reason, undefined, selfieUrl);
+                if (res.ok) {
+                  await refreshData();
+                } else {
+                  setGeoError(res.error || "Remote check-in failed.");
+                }
+              });
+            }}
+            disabled={isPending || Boolean(todayAtt?.checkInMs)}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              background: "rgba(59, 130, 246, 0.1)",
+              border: "1px solid rgba(59, 130, 246, 0.3)",
+              color: "#3b82f6",
+              fontWeight: 700,
+              fontSize: 13,
+              cursor: todayAtt?.checkInMs ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            🌐 {todayAtt?.checkInMs ? "Checked In (Remote/Store)" : "Remote / WFH Check-In"}
+          </button>
+        )}
+
+        {todayAtt?.selfieUrl && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 12px",
+              borderRadius: 10,
+              background: "rgba(236, 72, 153, 0.08)",
+              border: "1px solid rgba(236, 72, 153, 0.25)",
+              fontSize: 12,
+              color: "var(--text-primary)",
+            }}
+          >
+            <img
+              src={todayAtt.selfieUrl}
+              alt="Check-in Selfie"
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                objectFit: "cover",
+                border: "1.5px solid #ec4899",
+              }}
+            />
+            <span>📸 Verified with check-in selfie photo</span>
+          </div>
+        )}
 
         {lastPingTime && (
           <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "center" }}>

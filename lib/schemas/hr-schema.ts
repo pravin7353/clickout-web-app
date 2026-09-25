@@ -27,6 +27,7 @@ export const markAttendanceSchema = z
     lastPingMs: z.number().optional().nullable(),
     lastPingLat: z.number().optional().nullable(),
     lastPingLng: z.number().optional().nullable(),
+    selfieUrl: z.string().optional().nullable(),
     branchCode: z.string().trim().min(1, "Branch code is required"),
     tenantId: z.string().trim().min(1, "Tenant ID is required"),
     markedBy: z.string().trim().min(1, "Marked by is required"),
@@ -65,6 +66,7 @@ export interface AttendanceDocument {
   lastPingMs?: number | null;
   lastPingLat?: number | null;
   lastPingLng?: number | null;
+  selfieUrl?: string | null;
   branchCode: string;
   tenantId: string;
   markedBy: string;
@@ -240,3 +242,47 @@ export interface SalaryStructureDocument {
   createdBy: string;
   createdAtMs: number;
 }
+
+// ==========================================
+// 6. ATTENDANCE SETTINGS DATA MODEL & VALIDATION
+// ==========================================
+
+export const attendanceSettingsSchema = z.object({
+  shiftStartTime: z
+    .string()
+    .trim()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Shift start time must be in HH:mm format (e.g. 09:00)")
+    .default("09:00"),
+  shiftEndTime: z
+    .string()
+    .trim()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Shift end time must be in HH:mm format (e.g. 18:00)")
+    .default("18:00"),
+  gracePeriodMinutes: z.coerce.number().min(0).max(180).default(15),
+  weeklyOffDays: z.array(z.number().int().min(0).max(6)).default([0]), // 0=Sun, 1=Mon, ..., 6=Sat
+  geoRadiusMeters: z.coerce.number().min(10).max(500).default(100),
+  halfDayThresholdMinutes: z.coerce.number().min(60).max(720).default(240),
+  lateCountForAbsent: z.coerce.number().min(1).max(10).default(3),
+  autoMarkAbsentEnabled: z.boolean().default(true),
+  allowRemoteCheckIn: z.boolean().default(false),
+  requireSelfieOnCheckIn: z.boolean().default(false),
+  updatedBy: z.string().nullable().optional(),
+  updatedAtMs: z.number().nullable().optional(),
+});
+
+export type AttendanceSettingsDocument = z.infer<typeof attendanceSettingsSchema>;
+
+export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsDocument = {
+  shiftStartTime: "09:00",
+  shiftEndTime: "18:00",
+  gracePeriodMinutes: 15,
+  weeklyOffDays: [0], // Sunday
+  geoRadiusMeters: 100,
+  halfDayThresholdMinutes: 240,
+  lateCountForAbsent: 3,
+  autoMarkAbsentEnabled: true,
+  allowRemoteCheckIn: false,
+  requireSelfieOnCheckIn: false,
+  updatedBy: null,
+  updatedAtMs: null,
+};

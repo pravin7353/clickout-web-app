@@ -43,6 +43,7 @@ const OPERATIONS_ITEMS: NavItem[] = [
 ];
 
 const FINANCE_ITEMS: NavItem[] = [
+  { label: "General Ledger", href: "/finance" },
   { label: "Auditor", href: "/auditor" },
   { label: "Guard Console", href: "/guard" },
 ];

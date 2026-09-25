@@ -7,6 +7,7 @@ import { HrSalaryEditor } from "@/components/hr-salary-editor";
 import { HrIncentiveTable } from "@/components/hr-incentive-table";
 import { HrIncentiveRulesEditor } from "@/components/hr-incentive-rules-editor";
 import { HrApprovalsInbox } from "@/components/hr-approvals-inbox";
+import { HrAttendanceSettings } from "@/components/hr-attendance-settings";
 
 interface HrDashboardClientProps {
   staffList: SimpleStaff[];
@@ -24,7 +25,9 @@ export function HrDashboardClient({
   tenantId,
 }: HrDashboardClientProps) {
   const isManager = userRole === "manager";
-  const [activeTab, setActiveTab] = useState<"inbox" | "attendance" | "leaves" | "incentives" | "salary">("inbox");
+  const [activeTab, setActiveTab] = useState<
+    "inbox" | "attendance" | "leaves" | "incentives" | "rules" | "salary" | "settings"
+  >("inbox");
 
   return (
     <div style={{ padding: "28px 24px", maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
@@ -127,6 +130,30 @@ export function HrDashboardClient({
           <span>🏆</span> Monthly Incentives
         </button>
 
+        {/* 🛡️ Strict: Incentive Rules configuration only rendered for tenant_admin and super_admin */}
+        {!isManager && (
+          <button
+            type="button"
+            onClick={() => setActiveTab("rules")}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 12,
+              fontSize: 13,
+              fontWeight: 800,
+              cursor: "pointer",
+              border: activeTab === "rules" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+              background: activeTab === "rules" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: activeTab === "rules" ? "var(--cta-text)" : "var(--text-secondary)",
+              transition: "all 0.15s ease",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span>🎯</span> Incentive Rules
+          </button>
+        )}
+
         {/* 🛡️ Strict: Only rendered for tenant_admin and super_admin, never for manager */}
         {!isManager && (
           <button
@@ -150,6 +177,27 @@ export function HrDashboardClient({
             <span>💰</span> Compensation & Salary
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("settings")}
+          style={{
+            padding: "8px 18px",
+            borderRadius: 12,
+            fontSize: 13,
+            fontWeight: 800,
+            cursor: "pointer",
+            border: activeTab === "settings" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+            background: activeTab === "settings" ? "var(--cta-bg)" : "var(--card-bg)",
+            color: activeTab === "settings" ? "var(--cta-text)" : "var(--text-secondary)",
+            transition: "all 0.15s ease",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>⚙️</span> Attendance Settings
+        </button>
       </div>
 
       {/* Tab Panels */}
@@ -166,16 +214,19 @@ export function HrDashboardClient({
       )}
 
       {activeTab === "incentives" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-          <HrIncentiveTable branchCode={storeId} userRole={userRole} />
-          {!isManager && (
-            <HrIncentiveRulesEditor tenantId={tenantId} userRole={userRole} />
-          )}
-        </div>
+        <HrIncentiveTable branchCode={storeId} userRole={userRole} />
+      )}
+
+      {activeTab === "rules" && !isManager && (
+        <HrIncentiveRulesEditor tenantId={tenantId} userRole={userRole} />
       )}
 
       {activeTab === "salary" && !isManager && (
         <HrSalaryEditor staffList={staffList} userRole={userRole} />
+      )}
+
+      {activeTab === "settings" && (
+        <HrAttendanceSettings tenantId={tenantId} canEdit={canEdit} userRole={userRole} />
       )}
     </div>
   );

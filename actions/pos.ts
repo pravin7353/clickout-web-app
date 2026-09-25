@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { applyOffers, ProductOffer, parseExpiryMs } from "@/lib/services/offer-engine";
 import { isTransactionLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
 import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-service";
+import { postSalesVoucher } from "@/lib/services/finance-service";
 
 export type PosProduct = {
   id?: string;
@@ -554,6 +555,9 @@ export async function createPosOrder(params: {
     await batch.commit();
     if (tenantId) {
       await incrementTransactionUsage(tenantId);
+      postSalesVoucher(tenantId, orderRef.id).catch((err) => {
+        console.warn("[Finance AutoPost] POS sales voucher posting failed for order:", orderRef.id, err?.message);
+      });
     }
     revalidatePath("/cashier");
     revalidatePath("/usage");

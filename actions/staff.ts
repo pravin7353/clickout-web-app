@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/rbac";
 import { onboardStaffSchema, updateStaffSchema } from "@/lib/schemas/staff-schema";
 import { incrementStaffUsage, decrementStaffUsage } from "@/lib/services/usage-service";
 import { isStaffLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
+import { lockDeviceTerminal } from "@/lib/services/trust-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
@@ -618,6 +619,19 @@ export async function toggleStaffStatus(staffId: string, currentStatus: boolean)
       if (snap.size <= 1) throw new Error("Cannot deactivate the sole tenant admin.");
     }
   }
+
+  // 🛡️ 30-Day Terminal Lock: If deactivating staff, lock their known device fingerprints
+  if (currentStatus && staffData.tenantId) {
+    const fps: string[] = Array.isArray(staffData.knownFingerprints)
+      ? staffData.knownFingerprints
+      : staffData.lastFingerprint
+      ? [staffData.lastFingerprint]
+      : [];
+    for (const fp of fps) {
+      await lockDeviceTerminal(fp, staffData.tenantId, staffId, "STAFF_DEACTIVATED_30_DAY_LOCK");
+    }
+  }
+
   await adminDb.collection("staff").doc(staffId).update({
     isActive: !currentStatus,
     updatedAt: FieldValue.serverTimestamp(),
@@ -650,6 +664,19 @@ export async function softDeleteStaff(staffId: string) {
     const snap = await adminDb.collection("staff").where("tenantId", "==", staffData.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).get();
     if (snap.size <= 1) throw new Error("Cannot delete the sole tenant admin.");
   }
+
+  // 🛡️ 30-Day Terminal Lock: Lock known fingerprints upon deletion
+  if (staffData.tenantId) {
+    const fps: string[] = Array.isArray(staffData.knownFingerprints)
+      ? staffData.knownFingerprints
+      : staffData.lastFingerprint
+      ? [staffData.lastFingerprint]
+      : [];
+    for (const fp of fps) {
+      await lockDeviceTerminal(fp, staffData.tenantId, staffId, "STAFF_DELETED_30_DAY_LOCK");
+    }
+  }
+
   await adminDb.collection("staff").doc(staffId).update({
     isDeleted: true,
     isActive: false,
