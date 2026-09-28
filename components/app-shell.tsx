@@ -175,7 +175,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const sub = useTenantSubscription();
 
-  if (pathname === "/login" || pathname?.startsWith("/employee") || status !== "authenticated") {
+  if (
+    pathname === "/login" ||
+    pathname?.startsWith("/employee") ||
+    status !== "authenticated" ||
+    (session?.user as any)?.authMethod === "otp"
+  ) {
     return <>{children}</>;
   }
 

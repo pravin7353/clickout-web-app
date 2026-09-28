@@ -18,7 +18,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         let decoded: any;
         try {
-          decoded = await adminAuth.verifyIdToken(idToken);
+          decoded = await adminAuth.verifyIdToken(idToken, true);
         } catch {
           return null;
         }
@@ -37,20 +37,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             const q = await adminDb.collection("staff").where("authUid", "==", uid).where("isActive", "==", true).limit(1).get();
             if (!q.empty) staffDoc = q.docs[0];
           }
-          if (!staffDoc || !staffDoc.exists) {
-            if (phoneNumber) {
-              const digits = phoneNumber.replace(/\D/g, "");
-              const normPhone = digits.length > 10 ? digits.slice(-10) : digits;
-              const q = await adminDb.collection("staff").where("phone", "==", normPhone).where("isActive", "==", true).limit(1).get();
-              if (!q.empty) staffDoc = q.docs[0];
-            }
-          }
 
           if (!staffDoc || !staffDoc.exists) {
             return null;
           }
 
           const sData = staffDoc.data()!;
+
+          // Must satisfy staffDoc.authUid === decoded.uid
+          if (sData.authUid !== uid || sData.isActive === false || sData.isDeleted === true) {
+            return null;
+          }
+
           const sRole = (sData.role ?? (decoded as any).role ?? "").toString().toLowerCase();
           const effectiveTenantId = sData.tenantId ?? (decoded as any).tenantId ?? null;
 
@@ -66,6 +64,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             canEdit: sRole === "manager" || sRole === "tenant_admin",
             accessibleTenants: [],
             fingerprint: deviceFingerprint || null,
+            authMethod: "otp",
           };
         }
 
@@ -215,6 +214,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           canEdit: role === "manager" || role === "tenant_admin",
           accessibleTenants,
           fingerprint: deviceFingerprint || null,
+          authMethod: "email",
         };
       },
     }),
@@ -231,6 +231,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.canEdit = (user as any).canEdit;
         token.accessibleTenants = (user as any).accessibleTenants;
         token.fingerprint = (user as any).fingerprint;
+        token.authMethod = (user as any).authMethod;
       }
       return token;
     },
@@ -245,6 +246,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       (session.user as any).canEdit = token.canEdit;
       (session.user as any).accessibleTenants = token.accessibleTenants || [];
       (session.user as any).fingerprint = token.fingerprint;
+      (session.user as any).authMethod = token.authMethod;
       return session;
     },
   },

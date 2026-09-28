@@ -12,6 +12,11 @@ export async function requireRole(allowed: Role[]) {
     redirect("/login");
   }
 
+  // OTP staff sessions are scoped strictly to /employee
+  if ((session.user as any).authMethod === "otp") {
+    redirect("/employee");
+  }
+
   const role = ((session.user as any).role as string)?.toLowerCase() as Role;
   if (!allowed.includes(role)) {
     redirect("/login");

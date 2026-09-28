@@ -8,6 +8,10 @@ export default async function Home() {
     redirect("/login");
   }
 
+  if ((session.user as any)?.authMethod === "otp") {
+    redirect("/employee");
+  }
+
   const role = ((session.user as any)?.role || "").toString().toLowerCase();
 
   if (role === "cashier") {

@@ -74,38 +74,30 @@ export async function onboardStaff(raw: unknown) {
   }
 
   try {
-    const cleanPhone = (data.phone ?? "").trim();
+    const cleanPhone = normalizeStaffPhone(data.phone ?? "");
     if (cleanPhone) {
+      // Reject if another active staff in ANY tenant already has the same normalized phone
       const existingPhoneSnap = await adminDb
         .collection("staff")
         .where("phone", "==", cleanPhone)
         .where("isActive", "==", true)
-        .where("isDeleted", "==", false)
         .get();
 
-      if (!existingPhoneSnap.empty) {
-        const anyForeignTenant = existingPhoneSnap.docs.some(
-          (d) => d.data().tenantId !== effectiveTenantId
-        );
-        if (anyForeignTenant) {
-          return {
-            ok: false,
-            error: "This number is already registered as staff under another business account.",
-          };
-        }
+      let activeDocs = existingPhoneSnap.docs.filter((d) => d.data().isDeleted !== true);
+      if (activeDocs.length === 0) {
+        const snapFallback = await adminDb
+          .collection("staff")
+          .where("phone", "==", `+91${cleanPhone}`)
+          .where("isActive", "==", true)
+          .get();
+        activeDocs = snapFallback.docs.filter((d) => d.data().isDeleted !== true);
+      }
 
-        const sameRoleDoc = existingPhoneSnap.docs.find(
-          (d) => (d.data().role || "").toUpperCase() === requestedRole
-        );
-        if (sameRoleDoc) {
-          return {
-            ok: false,
-            error: `Staff with this phone and role (${requestedRole}) is already registered. Please edit or reactivate the existing account.`,
-            existingDocId: sameRoleDoc.id,
-            isExisting: true,
-          };
-        }
-        // Different role, same tenant -> allow create (multi-role staff)
+      if (activeDocs.length > 0) {
+        return {
+          ok: false,
+          error: `Phone number +91 ${cleanPhone} is already registered to an active staff member in the system.`,
+        };
       }
     }
 
@@ -252,20 +244,34 @@ export async function updateStaff(raw: unknown) {
     const cleanEmail = email?.trim().toLowerCase() ?? "";
 
     // Check phone uniqueness if phone changed
-    const cleanPhone = (phone ?? "").trim();
-    if (cleanPhone && cleanPhone !== (staffData.phone ?? "").trim()) {
-      const existingPhone = await adminDb.collection("staff").where("phone", "==", cleanPhone).get();
-      if (!existingPhone.empty) {
-        if (cleanRole === "AUDITOR" || (staffData.role || "").toUpperCase() === "AUDITOR") {
-          const sameTenantPhone = existingPhone.docs.find(
-            (d) => d.id !== id && d.data().tenantId === effectiveTenantId && d.data().isDeleted !== true
-          );
-          if (sameTenantPhone) {
-            return { ok: false, error: `An auditor with phone +91 ${cleanPhone} is already registered in your company.` };
-          }
-        } else if (existingPhone.docs.some((d) => d.id !== id && d.data().isDeleted !== true)) {
-          return { ok: false, error: `Phone number +91 ${cleanPhone} is already registered to another staff member.` };
-        }
+    const cleanPhone = normalizeStaffPhone(phone ?? "");
+    const currentStaffPhone = normalizeStaffPhone(staffData.phone ?? "");
+    if (cleanPhone && cleanPhone !== currentStaffPhone) {
+      const existingPhoneSnap = await adminDb
+        .collection("staff")
+        .where("phone", "==", cleanPhone)
+        .where("isActive", "==", true)
+        .get();
+
+      let activeDocs = existingPhoneSnap.docs.filter(
+        (d) => d.id !== id && d.data().isDeleted !== true
+      );
+      if (activeDocs.length === 0) {
+        const snapFallback = await adminDb
+          .collection("staff")
+          .where("phone", "==", `+91${cleanPhone}`)
+          .where("isActive", "==", true)
+          .get();
+        activeDocs = snapFallback.docs.filter(
+          (d) => d.id !== id && d.data().isDeleted !== true
+        );
+      }
+
+      if (activeDocs.length > 0) {
+        return {
+          ok: false,
+          error: `Phone number +91 ${cleanPhone} is already registered to an active staff member.`,
+        };
       }
     }
 
@@ -401,22 +407,35 @@ export async function validateBulkStaffImport(
   const existingEmpIds = new Set<string>();
   const existingPhones = new Set<string>();
 
-  if (effectiveTenantId) {
-    const existingStaffSnap = await adminDb
+  const [tenantStaffSnap, allActiveStaffSnap] = await Promise.all([
+    effectiveTenantId
+      ? adminDb
+          .collection("staff")
+          .where("tenantId", "==", effectiveTenantId)
+          .select("empId")
+          .get()
+      : null,
+    adminDb
       .collection("staff")
-      .where("tenantId", "==", effectiveTenantId)
-      .select("empId", "phone", "isDeleted")
-      .get();
+      .where("isActive", "==", true)
+      .select("phone", "isDeleted")
+      .get(),
+  ]);
 
-    existingStaffSnap.docs.forEach((doc) => {
+  if (tenantStaffSnap) {
+    tenantStaffSnap.docs.forEach((doc) => {
       const d = doc.data();
       if (d.empId) existingEmpIds.add(String(d.empId).trim().toUpperCase());
-      if (d.phone && !d.isDeleted) {
-        const cleanP = String(d.phone).trim().replace(/\D/g, "");
-        if (cleanP) existingPhones.add(cleanP);
-      }
     });
   }
+
+  allActiveStaffSnap.docs.forEach((doc) => {
+    const d = doc.data();
+    if (d.phone && !d.isDeleted) {
+      const cleanP = normalizeStaffPhone(String(d.phone));
+      if (cleanP) existingPhones.add(cleanP);
+    }
+  });
 
   const batchEmpIds = new Set<string>();
   const batchPhones = new Set<string>();
@@ -805,6 +824,13 @@ export async function linkStaffPhoneLogin(idToken: string) {
 
   if (staffDocs.length === 0) {
     return { ok: false, error: "This phone number is not registered as staff." };
+  }
+
+  if (staffDocs.length > 1) {
+    return {
+      ok: false,
+      error: "Multiple staff records use this number. Contact your admin.",
+    };
   }
 
   const staffDoc = staffDocs[0];
