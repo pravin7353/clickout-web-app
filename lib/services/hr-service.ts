@@ -38,6 +38,7 @@ export type StaffMemberRecord = {
   reportsToStaffId?: string | null;
   isActive: boolean;
   tenantId: string;
+  authUid?: string | null;
   dateOfBirth?: string;
   dateOfJoining?: string;
   emergencyContact?: string;
@@ -46,7 +47,7 @@ export type StaffMemberRecord = {
 };
 
 /**
- * Fetches staff document and validates existence
+ * Fetches staff document and validates existence by staffId (document ID)
  */
 export async function getStaffDoc(staffId: string): Promise<StaffMemberRecord | null> {
   const doc = await adminDb.collection("staff").doc(staffId).get();
@@ -63,12 +64,110 @@ export async function getStaffDoc(staffId: string): Promise<StaffMemberRecord | 
     reportsToStaffId: data.reportsToStaffId ?? null,
     isActive: data.isActive !== false,
     tenantId: data.tenantId ?? "",
+    authUid: data.authUid ?? null,
     dateOfBirth: data.dateOfBirth ?? "",
     dateOfJoining: data.dateOfJoining ?? "",
     emergencyContact: data.emergencyContact ?? "",
     bloodGroup: data.bloodGroup ?? "",
     photoUrl: data.photoUrl ?? "",
   };
+}
+
+/**
+ * Fetches staff document by Firebase Auth UID (authUid or doc ID)
+ */
+export async function getStaffByAuthUid(
+  authUid: string,
+  tenantId?: string
+): Promise<StaffMemberRecord | null> {
+  if (!authUid) return null;
+
+  // 1. Direct doc lookup (when staff docId == authUid, e.g. for self-signup tenant admins)
+  const direct = await getStaffDoc(authUid);
+  if (direct && (!tenantId || direct.tenantId === tenantId)) {
+    return direct;
+  }
+
+  // 2. Query by authUid field
+  let query: FirebaseFirestore.Query = adminDb
+    .collection("staff")
+    .where("authUid", "==", authUid)
+    .where("isActive", "==", true);
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+
+  const snap = await query.limit(1).get();
+  if (!snap.empty) {
+    const doc = snap.docs[0];
+    const data = doc.data();
+    return {
+      id: doc.id,
+      empId: data.empId ?? "",
+      name: data.name ?? "",
+      phone: data.phone ?? "",
+      email: data.email ?? "",
+      role: data.role ?? "",
+      branchCode: data.branchCode ?? "",
+      reportsToStaffId: data.reportsToStaffId ?? null,
+      isActive: data.isActive !== false,
+      tenantId: data.tenantId ?? "",
+      authUid: data.authUid ?? null,
+      dateOfBirth: data.dateOfBirth ?? "",
+      dateOfJoining: data.dateOfJoining ?? "",
+      emergencyContact: data.emergencyContact ?? "",
+      bloodGroup: data.bloodGroup ?? "",
+      photoUrl: data.photoUrl ?? "",
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Fetches staff document by email
+ */
+export async function getStaffByEmail(
+  email: string,
+  tenantId?: string
+): Promise<StaffMemberRecord | null> {
+  if (!email) return null;
+
+  let query: FirebaseFirestore.Query = adminDb
+    .collection("staff")
+    .where("email", "==", email.trim().toLowerCase())
+    .where("isActive", "==", true);
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+
+  const snap = await query.limit(1).get();
+  if (!snap.empty) {
+    const doc = snap.docs[0];
+    const data = doc.data();
+    return {
+      id: doc.id,
+      empId: data.empId ?? "",
+      name: data.name ?? "",
+      phone: data.phone ?? "",
+      email: data.email ?? "",
+      role: data.role ?? "",
+      branchCode: data.branchCode ?? "",
+      reportsToStaffId: data.reportsToStaffId ?? null,
+      isActive: data.isActive !== false,
+      tenantId: data.tenantId ?? "",
+      authUid: data.authUid ?? null,
+      dateOfBirth: data.dateOfBirth ?? "",
+      dateOfJoining: data.dateOfJoining ?? "",
+      emergencyContact: data.emergencyContact ?? "",
+      bloodGroup: data.bloodGroup ?? "",
+      photoUrl: data.photoUrl ?? "",
+    };
+  }
+
+  return null;
 }
 
 /**

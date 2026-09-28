@@ -35,12 +35,6 @@ export const incentiveRuleSchema = z.object({
   minSaleAmount: z.coerce.number().min(0).default(0),
   payoutFrequency: PayoutFrequencyEnum.default("MONTHLY"),
   autoApproveThreshold: z.coerce.number().min(0).default(500),
-
-  // Legacy/Guard fields for backward compatibility
-  metric: IncentiveMetricEnum.optional(),
-  threshold: z.coerce.number().min(0).optional(),
-  rewardAmount: z.coerce.number().min(0).optional(),
-  rewardType: z.enum(["FLAT", "PER_UNIT", "PERCENTAGE"]).optional(),
   description: z.string().trim().optional(),
 });
 
@@ -50,20 +44,14 @@ export interface IncentiveRuleDocument {
   id: string;
   tenantId: string;
   role?: "cashier" | "guard";
-  category?: string;
-  calculationType?: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
+  category: string;
+  calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
   percentValue?: number;
   fixedAmount?: number;
   tiers?: { minSaleAmount: number; percent: number }[];
-  minSaleAmount?: number;
-  payoutFrequency?: "DAILY" | "WEEKLY" | "MONTHLY";
-  autoApproveThreshold?: number;
-
-  // Legacy / Guard metric fields
-  metric?: "ORDER_COUNT" | "ORDER_VOLUME" | "FRAUD_CATCH_COUNT" | "FRAUD_VALUE_PREVENTED";
-  threshold?: number;
-  rewardAmount?: number;
-  rewardType?: "FLAT" | "PER_UNIT" | "PERCENTAGE";
+  minSaleAmount: number;
+  payoutFrequency: "DAILY" | "WEEKLY" | "MONTHLY";
+  autoApproveThreshold: number;
   description?: string;
   createdBy?: string;
   createdAtMs?: number;

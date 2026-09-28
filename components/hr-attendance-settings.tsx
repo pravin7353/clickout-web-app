@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from "react";
 import { getAttendanceSettingsAction, updateAttendanceSettingsAction } from "@/actions/hr";
 import { AttendanceSettingsDocument, DEFAULT_ATTENDANCE_SETTINGS } from "@/lib/schemas/hr-schema";
+import { QRCodeSVG } from "qrcode.react";
 
 interface HrAttendanceSettingsProps {
   tenantId?: string | null;
@@ -30,6 +31,14 @@ export function HrAttendanceSettings({
   const [isPending, startTransition] = useTransition();
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [employeePortalUrl, setEmployeePortalUrl] = useState("/employee/login");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setEmployeePortalUrl(`${window.location.origin}/employee/login`);
+    }
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -546,6 +555,139 @@ export function HrAttendanceSettings({
               }
               style={{ width: 18, height: 18, accentColor: "#ec4899", cursor: canEdit ? "pointer" : "not-allowed" }}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* 📱 Employee Mobile App (PWA) QR Code Card */}
+      <div
+        style={{
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
+          borderRadius: 18,
+          padding: 24,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>📱</span> Employee Self-Service Mobile App (PWA)
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
+              Show this QR code to newly onboarded staff (Cashiers, Guards, Sales Staff) to open the mobile portal on their phone.
+            </p>
+          </div>
+          <span
+            style={{
+              padding: "4px 10px",
+              borderRadius: 20,
+              fontSize: 11,
+              fontWeight: 800,
+              background: "rgba(34, 197, 94, 0.12)",
+              color: "#22c55e",
+              border: "1px solid rgba(34, 197, 94, 0.3)",
+            }}
+          >
+            OTP Phone Login
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 24,
+            flexWrap: "wrap",
+            padding: 20,
+            borderRadius: 14,
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid var(--border)",
+          }}
+        >
+          {/* QR Code with crisp white background */}
+          <div
+            style={{
+              background: "#ffffff",
+              padding: 12,
+              borderRadius: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
+              flexShrink: 0,
+            }}
+          >
+            <QRCodeSVG
+              value={employeePortalUrl}
+              size={140}
+              level="H"
+              includeMargin={false}
+            />
+          </div>
+
+          {/* Details & Actions */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, minWidth: 260 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+              Onboarding Steps for Staff:
+            </div>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              <li>Scan this QR code using a smartphone camera to open <b>/employee/login</b></li>
+              <li>Log in with the registered staff phone number via OTP verification</li>
+              <li>Tap <b>"Add to Home Screen"</b> in browser to install the mobile PWA</li>
+              <li>Enable GPS location permissions for store geo-attendance & check-in</li>
+            </ol>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(employeePortalUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 3000);
+                }}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: copied ? "rgba(34, 197, 94, 0.15)" : "var(--card-bg)",
+                  color: copied ? "#22c55e" : "var(--text-primary)",
+                  border: "1px solid var(--border)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <span>{copied ? "✅" : "📋"}</span>
+                {copied ? "Link Copied!" : "Copy Portal Link"}
+              </button>
+
+              <a
+                href="/employee/login"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  background: "var(--card-bg)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>↗️</span> Preview Portal
+              </a>
+            </div>
           </div>
         </div>
       </div>

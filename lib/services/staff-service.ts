@@ -11,6 +11,7 @@ export type StaffRow = {
   isActive: boolean;
   trustScore: number;
   tenantId?: string;
+  authUid?: string | null;
 };
 
 export async function getStaffList(role: string, tenantId: string | null, storeId: string | null, roleFilter: string): Promise<StaffRow[]> {
@@ -35,6 +36,7 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       isActive: data.isActive !== false,
       trustScore: typeof data.trustScore === "number" ? data.trustScore : 100,
       tenantId: data.tenantId ?? "",
+      authUid: data.authUid ?? null,
     };
   });
 }

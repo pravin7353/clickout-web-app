@@ -22,6 +22,8 @@ import {
 import { auth } from "@/lib/auth";
 import {
   getStaffDoc,
+  getStaffByAuthUid,
+  getStaffByEmail,
   saveAttendanceRecord,
   getStaffAttendanceSummary,
   createLeaveRecord,
@@ -44,6 +46,22 @@ import {
 } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+
+async function resolveStaffMember(session: any, explicitStaffId?: string) {
+  const user = session?.user as any;
+  const userEmail = session?.user?.email || "";
+  const staffId = explicitStaffId || user?.staffId || user?.id || user?.uid || user?.authUid;
+  const tenantId = user?.tenantId;
+
+  let staff = staffId ? await getStaffDoc(staffId) : null;
+  if (!staff && staffId) {
+    staff = await getStaffByAuthUid(staffId, tenantId);
+  }
+  if (!staff && userEmail) {
+    staff = await getStaffByEmail(userEmail, tenantId);
+  }
+  return staff;
+}
 
 // =========================================================================
 // 1. MARK ATTENDANCE
@@ -628,12 +646,7 @@ export async function recordGeoPingAction(
     return { ok: false, error: "UNAUTHORIZED" };
   }
 
-  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
-  if (!staffId) {
-    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
-  }
-
-  const staff = await getStaffDoc(staffId);
+  const staff = await resolveStaffMember(session);
   if (!staff) {
     return { ok: false, error: "STAFF_NOT_FOUND" };
   }
@@ -643,7 +656,7 @@ export async function recordGeoPingAction(
   }
 
   const effectiveTimestamp = timestampMs || Date.now();
-  const res = await recordGeoPing(staffId, latitude, longitude, effectiveTimestamp, selfieUrl);
+  const res = await recordGeoPing(staff.id, latitude, longitude, effectiveTimestamp, selfieUrl);
   return res;
 }
 
@@ -660,12 +673,7 @@ export async function remoteCheckInAction(
     return { ok: false, error: "UNAUTHORIZED" };
   }
 
-  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
-  if (!staffId) {
-    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
-  }
-
-  const staff = await getStaffDoc(staffId);
+  const staff = await resolveStaffMember(session);
   if (!staff) {
     return { ok: false, error: "STAFF_NOT_FOUND" };
   }
@@ -675,7 +683,7 @@ export async function remoteCheckInAction(
   }
 
   try {
-    const res = await remoteCheckIn(staffId, timestampMs, reason, selfieUrl);
+    const res = await remoteCheckIn(staff.id, timestampMs, reason, selfieUrl);
 
     // Audit log
     await adminDb.collection("admin_audit_logs").add({
@@ -685,7 +693,7 @@ export async function remoteCheckInAction(
       tenantId: staff.tenantId,
       branchCode: staff.branchCode || null,
       details: {
-        staffId,
+        staffId: staff.id,
         staffName: staff.name,
         timestampMs: res.checkInMs,
         reason: reason || null,
@@ -713,15 +721,12 @@ export async function uploadAttendanceSelfieAction(base64Image: string, date?: s
     return { ok: false, error: "UNAUTHORIZED" };
   }
 
-  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
-  if (!staffId) {
-    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
-  }
-
-  const staff = await getStaffDoc(staffId);
+  const staff = await resolveStaffMember(session);
   if (!staff) {
     return { ok: false, error: "STAFF_NOT_FOUND" };
   }
+
+  const staffId = staff.id;
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
@@ -776,15 +781,12 @@ export async function submitRegularization(
     return { ok: false, error: "UNAUTHORIZED" };
   }
 
-  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
-  if (!staffId) {
-    return { ok: false, error: "STAFF_ID_NOT_RESOLVED" };
-  }
-
-  const staff = await getStaffDoc(staffId);
+  const staff = await resolveStaffMember(session);
   if (!staff) {
     return { ok: false, error: "Staff member not found." };
   }
+
+  const staffId = staff.id;
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
@@ -1010,14 +1012,7 @@ export async function getStaffRegularizationsAction(staffId?: string) {
     return { ok: false, error: "UNAUTHORIZED", regularizations: [] };
   }
 
-  const callerUid = (session.user as any)?.id || (session.user as any)?.uid;
-  const targetStaffId = staffId || callerUid;
-
-  if (!targetStaffId) {
-    return { ok: false, error: "STAFF_ID_REQUIRED", regularizations: [] };
-  }
-
-  const staff = await getStaffDoc(targetStaffId);
+  const staff = await resolveStaffMember(session, staffId);
   if (!staff) {
     return { ok: false, error: "Staff member not found.", regularizations: [] };
   }
@@ -1026,7 +1021,7 @@ export async function getStaffRegularizationsAction(staffId?: string) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
-  const regularizations = await getStaffRegularizations(targetStaffId);
+  const regularizations = await getStaffRegularizations(staff.id);
   return { ok: true, regularizations };
 }
 
@@ -1058,14 +1053,7 @@ export async function getStaffLeaveBalanceAction(staffId?: string) {
     return { ok: false, error: "UNAUTHORIZED", balance: null };
   }
 
-  const callerUid = (session.user as any)?.id || (session.user as any)?.uid;
-  const targetStaffId = staffId || callerUid;
-
-  if (!targetStaffId) {
-    return { ok: false, error: "STAFF_ID_REQUIRED", balance: null };
-  }
-
-  const staff = await getStaffDoc(targetStaffId);
+  const staff = await resolveStaffMember(session, staffId);
   if (!staff) {
     return { ok: false, error: "Staff member not found.", balance: null };
   }
@@ -1074,7 +1062,7 @@ export async function getStaffLeaveBalanceAction(staffId?: string) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
-  const balance = await getOrCreateStaffLeaveBalance(targetStaffId, staff.tenantId);
+  const balance = await getOrCreateStaffLeaveBalance(staff.id, staff.tenantId);
   return { ok: true, balance };
 }
 
@@ -1087,15 +1075,23 @@ export async function getEmployeeDashboardDataAction() {
     return { ok: false, error: "UNAUTHORIZED", data: null };
   }
 
-  const staffId = (session.user as any)?.id || (session.user as any)?.uid;
-  if (!staffId) {
-    return { ok: false, error: "STAFF_ID_NOT_RESOLVED", data: null };
-  }
+  const user = session.user as any;
+  const userRole = (user?.role || "").toLowerCase();
+  const isNonStaffAdmin = userRole === "tenant_admin" || userRole === "super_admin";
 
-  const staff = await getStaffDoc(staffId);
+  const staff = await resolveStaffMember(session);
   if (!staff) {
+    if (isNonStaffAdmin) {
+      return {
+        ok: false,
+        error: "Employee Self-Service is for staff accounts (cashier, guard) only. Log in with a staff account to use this portal.",
+        data: null,
+      };
+    }
     return { ok: false, error: "Staff profile not found.", data: null };
   }
+
+  const staffId = staff.id;
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");

@@ -15,13 +15,16 @@ import {
 } from "./profile-menu";
 import { TrialCountdownBadge } from "./subscription/TrialCountdownBadge";
 import { UsageLimitBanner } from "./subscription/UsageLimitBanner";
+import { useTenantSubscription } from "@/lib/subscription/use-subscription";
+import { isRouteAllowed, getRequiredPlanName } from "@/lib/subscription/access-engine";
+import { SubscriptionPlan } from "@/lib/subscription/plan";
 
-type NavItem = { label: string; href: string };
+type NavItem = { label: string; href: string; routeKey?: string };
 
 const PLATFORM_ITEMS: NavItem[] = [
   { label: "All Tenants", href: "/" },
   { label: "Register Client", href: "/register-client" },
-  { label: "Campaign Manager", href: "/campaign-manager" },
+  { label: "Campaign Manager", href: "/campaign-manager", routeKey: "campaign-manager" },
 ];
 
 const TENANT_HQ_ITEMS: NavItem[] = [
@@ -31,40 +34,55 @@ const TENANT_HQ_ITEMS: NavItem[] = [
 
 const OPERATIONS_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
-  { label: "Staff", href: "/manager" },
-  { label: "HR & Workforce", href: "/hr" },
-  { label: "Employee Portal", href: "/employee" },
+  { label: "Staff", href: "/manager", routeKey: "manager-dashboard" },
+  { label: "HR & Workforce", href: "/hr", routeKey: "hr" },
   { label: "Inventory", href: "/inventory" },
   { label: "Service Catalog", href: "/service" },
-  { label: "IDT Deposits", href: "/idt" },
+  { label: "IDT Deposits", href: "/idt", routeKey: "idt" },
   { label: "Cashier / POS", href: "/cashier" },
-  { label: "Procurement", href: "/procurement" },
-  { label: "Growth Radar", href: "/growth" },
+  { label: "Procurement", href: "/procurement", routeKey: "procurement" },
+  { label: "Growth Radar", href: "/growth", routeKey: "growth" },
 ];
 
 const FINANCE_ITEMS: NavItem[] = [
-  { label: "General Ledger", href: "/finance" },
-  { label: "Auditor", href: "/auditor" },
-  { label: "Guard Console", href: "/guard" },
+  { label: "General Ledger", href: "/finance", routeKey: "finance" },
+  { label: "Auditor", href: "/auditor", routeKey: "auditor" },
+  { label: "Guard Console", href: "/guard", routeKey: "guard" },
 ];
 
 const AUDITOR_ITEMS: NavItem[] = [
-  { label: "Auditor Console", href: "/auditor" },
+  { label: "Auditor Console", href: "/auditor", routeKey: "auditor" },
   { label: "Audit Terminal", href: "/auditor/terminal" },
 ];
 
 const SECURITY_ITEMS: NavItem[] = [
-  { label: "Risk Engine", href: "/risk" },
-  { label: "Fraud Control", href: "/fraud-control" },
-  { label: "QR Bailout", href: "/qr-reactivation" },
-  { label: "Refunds", href: "/refund" },
+  { label: "Risk Engine", href: "/risk", routeKey: "risk" },
+  { label: "Fraud Control", href: "/fraud-control", routeKey: "fraud-control" },
+  { label: "QR Bailout", href: "/qr-reactivation", routeKey: "qr-reactivation" },
+  { label: "Refunds", href: "/refund", routeKey: "refund" },
 ];
 
 const SETTINGS_ITEMS: NavItem[] = [
-  { label: "Integrations", href: "/integrations" },
+  { label: "Integrations", href: "/integrations", routeKey: "integrations" },
 ];
 
-function NavSection({ title, items, pathname, storeCode }: { title: string; items: NavItem[]; pathname: string; storeCode?: string | null }) {
+function NavSection({
+  title,
+  items,
+  pathname,
+  storeCode,
+  plan,
+  isTrialActive,
+  isSuperAdmin,
+}: {
+  title: string;
+  items: NavItem[];
+  pathname: string;
+  storeCode?: string | null;
+  plan: SubscriptionPlan | string;
+  isTrialActive: boolean;
+  isSuperAdmin: boolean;
+}) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 11, color: "var(--text-secondary)", textTransform: "uppercase", padding: "0 12px", marginBottom: 6 }}>
@@ -73,6 +91,17 @@ function NavSection({ title, items, pathname, storeCode }: { title: string; item
       {items.map((item) => {
         const active = pathname === item.href;
         const hrefWithContext = storeCode ? `${item.href}?store=${storeCode}` : item.href;
+        const isAllowed =
+          isSuperAdmin ||
+          !item.routeKey ||
+          isRouteAllowed({
+            route: item.routeKey,
+            plan,
+            isTrialActive,
+          });
+
+        const requiredPlan = item.routeKey ? getRequiredPlanName(item.routeKey) : "";
+
         return (
           <Link
             key={item.href}
@@ -87,12 +116,21 @@ function NavSection({ title, items, pathname, storeCode }: { title: string; item
               fontSize: 13,
               fontWeight: active ? 700 : 500,
               textDecoration: "none",
-              color: active ? "var(--text-primary)" : "var(--text-secondary)",
-              background: active ? "color-mix(in srgb, var(--text-primary) 8%, transparent)" : "transparent",
+              color: active
+                ? "var(--text-primary)"
+                : isAllowed
+                ? "var(--text-primary)"
+                : "rgba(148, 163, 184, 0.65)",
+              background: active
+                ? "color-mix(in srgb, var(--text-primary) 8%, transparent)"
+                : "transparent",
               transition: "all 0.15s ease",
             }}
           >
-            <span>{item.label}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span>{item.label}</span>
+            </span>
+
             {active && (
               <span
                 style={{
@@ -103,6 +141,25 @@ function NavSection({ title, items, pathname, storeCode }: { title: string; item
                   boxShadow: "0 0 6px var(--success)",
                 }}
               />
+            )}
+
+            {!isAllowed && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "1px 6px",
+                  borderRadius: 6,
+                  background: "rgba(234, 179, 8, 0.12)",
+                  color: "#eab308",
+                  border: "1px solid rgba(234, 179, 8, 0.25)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                }}
+              >
+                🔒 {requiredPlan || "Pro"}
+              </span>
             )}
           </Link>
         );
@@ -116,6 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams();
   const storeCode = searchParams.get("store");
   const { data: session, status } = useSession();
+  const sub = useTenantSubscription();
 
   if (pathname === "/login" || pathname?.startsWith("/employee") || status !== "authenticated") {
     return <>{children}</>;
@@ -139,8 +197,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <TrialCountdownBadge />
         </div>
 
-        {isSuperAdmin && !isStoreContext && <NavSection title="Platform" items={PLATFORM_ITEMS} pathname={pathname} />}
-        {isTenantAdmin && !isStoreContext && <NavSection title="Tenant HQ" items={TENANT_HQ_ITEMS} pathname={pathname} />}
+        {isSuperAdmin && !isStoreContext && (
+          <NavSection
+            title="Platform"
+            items={PLATFORM_ITEMS}
+            pathname={pathname}
+            plan={sub.plan}
+            isTrialActive={sub.isTrialActive}
+            isSuperAdmin={isSuperAdmin}
+          />
+        )}
+        {isTenantAdmin && !isStoreContext && (
+          <NavSection
+            title="Tenant HQ"
+            items={TENANT_HQ_ITEMS}
+            pathname={pathname}
+            plan={sub.plan}
+            isTrialActive={sub.isTrialActive}
+            isSuperAdmin={isSuperAdmin}
+          />
+        )}
         
         {(isTenantAdmin || isSuperAdmin) && isStoreContext && (
           <div style={{ marginBottom: 20 }}>
@@ -151,15 +227,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         {isAuditor && (
-          <NavSection title="Financial Audit" items={AUDITOR_ITEMS} pathname={pathname} storeCode={storeCode} />
+          <NavSection
+            title="Financial Audit"
+            items={AUDITOR_ITEMS}
+            pathname={pathname}
+            storeCode={storeCode}
+            plan={sub.plan}
+            isTrialActive={sub.isTrialActive}
+            isSuperAdmin={isSuperAdmin}
+          />
         )}
 
         {showStoreMenus && (
           <>
-            <NavSection title="Operations" items={OPERATIONS_ITEMS} pathname={pathname} storeCode={storeCode} />
-            <NavSection title="Finance" items={FINANCE_ITEMS} pathname={pathname} storeCode={storeCode} />
-            <NavSection title="Security" items={SECURITY_ITEMS} pathname={pathname} storeCode={storeCode} />
-            <NavSection title="Settings" items={SETTINGS_ITEMS} pathname={pathname} storeCode={storeCode} />
+            <NavSection
+              title="Operations"
+              items={OPERATIONS_ITEMS}
+              pathname={pathname}
+              storeCode={storeCode}
+              plan={sub.plan}
+              isTrialActive={sub.isTrialActive}
+              isSuperAdmin={isSuperAdmin}
+            />
+            <NavSection
+              title="Finance"
+              items={FINANCE_ITEMS}
+              pathname={pathname}
+              storeCode={storeCode}
+              plan={sub.plan}
+              isTrialActive={sub.isTrialActive}
+              isSuperAdmin={isSuperAdmin}
+            />
+            <NavSection
+              title="Security"
+              items={SECURITY_ITEMS}
+              pathname={pathname}
+              storeCode={storeCode}
+              plan={sub.plan}
+              isTrialActive={sub.isTrialActive}
+              isSuperAdmin={isSuperAdmin}
+            />
+            <NavSection
+              title="Settings"
+              items={SETTINGS_ITEMS}
+              pathname={pathname}
+              storeCode={storeCode}
+              plan={sub.plan}
+              isTrialActive={sub.isTrialActive}
+              isSuperAdmin={isSuperAdmin}
+            />
           </>
         )}
         {(isSuperAdmin || isTenantAdmin) && !showStoreMenus && !isAuditor && (

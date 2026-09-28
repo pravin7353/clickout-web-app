@@ -19,6 +19,7 @@ export const onboardStaffSchema = z
     emergencyContact: z.string().trim().optional().or(z.literal("")),
     bloodGroup: z.string().trim().optional().or(z.literal("")),
     photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
+    authUid: z.string().trim().optional().or(z.literal("")),
   })
   .superRefine((data, ctx) => {
     const isAuditor = data.role.toUpperCase() === "AUDITOR";
@@ -58,4 +59,5 @@ export const updateStaffSchema = z.object({
   emergencyContact: z.string().trim().optional().or(z.literal("")),
   bloodGroup: z.string().trim().optional().or(z.literal("")),
   photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
+  authUid: z.string().trim().optional().or(z.literal("")),
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateStaff } from "@/actions/staff";
+import { updateStaff, resetStaffDeviceLink } from "@/actions/staff";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/profile-menu";
 import { StaffRow as StaffRowType } from "@/lib/services/staff-service";
@@ -32,6 +32,8 @@ export function EditStaffModal({
   const [phone, setPhone] = useState(staff.phone || "");
   const [email, setEmail] = useState(staff.email || "");
   const [error, setError] = useState("");
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -304,6 +306,103 @@ export function EditStaffModal({
               />
             </div>
           </div>
+
+          {/* Device Authentication Link Management */}
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "color-mix(in srgb, var(--border) 20%, transparent)",
+              border: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                  Phone Device Link
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: (staff.authUid && !resetSuccess)
+                      ? "color-mix(in srgb, var(--success) 15%, transparent)"
+                      : "color-mix(in srgb, var(--border) 40%, transparent)",
+                    color: (staff.authUid && !resetSuccess) ? "var(--success)" : "var(--text-secondary)",
+                  }}
+                >
+                  {(staff.authUid && !resetSuccess) ? "● LINKED" : "○ UNLINKED"}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                {(staff.authUid && !resetSuccess)
+                  ? "Staff member's phone number is bound to their verified device."
+                  : "No device linked yet or device link has been cleared."}
+              </p>
+            </div>
+
+            {(staff.authUid && !resetSuccess) && (
+              <button
+                type="button"
+                disabled={isResetting || isPending}
+                onClick={async () => {
+                  if (!confirm(`Are you sure you want to reset the device link for ${staff.name}? They will need to verify their phone number again.`)) {
+                    return;
+                  }
+                  setIsResetting(true);
+                  setError("");
+                  try {
+                    const res = await resetStaffDeviceLink(staff.id);
+                    if (!res.ok) {
+                      setError(res.error || "Failed to reset device link.");
+                    } else {
+                      setResetSuccess(true);
+                      router.refresh();
+                    }
+                  } catch (err: any) {
+                    setError(err?.message || "Failed to reset device link.");
+                  } finally {
+                    setIsResetting(false);
+                  }
+                }}
+                style={{
+                  padding: "7px 12px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--danger)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: isResetting ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isResetting ? "Resetting..." : "🔄 Reset Device"}
+              </button>
+            )}
+          </div>
+
+          {resetSuccess && (
+            <div
+              style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                background: "color-mix(in srgb, var(--success) 12%, transparent)",
+                border: "1px solid var(--success)",
+                color: "var(--success)",
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              ✅ Device link successfully reset. The staff member can now log in on a new device.
+            </div>
+          )}
 
           {error && (
             <div

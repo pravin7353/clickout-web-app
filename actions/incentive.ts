@@ -11,6 +11,7 @@ import {
 import {
   incentiveRuleSchema,
   IncentiveRuleInput,
+  IncentiveRuleDocument,
 } from "@/lib/schemas/incentive-schema";
 import {
   calculateCashierIncentive,
@@ -162,22 +163,41 @@ export async function setIncentiveRule(raw: unknown) {
 
   const actorEmail = session.user?.email || "Admin";
 
-  const ruleId = await saveIncentiveRule(
-    {
-      tenantId: data.tenantId,
-      role: data.role,
-      metric: data.metric,
-      threshold: data.threshold,
-      rewardAmount: data.rewardAmount,
-      rewardType: data.rewardType,
-      description: data.description,
-      createdBy: actorEmail,
-      createdAtMs: Date.now(),
-    },
-    data.id
-  );
+  const rulePayload: Omit<IncentiveRuleDocument, "id"> = {
+    tenantId: data.tenantId,
+    role: data.role,
+    category: data.category,
+    calculationType: data.calculationType,
+    minSaleAmount: data.minSaleAmount,
+    payoutFrequency: data.payoutFrequency,
+    autoApproveThreshold: data.autoApproveThreshold,
+    createdBy: actorEmail,
+    createdAtMs: Date.now(),
+  };
+
+  if (data.percentValue !== undefined) {
+    rulePayload.percentValue = data.percentValue;
+  }
+  if (data.fixedAmount !== undefined) {
+    rulePayload.fixedAmount = data.fixedAmount;
+  }
+  if (data.tiers && data.tiers.length > 0) {
+    rulePayload.tiers = data.tiers;
+  }
+  if (data.description) {
+    rulePayload.description = data.description;
+  }
+
+  const ruleId = await saveIncentiveRule(rulePayload, data.id);
 
   // Audit Log
+  const formulaDesc =
+    data.calculationType === "PERCENT_OF_SALE"
+      ? `${data.percentValue}% of sale`
+      : data.calculationType === "FIXED_PER_SALE"
+      ? `₹${data.fixedAmount} fixed`
+      : `${data.tiers?.length || 0} tiers`;
+
   await adminDb.collection("admin_audit_logs").add({
     action: "INCENTIVE_RULE_CONFIGURED",
     actionType: "INCENTIVE_RULE_CONFIGURED",
@@ -185,7 +205,7 @@ export async function setIncentiveRule(raw: unknown) {
     actorId: actorEmail,
     tenantId: data.tenantId,
     target: `incentive_rules/${ruleId}`,
-    details: `Configured ${data.role.toUpperCase()} incentive rule for metric ${data.metric} (Threshold: ${data.threshold}, Reward: ₹${data.rewardAmount} ${data.rewardType}).`,
+    details: `Configured ${data.role.toUpperCase()} category incentive rule for '${data.category}' (${data.calculationType}: ${formulaDesc}, Min Sale: ₹${data.minSaleAmount}, Frequency: ${data.payoutFrequency}, Auto-Approve: ₹${data.autoApproveThreshold}).`,
     severity: "INFO",
     timestamp: FieldValue.serverTimestamp(),
   });
@@ -193,7 +213,7 @@ export async function setIncentiveRule(raw: unknown) {
   revalidatePath("/hr");
   revalidatePath("/manager");
 
-  return { ok: true, ruleId, message: "Incentive rule saved successfully." };
+  return { ok: true, ruleId, message: "Category incentive rule saved successfully." };
 }
 
 export async function deleteIncentiveRuleAction(ruleId: string, targetTenantId: string) {

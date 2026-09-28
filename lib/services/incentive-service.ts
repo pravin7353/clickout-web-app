@@ -161,9 +161,17 @@ export async function saveIncentiveRule(
     ? adminDb.collection("incentive_rules").doc(ruleId)
     : adminDb.collection("incentive_rules").doc();
 
+  // Strip any undefined keys so Firestore never errors on undefined
+  const cleaned: Record<string, any> = {};
+  for (const [key, value] of Object.entries(rule)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+
   await docRef.set(
     {
-      ...rule,
+      ...cleaned,
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -473,21 +481,22 @@ export async function calculateGuardIncentive(
 
   if (rules.length > 0) {
     for (const r of rules) {
-      const threshold = r.threshold ?? 0;
-      const rewardAmount = r.rewardAmount ?? 0;
-      if (r.metric === "FRAUD_CATCH_COUNT" && fraudCatches >= threshold) {
-        if (r.rewardType === "PER_UNIT") {
+      const guardRule = r as any;
+      const threshold = guardRule.threshold ?? 0;
+      const rewardAmount = guardRule.rewardAmount ?? 0;
+      if (guardRule.metric === "FRAUD_CATCH_COUNT" && fraudCatches >= threshold) {
+        if (guardRule.rewardType === "PER_UNIT") {
           const reward = fraudCatches * rewardAmount;
           incentiveAmount += reward;
           appliedRules.push(
             `₹${rewardAmount}/fraud catch (${fraudCatches} catches = ₹${reward.toFixed(2)})`
           );
-        } else if (r.rewardType === "FLAT") {
+        } else if (guardRule.rewardType === "FLAT") {
           incentiveAmount += rewardAmount;
           appliedRules.push(`Flat ₹${rewardAmount} for ${threshold}+ fraud catches`);
         }
-      } else if (r.metric === "FRAUD_VALUE_PREVENTED" && fraudValuePrevented >= threshold) {
-        if (r.rewardType === "PERCENTAGE") {
+      } else if (guardRule.metric === "FRAUD_VALUE_PREVENTED" && fraudValuePrevented >= threshold) {
+        if (guardRule.rewardType === "PERCENTAGE") {
           const reward = (fraudValuePrevented * rewardAmount) / 100;
           incentiveAmount += reward;
           appliedRules.push(

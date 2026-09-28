@@ -138,8 +138,8 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
     setEditForm({
       category: r.category || "ALL",
       calculationType: r.calculationType || "PERCENT_OF_SALE",
-      percentValue: r.percentValue ?? r.rewardAmount ?? 3,
-      fixedAmount: r.fixedAmount ?? r.rewardAmount ?? 50,
+      percentValue: r.percentValue ?? 3,
+      fixedAmount: r.fixedAmount ?? 50,
       minSaleAmount: r.minSaleAmount ?? 0,
       payoutFrequency: r.payoutFrequency || "MONTHLY",
       autoApproveThreshold: r.autoApproveThreshold ?? 500,
@@ -726,18 +726,18 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                   }
 
                   // Read-Only Row
-                  const catLabel = r.category || (r.metric ? String(r.metric) : "ALL");
-                  const calcType = r.calculationType || (r.rewardType === "FLAT" ? "FIXED_PER_SALE" : "PERCENT_OF_SALE");
+                  const catLabel = r.category || "ALL";
+                  const calcType = r.calculationType || "PERCENT_OF_SALE";
 
                   let formulaStr = "";
                   if (calcType === "PERCENT_OF_SALE") {
-                    formulaStr = `${r.percentValue ?? r.rewardAmount ?? 0}% of Sale`;
+                    formulaStr = `${r.percentValue ?? 0}% of Sale`;
                   } else if (calcType === "FIXED_PER_SALE") {
-                    formulaStr = `₹${r.fixedAmount ?? r.rewardAmount ?? 0} Fixed / Sale`;
+                    formulaStr = `₹${r.fixedAmount ?? 0} Fixed / Sale`;
                   } else if (calcType === "TIERED") {
                     formulaStr = (r.tiers || []).map((t) => `≥₹${t.minSaleAmount}: ${t.percent}%`).join(" | ");
                   } else {
-                    formulaStr = `${r.rewardAmount ?? 0} (${r.rewardType || "PER_UNIT"})`;
+                    formulaStr = "—";
                   }
 
                   return (

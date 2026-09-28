@@ -12,7 +12,7 @@ export default async function EmployeeLayout({
   const session = await auth();
 
   if (!session?.user) {
-    redirect("/login");
+    return <>{children}</>;
   }
 
   const user = session.user as any;

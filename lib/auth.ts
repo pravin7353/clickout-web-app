@@ -16,14 +16,60 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ipAddress = (credentials?.ipAddress as string) || "";
         if (!idToken) return null;
 
-        let decoded;
+        let decoded: any;
         try {
           decoded = await adminAuth.verifyIdToken(idToken);
         } catch {
           return null;
         }
-        const email = decoded.email!;
+
         const uid = decoded.uid;
+        const staffIdClaim = (decoded as any).staffId;
+        const phoneNumber = decoded.phone_number;
+
+        // Staff Phone / OTP login path
+        if (staffIdClaim || (!decoded.email && phoneNumber)) {
+          let staffDoc: FirebaseFirestore.DocumentSnapshot | null = null;
+          if (staffIdClaim) {
+            staffDoc = await adminDb.collection("staff").doc(staffIdClaim).get();
+          }
+          if (!staffDoc || !staffDoc.exists) {
+            const q = await adminDb.collection("staff").where("authUid", "==", uid).where("isActive", "==", true).limit(1).get();
+            if (!q.empty) staffDoc = q.docs[0];
+          }
+          if (!staffDoc || !staffDoc.exists) {
+            if (phoneNumber) {
+              const digits = phoneNumber.replace(/\D/g, "");
+              const normPhone = digits.length > 10 ? digits.slice(-10) : digits;
+              const q = await adminDb.collection("staff").where("phone", "==", normPhone).where("isActive", "==", true).limit(1).get();
+              if (!q.empty) staffDoc = q.docs[0];
+            }
+          }
+
+          if (!staffDoc || !staffDoc.exists) {
+            return null;
+          }
+
+          const sData = staffDoc.data()!;
+          const sRole = (sData.role ?? (decoded as any).role ?? "").toString().toLowerCase();
+          const effectiveTenantId = sData.tenantId ?? (decoded as any).tenantId ?? null;
+
+          return {
+            id: staffDoc.id,
+            staffId: staffDoc.id,
+            authUid: uid,
+            email: sData.email || `${phoneNumber || staffDoc.id}@staff.clickout.internal`,
+            name: sData.name ?? sData.phone ?? "Staff",
+            role: sRole,
+            tenantId: effectiveTenantId,
+            storeId: sData.branchCode ?? (decoded as any).branchCode ?? null,
+            canEdit: sRole === "manager" || sRole === "tenant_admin",
+            accessibleTenants: [],
+            fingerprint: deviceFingerprint || null,
+          };
+        }
+
+        const email = decoded.email!;
 
         let staffSnap = await adminDb.collection("staff").where("email", "==", email).where("isActive", "==", true).get();
         let staffRef: FirebaseFirestore.DocumentReference;
@@ -137,11 +183,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         // single-session enforcement + login audit trail
-        await staffRef.update({
+        const updateData: any = {
           activeSessionId: Date.now().toString(),
           lastLoginAt: FieldValue.serverTimestamp(),
           deviceInfo: "Web Browser",
-        });
+        };
+        if (!data.authUid) {
+          updateData.authUid = uid;
+        }
+        await staffRef.update(updateData);
 
         // 🛡️ Handle Device Fingerprint Anomaly Warning & 7-Day IP event tracking
         await handleLoginFingerprint({
@@ -156,6 +206,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         return {
           id: staffRef.id,
+          authUid: uid,
           email: data.email,
           name: data.name ?? email.split("@")[0],
           role,
@@ -171,6 +222,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        token.id = (user as any).id;
+        token.staffId = (user as any).staffId;
+        token.authUid = (user as any).authUid || (user as any).uid || token.sub;
         token.role = (user as any).role;
         token.tenantId = (user as any).tenantId;
         token.storeId = (user as any).storeId;
@@ -181,6 +235,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
+      (session.user as any).id = token.id || token.sub;
+      (session.user as any).staffId = token.staffId;
+      (session.user as any).authUid = token.authUid || token.sub;
+      (session.user as any).uid = token.authUid || token.sub;
       (session.user as any).role = token.role;
       (session.user as any).tenantId = token.tenantId;
       (session.user as any).storeId = token.storeId;
