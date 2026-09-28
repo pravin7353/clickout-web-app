@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from "react";
+import { signOut } from "next-auth/react";
 import {
   recordGeoPingAction,
   remoteCheckInAction,
@@ -10,6 +11,15 @@ import {
   getEmployeeDashboardDataAction,
 } from "@/actions/hr";
 import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
+
+async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
+  const errMsg = typeof resOrErr === "string" ? resOrErr : resOrErr?.error || resOrErr?.message;
+  if (errMsg === "SESSION_REVOKED" || errMsg?.includes("SESSION_REVOKED")) {
+    await signOut({ callbackUrl: "/employee/login?revoked=1" });
+    return true;
+  }
+  return false;
+}
 
 interface EmployeeDashboardClientProps {
   initialData: any;
@@ -102,9 +112,15 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
   const [requestsTab, setRequestsTab] = useState<"LEAVES" | "REGULARIZATIONS">("LEAVES");
 
   const refreshData = async () => {
-    const res = await getEmployeeDashboardDataAction();
-    if (res.ok && res.data) {
-      setData(res.data);
+    try {
+      const res = await getEmployeeDashboardDataAction();
+      if (!res.ok) {
+        if (await handleRevocationCheck(res)) return;
+      } else if (res.data) {
+        setData(res.data);
+      }
+    } catch (err: any) {
+      if (await handleRevocationCheck(err)) return;
     }
   };
 
@@ -130,13 +146,21 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
       }
 
       const todayStr = new Date().toISOString().split("T")[0];
-      const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
-      if (!uploadRes.ok || !uploadRes.selfieUrl) {
+      try {
+        const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
+        if (!uploadRes.ok) {
+          if (await handleRevocationCheck(uploadRes)) return;
+          setIsPinging(false);
+          setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+          return;
+        }
+        selfieUrl = uploadRes.selfieUrl ?? null;
+      } catch (err: any) {
+        if (await handleRevocationCheck(err)) return;
         setIsPinging(false);
-        setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+        setGeoError(err?.message || "Failed to upload check-in selfie.");
         return;
       }
-      selfieUrl = uploadRes.selfieUrl;
     }
 
     navigator.geolocation.getCurrentPosition(
@@ -150,9 +174,11 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
             setLastPingTime(new Date().toLocaleTimeString());
             await refreshData();
           } else {
+            if (await handleRevocationCheck(res)) return;
             setGeoError(res.error || "Failed to record location ping.");
           }
         } catch (err: any) {
+          if (await handleRevocationCheck(err)) return;
           setGeoError(err?.message || "Error submitting location ping.");
         } finally {
           setIsPinging(false);
@@ -194,21 +220,27 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     }
 
     startTransition(async () => {
-      const res = await applyLeave(
-        data?.staff?.id,
-        leaveFrom,
-        leaveTo,
-        leaveType,
-        leaveReason
-      );
+      try {
+        const res = await applyLeave(
+          data?.staff?.id,
+          leaveFrom,
+          leaveTo,
+          leaveType,
+          leaveReason
+        );
 
-      if (res.ok) {
-        setLeaveMsg({ type: "success", text: "Leave application submitted!" });
-        setLeaveReason("");
-        await refreshData();
-        setTimeout(() => setShowLeaveModal(false), 1200);
-      } else {
-        setLeaveMsg({ type: "error", text: res.error || "Failed to submit leave application." });
+        if (res.ok) {
+          setLeaveMsg({ type: "success", text: "Leave application submitted!" });
+          setLeaveReason("");
+          await refreshData();
+          setTimeout(() => setShowLeaveModal(false), 1200);
+        } else {
+          if (await handleRevocationCheck(res)) return;
+          setLeaveMsg({ type: "error", text: res.error || "Failed to submit leave application." });
+        }
+      } catch (err: any) {
+        if (await handleRevocationCheck(err)) return;
+        setLeaveMsg({ type: "error", text: err?.message || "Failed to submit leave application." });
       }
     });
   };
@@ -221,15 +253,21 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     }
 
     startTransition(async () => {
-      const res = await submitRegularization(regDate, regType, regReason);
+      try {
+        const res = await submitRegularization(regDate, regType, regReason);
 
-      if (res.ok) {
-        setRegMsg({ type: "success", text: "Regularization request submitted!" });
-        setRegReason("");
-        await refreshData();
-        setTimeout(() => setShowRegModal(false), 1200);
-      } else {
-        setRegMsg({ type: "error", text: res.error || "Failed to submit regularization." });
+        if (res.ok) {
+          setRegMsg({ type: "success", text: "Regularization request submitted!" });
+          setRegReason("");
+          await refreshData();
+          setTimeout(() => setShowRegModal(false), 1200);
+        } else {
+          if (await handleRevocationCheck(res)) return;
+          setRegMsg({ type: "error", text: res.error || "Failed to submit regularization." });
+        }
+      } catch (err: any) {
+        if (await handleRevocationCheck(err)) return;
+        setRegMsg({ type: "error", text: err?.message || "Failed to submit regularization." });
       }
     });
   };
@@ -473,20 +511,33 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
                 }
 
                 const todayStr = new Date().toISOString().split("T")[0];
-                const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
-                if (!uploadRes.ok || !uploadRes.selfieUrl) {
-                  setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+                try {
+                  const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
+                  if (!uploadRes.ok) {
+                    if (await handleRevocationCheck(uploadRes)) return;
+                    setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
+                    return;
+                  }
+                  selfieUrl = uploadRes.selfieUrl ?? null;
+                } catch (err: any) {
+                  if (await handleRevocationCheck(err)) return;
+                  setGeoError(err?.message || "Failed to upload check-in selfie.");
                   return;
                 }
-                selfieUrl = uploadRes.selfieUrl;
               }
 
               startTransition(async () => {
-                const res = await remoteCheckInAction(reason, undefined, selfieUrl);
-                if (res.ok) {
-                  await refreshData();
-                } else {
-                  setGeoError(res.error || "Remote check-in failed.");
+                try {
+                  const res = await remoteCheckInAction(reason, undefined, selfieUrl);
+                  if (res.ok) {
+                    await refreshData();
+                  } else {
+                    if (await handleRevocationCheck(res)) return;
+                    setGeoError(res.error || "Remote check-in failed.");
+                  }
+                } catch (err: any) {
+                  if (await handleRevocationCheck(err)) return;
+                  setGeoError(err?.message || "Remote check-in failed.");
                 }
               });
             }}

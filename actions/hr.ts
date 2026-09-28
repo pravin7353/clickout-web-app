@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import {
   requireRole,
   requireEditAccess,
+  requireStaffSelf,
   assertTenantScope,
   assertStoreScope,
   requireRoutePlan,
@@ -47,21 +48,6 @@ import {
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
-async function resolveStaffMember(session: any, explicitStaffId?: string) {
-  const user = session?.user as any;
-  const userEmail = session?.user?.email || "";
-  const staffId = explicitStaffId || user?.staffId || user?.id || user?.uid || user?.authUid;
-  const tenantId = user?.tenantId;
-
-  let staff = staffId ? await getStaffDoc(staffId) : null;
-  if (!staff && staffId) {
-    staff = await getStaffByAuthUid(staffId, tenantId);
-  }
-  if (!staff && userEmail) {
-    staff = await getStaffByEmail(userEmail, tenantId);
-  }
-  return staff;
-}
 
 // =========================================================================
 // 1. MARK ATTENDANCE
@@ -157,57 +143,54 @@ export async function markAttendance(
 // 2. APPLY LEAVE
 // =========================================================================
 export async function applyLeave(
-  staffId: string,
+  staffIdParam: string,
   fromDate: string,
   toDate: string,
   type: LeaveType,
   reason: string
 ) {
-  const { session, role, tenantId, storeId } = await requireRole([
-    "super_admin",
-    "tenant_admin",
-    "manager",
-    "cashier",
-    "guard",
-    "auditor",
-  ]);
+  const session = await auth();
+  if (!session?.user) {
+    return { ok: false, error: "UNAUTHORIZED" };
+  }
 
-  const staff = await getStaffDoc(staffId);
-  if (!staff) {
-    return { ok: false, error: "Staff member not found." };
+  let staffId: string;
+  let staff: any;
+  let actorEmail: string;
+
+  if ((session.user as any).authMethod === "otp") {
+    // OTP session: strictly use requireStaffSelf() and IGNORE staffIdParam
+    const staffSelf = await requireStaffSelf();
+    staffId = staffSelf.staffId;
+    staff = { id: staffSelf.staffId, ...staffSelf.staffDoc };
+    actorEmail = session.user?.email || staffSelf.staffDoc?.phone || staffId;
+  } else {
+    // Admin / Manager email session: apply on behalf of staff
+    const { session: adminSession, role, tenantId, storeId } = await requireRole([
+      "super_admin",
+      "tenant_admin",
+      "manager",
+      "auditor",
+    ]);
+    staffId = staffIdParam;
+    staff = await getStaffDoc(staffId);
+    if (!staff) {
+      return { ok: false, error: "Staff member not found." };
+    }
+    if (role !== "super_admin" && tenantId) {
+      assertTenantScope(tenantId, staff.tenantId);
+    }
+    if (role === "manager") {
+      const managerStore = (storeId || (adminSession.user as any)?.storeId || "").toUpperCase().trim();
+      const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+      assertStoreScope(managerStore, staffBranch);
+    }
+    actorEmail = adminSession.user?.email || "Admin";
   }
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
-
-  const callerUid = (session.user as any)?.id || (session.user as any)?.uid || session.user?.email;
-
-  // Operational staff can ONLY apply for their own leave
-  if (role === "cashier" || role === "guard" || role === "auditor") {
-    const isSelf =
-      callerUid === staffId ||
-      (session.user?.email && session.user.email.toLowerCase() === staff.email.toLowerCase()) ||
-      ((session.user as any)?.empId && (session.user as any).empId === staff.empId);
-
-    if (!isSelf) {
-      return { ok: false, error: "Staff members can only apply for their own leaves." };
-    }
-  }
-
-  // Tenant Isolation
-  if (role !== "super_admin" && tenantId) {
-    assertTenantScope(tenantId, staff.tenantId);
-  }
-
-  // Manager Store Scope
-  if (role === "manager") {
-    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
-    const staffBranch = (staff.branchCode || "").toUpperCase().trim();
-    assertStoreScope(managerStore, staffBranch);
-  }
-
-  const actorEmail = session.user?.email || callerUid || "Self";
 
   // Calculate requested leave days
   const startObj = new Date(fromDate);
@@ -641,22 +624,14 @@ export async function recordGeoPingAction(
   timestampMs?: number,
   selfieUrl?: string | null
 ) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED" };
-  }
-
-  const staff = await resolveStaffMember(session);
-  if (!staff) {
-    return { ok: false, error: "STAFF_NOT_FOUND" };
-  }
+  const staff = await requireStaffSelf();
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
   const effectiveTimestamp = timestampMs || Date.now();
-  const res = await recordGeoPing(staff.id, latitude, longitude, effectiveTimestamp, selfieUrl);
+  const res = await recordGeoPing(staff.staffId, latitude, longitude, effectiveTimestamp, selfieUrl);
   return res;
 }
 
@@ -668,33 +643,25 @@ export async function remoteCheckInAction(
   timestampMs?: number,
   selfieUrl?: string | null
 ) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED" };
-  }
-
-  const staff = await resolveStaffMember(session);
-  if (!staff) {
-    return { ok: false, error: "STAFF_NOT_FOUND" };
-  }
+  const staff = await requireStaffSelf();
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
   try {
-    const res = await remoteCheckIn(staff.id, timestampMs, reason, selfieUrl);
+    const res = await remoteCheckIn(staff.staffId, timestampMs, reason, selfieUrl);
 
     // Audit log
     await adminDb.collection("admin_audit_logs").add({
-      actorId: (session.user as any)?.id || (session.user as any)?.uid || session.user?.email || "unknown",
-      actorEmail: session.user?.email || "unknown",
+      actorId: (staff.session.user as any)?.id || (staff.session.user as any)?.uid || staff.session.user?.email || staff.staffId,
+      actorEmail: staff.session.user?.email || staff.staffDoc?.phone || "unknown",
       action: "HR_REMOTE_CHECKIN",
       tenantId: staff.tenantId,
       branchCode: staff.branchCode || null,
       details: {
-        staffId: staff.id,
-        staffName: staff.name,
+        staffId: staff.staffId,
+        staffName: staff.staffDoc?.name,
         timestampMs: res.checkInMs,
         reason: reason || null,
         selfieUrl: res.selfieUrl || null,
@@ -716,17 +683,8 @@ export async function remoteCheckInAction(
 // 6C. UPLOAD ATTENDANCE SELFIE (Employee Self-Attendance Action)
 // =========================================================================
 export async function uploadAttendanceSelfieAction(base64Image: string, date?: string) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED" };
-  }
-
-  const staff = await resolveStaffMember(session);
-  if (!staff) {
-    return { ok: false, error: "STAFF_NOT_FOUND" };
-  }
-
-  const staffId = staff.id;
+  const staff = await requireStaffSelf();
+  const staffId = staff.staffId;
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
@@ -776,23 +734,14 @@ export async function submitRegularization(
   requestType: RegularizationType,
   reason: string
 ) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED" };
-  }
-
-  const staff = await resolveStaffMember(session);
-  if (!staff) {
-    return { ok: false, error: "Staff member not found." };
-  }
-
-  const staffId = staff.id;
+  const staff = await requireStaffSelf();
+  const staffId = staff.staffId;
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
-  const actorEmail = session.user?.email || staffId;
+  const actorEmail = staff.session.user?.email || staff.staffDoc?.phone || staffId;
 
   const validation = createRegularizationSchema.safeParse({
     staffId,
@@ -839,7 +788,7 @@ export async function submitRegularization(
     target: `staff/${staffId}`,
     targetId: staffId,
     regularizationId: reqId,
-    details: `Applied regularization (${requestType}) for staff ${staff.name || staffId} (${staff.empId}) on date ${date}: "${reason}".`,
+    details: `Applied regularization (${requestType}) for staff ${staff.staffDoc?.name || staffId} (${staff.staffDoc?.empId || ""}) on date ${date}: "${reason}".`,
     severity: "INFO",
     timestamp: FieldValue.serverTimestamp(),
   });
@@ -1006,22 +955,14 @@ export async function rejectRegularization(
 // =========================================================================
 // 10. GET REGULARIZATIONS & LEAVE BALANCES
 // =========================================================================
-export async function getStaffRegularizationsAction(staffId?: string) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED", regularizations: [] };
-  }
-
-  const staff = await resolveStaffMember(session, staffId);
-  if (!staff) {
-    return { ok: false, error: "Staff member not found.", regularizations: [] };
-  }
+export async function getStaffRegularizationsAction() {
+  const staff = await requireStaffSelf();
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
-  const regularizations = await getStaffRegularizations(staff.id);
+  const regularizations = await getStaffRegularizations(staff.staffId);
   return { ok: true, regularizations };
 }
 
@@ -1047,22 +988,14 @@ export async function getPendingRegularizationsAction() {
   return { ok: true, pendingRegularizations };
 }
 
-export async function getStaffLeaveBalanceAction(staffId?: string) {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED", balance: null };
-  }
-
-  const staff = await resolveStaffMember(session, staffId);
-  if (!staff) {
-    return { ok: false, error: "Staff member not found.", balance: null };
-  }
+export async function getStaffLeaveBalanceAction() {
+  const staff = await requireStaffSelf();
 
   if (staff.tenantId) {
     await requireRoutePlan(staff.tenantId, "hr");
   }
 
-  const balance = await getOrCreateStaffLeaveBalance(staff.id, staff.tenantId);
+  const balance = await getOrCreateStaffLeaveBalance(staff.staffId, staff.tenantId);
   return { ok: true, balance };
 }
 
@@ -1070,44 +1003,25 @@ export async function getStaffLeaveBalanceAction(staffId?: string) {
 // 11. GET EMPLOYEE DASHBOARD DATA (Combined Full Load for Employee App)
 // =========================================================================
 export async function getEmployeeDashboardDataAction() {
-  const session = await auth();
-  if (!session?.user) {
-    return { ok: false, error: "UNAUTHORIZED", data: null };
-  }
+  const staffSelf = await requireStaffSelf();
+  const staffId = staffSelf.staffId;
+  const staff = { id: staffId, ...staffSelf.staffDoc };
 
-  const user = session.user as any;
-  const userRole = (user?.role || "").toLowerCase();
-  const isNonStaffAdmin = userRole === "tenant_admin" || userRole === "super_admin";
-
-  const staff = await resolveStaffMember(session);
-  if (!staff) {
-    if (isNonStaffAdmin) {
-      return {
-        ok: false,
-        error: "Employee Self-Service is for staff accounts (cashier, guard) only. Log in with a staff account to use this portal.",
-        data: null,
-      };
-    }
-    return { ok: false, error: "Staff profile not found.", data: null };
-  }
-
-  const staffId = staff.id;
-
-  if (staff.tenantId) {
-    await requireRoutePlan(staff.tenantId, "hr");
+  if (staffSelf.tenantId) {
+    await requireRoutePlan(staffSelf.tenantId, "hr");
   }
 
   // Get store details for geofence
   let store: any = null;
-  if (staff.branchCode) {
-    const storeDoc = await adminDb.collection("stores").doc(staff.branchCode).get();
+  if (staffSelf.branchCode) {
+    const storeDoc = await adminDb.collection("stores").doc(staffSelf.branchCode).get();
     if (storeDoc.exists) {
       store = { id: storeDoc.id, ...storeDoc.data() };
     } else {
       // Query by code
       const storeSnap = await adminDb
         .collection("stores")
-        .where("code", "==", staff.branchCode)
+        .where("code", "==", staffSelf.branchCode)
         .limit(1)
         .get();
       if (!storeSnap.empty) {
@@ -1125,10 +1039,10 @@ export async function getEmployeeDashboardDataAction() {
     .get();
 
   const todayAttendance = attendanceDoc.exists ? (attendanceDoc.data() as any) : null;
-  const leaveBalance = await getOrCreateStaffLeaveBalance(staffId, staff.tenantId);
+  const leaveBalance = await getOrCreateStaffLeaveBalance(staffId, staffSelf.tenantId);
   const leaves = await getStaffLeaves(staffId);
   const regularizations = await getStaffRegularizations(staffId);
-  const settings = await getAttendanceSettings(staff.tenantId);
+  const settings = await getAttendanceSettings(staffSelf.tenantId);
 
   return {
     ok: true,

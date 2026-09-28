@@ -574,7 +574,7 @@ export function HrAttendanceSettings({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
-              <span>📱</span> Employee Self-Service Mobile App (PWA)
+              <span>📱</span> Get Employee App (Mobile PWA &amp; Quick Access)
             </div>
             <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
               Show this QR code to newly onboarded staff (Cashiers, Guards, Sales Staff) to open the mobile portal on their phone.

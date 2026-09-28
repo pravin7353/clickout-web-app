@@ -6,7 +6,7 @@ import { signIn, useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { clientAuth } from "@/lib/firebase-client";
 import { linkStaffPhoneLogin } from "@/actions/staff";
-import { getClientDeviceFingerprint } from "@/lib/utils/fingerprint";
+import { getClientDeviceInfo } from "@/lib/utils/device";
 import Link from "next/link";
 
 export default function EmployeeLoginPage() {
@@ -18,11 +18,33 @@ export default function EmployeeLoginPage() {
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
+  const [revokedMessage, setRevokedMessage] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
   const confirmationResultRef = useRef<ConfirmationResult | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  // Register Service Worker for static employee shell caching
+  useEffect(() => {
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/employee/" }).catch(() => {
+        // Service worker registration optional
+      });
+    }
+  }, []);
+
+  // Check URL parameters for revocation or redirected notices
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("revoked") === "1" || params.get("reason") === "SESSION_REVOKED") {
+        setRevokedMessage("Your device link was reset. Please log in again.");
+      } else if (params.get("message")) {
+        setRevokedMessage(params.get("message") || "");
+      }
+    }
+  }, []);
 
   // Setup countdown timer for resend OTP
   useEffect(() => {
@@ -128,11 +150,14 @@ export default function EmployeeLoginPage() {
       const cred = await confirmationResultRef.current.confirm(cleanOtp);
       const idToken = await cred.user.getIdToken(true);
 
-      // 2. Call server action to verify idToken, check/link authUid, and set custom claims
-      const linkRes = await linkStaffPhoneLogin(idToken);
+      // Get persistent device UUID, label, and secondary fingerprint
+      const { deviceId, deviceLabel, fingerprint } = await getClientDeviceInfo();
+
+      // 2. Call server action to verify idToken, check/link authUid, bind deviceId, and set custom claims
+      const linkRes = await linkStaffPhoneLogin(idToken, deviceId, deviceLabel, fingerprint);
 
       if (!linkRes.ok) {
-        // Specific rejection (e.g. "This phone is already linked to a device. Contact your manager to reset.")
+        // Specific rejection (e.g. "This account is registered on another device. Ask your manager to reset your device.")
         setError(linkRes.error || "Failed to link staff device.");
         // Sign out Firebase client auth to leave clean state
         await clientAuth.signOut();
@@ -143,10 +168,11 @@ export default function EmployeeLoginPage() {
       // 3. Force refresh token to include newly assigned custom claims (role, tenantId, staffId)
       const refreshedIdToken = await cred.user.getIdToken(true);
 
-      // 4. Create NextAuth session
-      const fingerprint = await getClientDeviceFingerprint();
+      // 4. Create NextAuth session with persistent deviceId and deviceLabel
       const authResult = await signIn("credentials", {
         idToken: refreshedIdToken,
+        deviceId,
+        deviceLabel,
         fingerprint,
         redirect: false,
       });
@@ -385,6 +411,29 @@ export default function EmployeeLoginPage() {
               : "Enter the 6-digit OTP code sent to your phone"}
           </p>
         </div>
+
+        {/* Device Reset Notice Banner */}
+        {revokedMessage && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: 10,
+              background: "color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--warning, #f59e0b) 35%, transparent)",
+              color: "var(--warning, #d97706)",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.4,
+              marginBottom: 20,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+            }}
+          >
+            <span>⚠️</span>
+            <div style={{ flex: 1 }}>{revokedMessage}</div>
+          </div>
+        )}
 
         {/* Error Alert */}
         {error && (

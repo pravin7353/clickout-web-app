@@ -9,11 +9,13 @@ const ALLOWED_WEB_ROLES = ["super_admin", "tenant_admin", "manager", "auditor"];
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
-      credentials: { idToken: {}, fingerprint: {}, ipAddress: {} },
+      credentials: { idToken: {}, fingerprint: {}, ipAddress: {}, deviceId: {}, deviceLabel: {} },
       async authorize(credentials) {
         const idToken = credentials?.idToken as string;
         const deviceFingerprint = (credentials?.fingerprint as string) || ((credentials as any)?.deviceFingerprint as string) || "";
         const ipAddress = (credentials?.ipAddress as string) || "";
+        const submittedDeviceId = (credentials?.deviceId as string) || "";
+        const submittedDeviceLabel = (credentials?.deviceLabel as string) || "";
         if (!idToken) return null;
 
         let decoded: any;
@@ -49,6 +51,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
+          // 🛡️ Soft Device Binding check in authorize
+          if (sData.boundDeviceId && submittedDeviceId && sData.boundDeviceId !== submittedDeviceId) {
+            return null;
+          }
+
           const sRole = (sData.role ?? (decoded as any).role ?? "").toString().toLowerCase();
           const effectiveTenantId = sData.tenantId ?? (decoded as any).tenantId ?? null;
 
@@ -64,6 +71,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             canEdit: sRole === "manager" || sRole === "tenant_admin",
             accessibleTenants: [],
             fingerprint: deviceFingerprint || null,
+            deviceId: sData.boundDeviceId || submittedDeviceId || null,
+            deviceLabel: sData.boundDeviceLabel || submittedDeviceLabel || null,
             authMethod: "otp",
           };
         }
@@ -231,6 +240,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.canEdit = (user as any).canEdit;
         token.accessibleTenants = (user as any).accessibleTenants;
         token.fingerprint = (user as any).fingerprint;
+        token.deviceId = (user as any).deviceId;
+        token.deviceLabel = (user as any).deviceLabel;
         token.authMethod = (user as any).authMethod;
       }
       return token;
@@ -246,6 +257,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       (session.user as any).canEdit = token.canEdit;
       (session.user as any).accessibleTenants = token.accessibleTenants || [];
       (session.user as any).fingerprint = token.fingerprint;
+      (session.user as any).deviceId = token.deviceId;
+      (session.user as any).deviceLabel = token.deviceLabel;
       (session.user as any).authMethod = token.authMethod;
       return session;
     },

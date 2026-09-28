@@ -76,9 +76,17 @@ export default async function EmployeePage() {
     );
   }
 
-  const res = await getEmployeeDashboardDataAction();
+  let res: any;
+  try {
+    res = await getEmployeeDashboardDataAction();
+  } catch (err: any) {
+    if (err?.message === "SESSION_REVOKED" || err?.message?.includes("SESSION_REVOKED")) {
+      redirect("/employee/login?revoked=1");
+    }
+    throw err;
+  }
 
-  if (!res.ok || !res.data) {
+  if (!res || !res.ok || !res.data) {
     return (
       <div
         style={{
@@ -98,7 +106,7 @@ export default async function EmployeePage() {
           Employee Profile Not Found
         </div>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
-          {res.error ||
+          {res?.error ||
             "Your user account is not linked to an active staff record in this tenant. Please contact your Store Manager or HR Admin to onboard your employee profile."}
         </p>
       </div>

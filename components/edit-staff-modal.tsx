@@ -342,49 +342,51 @@ export function EditStaffModal({
               </div>
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                 {(staff.authUid && !resetSuccess)
-                  ? "Staff member's phone number is bound to their verified device."
+                  ? `Bound Device: ${staff.boundDeviceLabel || "Web Browser Device"}${staff.boundAtMs ? ` • Linked on ${new Date(staff.boundAtMs).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}`
                   : "No device linked yet or device link has been cleared."}
               </p>
             </div>
 
             {(staff.authUid && !resetSuccess) && (
-              <button
-                type="button"
-                disabled={isResetting || isPending}
-                onClick={async () => {
-                  if (!confirm(`Are you sure you want to reset the device link for ${staff.name}? They will need to verify their phone number again.`)) {
-                    return;
-                  }
-                  setIsResetting(true);
-                  setError("");
-                  try {
-                    const res = await resetStaffDeviceLink(staff.id);
-                    if (!res.ok) {
-                      setError(res.error || "Failed to reset device link.");
-                    } else {
-                      setResetSuccess(true);
-                      router.refresh();
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <button
+                  type="button"
+                  disabled={isResetting || isPending}
+                  onClick={async () => {
+                    if (!confirm(`Are you sure you want to reset the device link for ${staff.name}? They will need to verify their phone number again.`)) {
+                      return;
                     }
-                  } catch (err: any) {
-                    setError(err?.message || "Failed to reset device link.");
-                  } finally {
-                    setIsResetting(false);
-                  }
-                }}
-                style={{
-                  padding: "7px 12px",
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: "transparent",
-                  color: "var(--danger)",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: isResetting ? "not-allowed" : "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {isResetting ? "Resetting..." : "🔄 Reset Device"}
-              </button>
+                    setIsResetting(true);
+                    setError("");
+                    try {
+                      const res = await resetStaffDeviceLink(staff.id);
+                      if (!res.ok) {
+                        setError(res.error || "Failed to reset device link.");
+                      } else {
+                        setResetSuccess(true);
+                        router.refresh();
+                      }
+                    } catch (err: any) {
+                      setError(err?.message || "Failed to reset device link.");
+                    } finally {
+                      setIsResetting(false);
+                    }
+                  }}
+                  style={{
+                    padding: "7px 12px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "transparent",
+                    color: "var(--danger)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: isResetting ? "not-allowed" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isResetting ? "Resetting..." : "🔄 Reset Device"}
+                </button>
+              </div>
             )}
           </div>
 

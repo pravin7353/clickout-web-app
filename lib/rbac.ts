@@ -61,6 +61,63 @@ export function assertStoreScope(userStoreId: string | null, targetStoreId: stri
 }
 
 /**
+ * Guard for Employee Self-Service actions:
+ * - Reads auth(); requires session.user.authMethod === "otp" and a staffId.
+ * - On EVERY call, loads staff/{session.staffId} from Firestore and verifies:
+ *   doc exists, isActive !== false, isDeleted !== true, doc.authUid === session.user.authUid,
+ *   and staffDoc.boundDeviceId === user.deviceId (if device binding exists).
+ * - Browser device binding is a SOFT control (not hardware-level) as storage and headers can be reset.
+ *   If any check fails, throws an error "SESSION_REVOKED".
+ * - Returns { session, staffId, tenantId, branchCode, role, staffDoc data }.
+ * - Never accepts a staffId from the client.
+ */
+export async function requireStaffSelf() {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error("SESSION_REVOKED");
+  }
+
+  const user = session.user as any;
+  if (user.authMethod !== "otp" || !user.staffId) {
+    throw new Error("SESSION_REVOKED");
+  }
+
+  const staffDoc = await adminDb.collection("staff").doc(user.staffId).get();
+  if (!staffDoc.exists) {
+    throw new Error("SESSION_REVOKED");
+  }
+
+  const staffData = staffDoc.data()!;
+  if (
+    staffData.isActive === false ||
+    staffData.isDeleted === true ||
+    !staffData.authUid ||
+    staffData.authUid !== user.authUid
+  ) {
+    throw new Error("SESSION_REVOKED");
+  }
+
+  // 🛡️ Soft Device Binding verification:
+  // Note: Browser device binding is a SOFT control (not hardware-level).
+  if (staffData.boundDeviceId && user.deviceId && staffData.boundDeviceId !== user.deviceId) {
+    throw new Error("SESSION_REVOKED");
+  }
+
+  const role = (staffData.role ?? user.role ?? "").toString().toLowerCase() as Role;
+  const tenantId = staffData.tenantId ?? user.tenantId ?? null;
+  const branchCode = staffData.branchCode ?? user.storeId ?? "";
+
+  return {
+    session,
+    staffId: staffDoc.id,
+    tenantId,
+    branchCode,
+    role,
+    staffDoc: staffData,
+  };
+}
+
+/**
  * Validates that the specified tenant's active plan or trial grants access to the specified route.
  * Throws "PLAN_UPGRADE_REQUIRED" if unauthorized.
  */

@@ -20,6 +20,10 @@ export const onboardStaffSchema = z
     bloodGroup: z.string().trim().optional().or(z.literal("")),
     photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
     authUid: z.string().trim().optional().or(z.literal("")),
+    // 🛡️ Soft Device Binding (Browser device binding is a soft control, not hardware-level)
+    boundDeviceId: z.string().trim().nullable().optional(),
+    boundDeviceLabel: z.string().trim().nullable().optional(),
+    boundAtMs: z.number().nullable().optional(),
   })
   .superRefine((data, ctx) => {
     const isAuditor = data.role.toUpperCase() === "AUDITOR";
@@ -60,4 +64,8 @@ export const updateStaffSchema = z.object({
   bloodGroup: z.string().trim().optional().or(z.literal("")),
   photoUrl: z.string().trim().url("Invalid photo URL").optional().or(z.literal("")),
   authUid: z.string().trim().optional().or(z.literal("")),
+  // 🛡️ Soft Device Binding (Browser device binding is a soft control, not hardware-level)
+  boundDeviceId: z.string().trim().nullable().optional(),
+  boundDeviceLabel: z.string().trim().nullable().optional(),
+  boundAtMs: z.number().nullable().optional(),
 });

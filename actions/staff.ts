@@ -778,15 +778,24 @@ function normalizeStaffPhone(rawPhone: string): string {
 /**
  * Verifies Firebase phone auth idToken, links authUid to staff doc,
  * and sets custom user claims (role, tenantId, branchCode, staffId).
+ * 
+ * 🛡️ Browser device binding is a SOFT control (not hardware-level).
+ * If boundDeviceId is null, binds submitted deviceId (with label + boundAtMs).
+ * If boundDeviceId exists and differs, rejects with mismatch error and logs audit event.
  */
-export async function linkStaffPhoneLogin(idToken: string) {
+export async function linkStaffPhoneLogin(
+  idToken: string,
+  deviceId?: string,
+  deviceLabel?: string,
+  fingerprint?: string
+) {
   if (!idToken) {
     return { ok: false, error: "Authentication token is required." };
   }
 
   let decoded: any;
   try {
-    decoded = await adminAuth.verifyIdToken(idToken);
+    decoded = await adminAuth.verifyIdToken(idToken, true);
   } catch (err: any) {
     return { ok: false, error: "Invalid or expired session token. Please try again." };
   }
@@ -836,6 +845,32 @@ export async function linkStaffPhoneLogin(idToken: string) {
   const staffDoc = staffDocs[0];
   const staffData = staffDoc.data();
   const currentAuthUid = staffData.authUid;
+  const currentBoundDeviceId = staffData.boundDeviceId;
+  const staffId = staffDoc.id;
+  const effectiveTenantId = staffData.tenantId ?? null;
+
+  // 🛡️ Soft Device Binding Mismatch Check
+  if (currentBoundDeviceId && deviceId && currentBoundDeviceId !== deviceId) {
+    // Write admin audit log: STAFF_DEVICE_MISMATCH_ATTEMPT (WARNING, no location data)
+    await adminDb.collection("admin_audit_logs").add({
+      action: "STAFF_DEVICE_MISMATCH_ATTEMPT",
+      actionType: "STAFF_DEVICE_MISMATCH_ATTEMPT",
+      actor: phone || staffData.phone || "Unknown",
+      actorId: phone || staffData.phone || "Unknown",
+      tenantId: effectiveTenantId ?? "UNKNOWN",
+      branchCode: staffData.branchCode || null,
+      target: `staff/${staffId}`,
+      targetId: staffId,
+      details: `Device mismatch attempt for staff ${staffData.name || staffId} (${staffData.empId || ""}). Attempted device: ${deviceLabel || "Unknown"}. Registered device: ${staffData.boundDeviceLabel || currentBoundDeviceId}.`,
+      severity: "WARNING",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      ok: false,
+      error: "This account is registered on another device. Ask your manager to reset your device.",
+    };
+  }
 
   // If authUid is already set to a DIFFERENT uid -> reject
   if (currentAuthUid && currentAuthUid !== uid) {
@@ -846,27 +881,31 @@ export async function linkStaffPhoneLogin(idToken: string) {
   }
 
   const role = (staffData.role ?? "").toString().toLowerCase();
-  const tenantId = staffData.tenantId ?? null;
   const branchCode = staffData.branchCode ?? "";
-  const staffId = staffDoc.id;
 
-  // If authUid is null -> set it (one-time link) and set custom claims
-  if (!currentAuthUid) {
-    await staffDoc.ref.update({
-      authUid: uid,
-      updatedAt: FieldValue.serverTimestamp(),
-      lastLoginAt: FieldValue.serverTimestamp(),
-    });
-  } else {
-    await staffDoc.ref.update({
-      lastLoginAt: FieldValue.serverTimestamp(),
-    });
+  const updatePayload: any = {
+    authUid: uid,
+    updatedAt: FieldValue.serverTimestamp(),
+    lastLoginAt: FieldValue.serverTimestamp(),
+  };
+
+  // If boundDeviceId is null -> bind submitted deviceId
+  if (!currentBoundDeviceId && deviceId) {
+    updatePayload.boundDeviceId = deviceId;
+    updatePayload.boundDeviceLabel = deviceLabel || "Web Browser";
+    updatePayload.boundAtMs = Date.now();
   }
+
+  if (fingerprint) {
+    updatePayload.lastDeviceFingerprint = fingerprint;
+  }
+
+  await staffDoc.ref.update(updatePayload);
 
   // Set custom claims matching manager/cashier login shape + staffId
   await adminAuth.setCustomUserClaims(uid, {
     role,
-    tenantId,
+    tenantId: effectiveTenantId,
     branchCode,
     staffId,
   });
@@ -875,7 +914,7 @@ export async function linkStaffPhoneLogin(idToken: string) {
     ok: true,
     staffId,
     role,
-    tenantId,
+    tenantId: effectiveTenantId,
     branchCode,
   };
 }
@@ -910,9 +949,12 @@ export async function resetStaffDeviceLink(staffId: string) {
 
   const previousAuthUid = staffData.authUid;
 
-  // Clear authUid to null
+  // Clear authUid, boundDeviceId, boundDeviceLabel, boundAtMs
   await adminDb.collection("staff").doc(staffId).update({
     authUid: null,
+    boundDeviceId: null,
+    boundDeviceLabel: null,
+    boundAtMs: null,
     updatedAt: FieldValue.serverTimestamp(),
     lastEditedByEmail: session.user?.email,
   });
