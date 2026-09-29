@@ -47,6 +47,8 @@ import {
 } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+
 
 
 // =========================================================================
@@ -996,7 +998,7 @@ export async function getStaffLeaveBalanceAction() {
   }
 
   const balance = await getOrCreateStaffLeaveBalance(staff.staffId, staff.tenantId);
-  return { ok: true, balance };
+  return { ok: true, balance: serializeFirestoreDoc(balance) };
 }
 
 // =========================================================================
@@ -1047,9 +1049,9 @@ export async function getEmployeeDashboardDataAction() {
   return {
     ok: true,
     data: {
-      staff,
+      staff: serializeFirestoreDoc(staff),
       store: store
-        ? {
+        ? serializeFirestoreDoc({
             id: store.id,
             name: store.name,
             code: store.code,
@@ -1058,20 +1060,20 @@ export async function getEmployeeDashboardDataAction() {
             geoLatitude: store.geoLatitude ?? null,
             geoLongitude: store.geoLongitude ?? null,
             geoRadiusMeters: store.geoRadiusMeters ?? settings.geoRadiusMeters ?? 100,
-          }
+          })
         : null,
-      todayAttendance,
-      leaveBalance,
-      leaves: leaves.slice(0, 10),
-      regularizations: regularizations.slice(0, 10),
-      settings: {
+      todayAttendance: serializeFirestoreDoc(todayAttendance),
+      leaveBalance: serializeFirestoreDoc(leaveBalance),
+      leaves: serializeFirestoreDoc(leaves.slice(0, 10)),
+      regularizations: serializeFirestoreDoc(regularizations.slice(0, 10)),
+      settings: serializeFirestoreDoc({
         allowRemoteCheckIn: settings.allowRemoteCheckIn,
         requireSelfieOnCheckIn: settings.requireSelfieOnCheckIn,
         shiftStartTime: settings.shiftStartTime,
         shiftEndTime: settings.shiftEndTime,
         weeklyOffDays: settings.weeklyOffDays,
         gracePeriodMinutes: settings.gracePeriodMinutes,
-      },
+      }),
     },
   };
 }
