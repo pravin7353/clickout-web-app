@@ -4,10 +4,12 @@ import { useState, useEffect, useTransition } from "react";
 import {
   getPendingLeavesAction,
   getPendingRegularizationsAction,
+  getPendingHrQueriesAction,
   approveLeave,
   rejectLeave,
   approveRegularization,
   rejectRegularization,
+  resolveHrQueryAction,
 } from "@/actions/hr";
 import { SimpleStaff } from "@/components/hr-attendance-table";
 
@@ -19,8 +21,9 @@ interface HrApprovalsInboxProps {
 export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps) {
   const [leaves, setLeaves] = useState<any[]>([]);
   const [regularizations, setRegularizations] = useState<any[]>([]);
+  const [queries, setQueries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"ALL" | "LEAVES" | "REGULARIZATIONS">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "LEAVES" | "REGULARIZATIONS" | "QUERIES">("ALL");
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -34,13 +37,23 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
   } | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
+  // Resolve Query modal state
+  const [resolveQueryItem, setResolveQueryItem] = useState<{
+    staffId: string;
+    id: string;
+    name: string;
+    subject: string;
+  } | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
+
   const loadData = async () => {
     setLoading(true);
     setActionError(null);
     try {
-      const [leaveRes, regRes] = await Promise.all([
+      const [leaveRes, regRes, queryRes] = await Promise.all([
         getPendingLeavesAction(),
         getPendingRegularizationsAction(),
+        getPendingHrQueriesAction(),
       ]);
 
       if (leaveRes.ok && leaveRes.pendingLeaves) {
@@ -49,12 +62,16 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
       if (regRes.ok && regRes.pendingRegularizations) {
         setRegularizations(regRes.pendingRegularizations);
       }
+      if (queryRes.ok && queryRes.pendingQueries) {
+        setQueries(queryRes.pendingQueries);
+      }
     } catch (err: any) {
       setActionError(err?.message || "Failed to load approval requests.");
     } finally {
       setLoading(false);
     }
   };
+
 
   useEffect(() => {
     loadData();
@@ -118,9 +135,31 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
     });
   };
 
+  const handleResolveQuery = () => {
+    if (!resolveQueryItem) return;
+    setActionError(null);
+    setActionSuccess(null);
+
+    startTransition(async () => {
+      const res = await resolveHrQueryAction(
+        resolveQueryItem.staffId,
+        resolveQueryItem.id,
+        resolutionNote
+      );
+      if (res.ok) {
+        setActionSuccess("Query marked as resolved.");
+        setResolveQueryItem(null);
+        setResolutionNote("");
+        await loadData();
+      } else {
+        setActionError(res.error || "Failed to resolve query.");
+      }
+    });
+  };
+
   const staffMap = new Map((staffList || []).map((s) => [s.id, s]));
 
-  const totalPending = leaves.length + regularizations.length;
+  const totalPending = leaves.length + regularizations.length + queries.length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -134,7 +173,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
           gap: 12,
         }}
       >
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             type="button"
             onClick={() => setFilter("ALL")}
@@ -183,7 +222,24 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
           >
             ⏱️ Regularizations ({regularizations.length})
           </button>
+          <button
+            type="button"
+            onClick={() => setFilter("QUERIES")}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: filter === "QUERIES" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: filter === "QUERIES" ? "var(--cta-text)" : "var(--text-secondary)",
+            }}
+          >
+            💬 HR Queries ({queries.length})
+          </button>
         </div>
+
 
         <button
           type="button"
@@ -506,6 +562,102 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
               </div>
             </div>
           )}
+
+          {/* HR Queries Section */}
+          {(filter === "ALL" || filter === "QUERIES") && queries.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
+                <span>💬</span> Pending Staff HR Queries ({queries.length})
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 12 }}>
+                {queries.map((q) => {
+                  const staff = staffMap.get(q.staffId);
+                  const staffName = staff?.name || q.staffName || `Staff (${q.staffId})`;
+                  const empId = staff?.empId || "";
+                  const branch = staff?.branchCode || q.branchCode || "HQ";
+
+                  return (
+                    <div
+                      key={q.id}
+                      style={{
+                        padding: 16,
+                        borderRadius: 12,
+                        background: "var(--card-bg)",
+                        border: "1px solid var(--border)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 12,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: "var(--text-primary)" }}>
+                            {staffName}
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                            {empId ? `${empId} • ` : ""}Branch: {branch}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            padding: "3px 8px",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            background: "rgba(168, 85, 247, 0.15)",
+                            color: "#a855f7",
+                          }}
+                        >
+                          HR QUERY
+                        </span>
+                      </div>
+
+                      <div style={{ background: "rgba(255,255,255,0.03)", padding: "10px 12px", borderRadius: 8, fontSize: 13 }}>
+                        <div style={{ fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>
+                          {q.subject}
+                        </div>
+                        <div style={{ color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                          {q.message}
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-secondary)" }}>
+                          Raised: {q.raisedAtMs ? new Date(q.raisedAtMs).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResolveQueryItem({
+                            staffId: q.staffId,
+                            id: q.id,
+                            name: staffName,
+                            subject: q.subject,
+                          });
+                          setResolutionNote("");
+                        }}
+                        disabled={isPending}
+                        style={{
+                          width: "100%",
+                          padding: "9px 14px",
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          background: "var(--cta-bg)",
+                          color: "var(--cta-text)",
+                          border: "none",
+                          marginTop: "auto",
+                        }}
+                      >
+                        ✓ Mark Resolved
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -599,6 +751,102 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
           </div>
         </div>
       )}
+
+      {/* Resolve Query Modal */}
+      {resolveQueryItem && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 460,
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>
+              Resolve Staff HR Query
+            </div>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+              Resolving query "<strong>{resolveQueryItem.subject}</strong>" from <strong>{resolveQueryItem.name}</strong>.
+            </p>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                Resolution Note (Optional)
+              </label>
+              <textarea
+                value={resolutionNote}
+                onChange={(e) => setResolutionNote(e.target.value)}
+                placeholder="e.g. Discussed with employee and payroll adjustment processed."
+                rows={3}
+                style={{
+                  width: "100%",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  resize: "none",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setResolveQueryItem(null)}
+                disabled={isPending}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResolveQuery}
+                disabled={isPending}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: "#22c55e",
+                  border: "none",
+                  color: "#ffffff",
+                }}
+              >
+                {isPending ? "Resolving..." : "Confirm Resolution"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

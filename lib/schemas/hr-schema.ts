@@ -286,3 +286,39 @@ export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsDocument = {
   updatedBy: null,
   updatedAtMs: null,
 };
+
+// ==========================================
+// 7. HR QUERY (Contact HR) DATA MODEL
+// ==========================================
+
+export const HrQueryStatusEnum = z.enum(["OPEN", "RESOLVED"]);
+export type HrQueryStatus = z.infer<typeof HrQueryStatusEnum>;
+
+export const createHrQuerySchema = z.object({
+  subject: z.string().trim().min(3, "Subject must be at least 3 characters").max(120, "Subject must not exceed 120 characters"),
+  message: z.string().trim().min(5, "Message must be at least 5 characters").max(2000, "Message must not exceed 2000 characters"),
+});
+export type CreateHrQueryInput = z.infer<typeof createHrQuerySchema>;
+
+export const resolveHrQuerySchema = z.object({
+  staffId: z.string().trim().min(1, "Staff ID is required"),
+  queryId: z.string().trim().min(1, "Query ID is required"),
+  resolutionNote: z.string().trim().max(1000).optional(),
+});
+export type ResolveHrQueryInput = z.infer<typeof resolveHrQuerySchema>;
+
+export interface HrQueryDocument {
+  id: string;
+  staffId: string;
+  staffName: string;
+  subject: string;
+  message: string;
+  status: HrQueryStatus;
+  raisedAtMs: number;
+  resolvedAtMs?: number | null;
+  resolvedBy?: string | null;
+  resolutionNote?: string | null;
+  tenantId: string;
+  branchCode: string;
+}
+

@@ -9,7 +9,9 @@ import {
   LeaveBalanceDocument,
   AttendanceSettingsDocument,
   DEFAULT_ATTENDANCE_SETTINGS,
+  HrQueryDocument,
 } from "@/lib/schemas/hr-schema";
+
 import { haversineDistanceMeters } from "@/lib/utils/geo";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -595,7 +597,29 @@ export async function recordGeoPing(
     }
   }
 
+  // Server-side throttle: Skip Firestore write if pinged within last 90 seconds with unchanged state
+  const isStateUnchanged =
+    (isInside && existing?.lastLocationState === "INSIDE") ||
+    (!isInside && existing?.lastLocationState === "OUTSIDE");
+
+  if (
+    existing?.lastPingMs &&
+    timestampMs - existing.lastPingMs < 90 * 1000 &&
+    isStateUnchanged
+  ) {
+    return {
+      ok: true,
+      status: existing.status,
+      isInside,
+      distanceMeters: Math.round(distance),
+      checkInMs: existing.checkInMs,
+      checkOutMs: existing.checkOutMs,
+      selfieUrl: existing.selfieUrl || null,
+    };
+  }
+
   // Attendance Lifecycle State Engine
+
   if (!existing) {
     if (isInside) {
       // First detection inside -> Check-in with configurable shift timings
@@ -1091,4 +1115,209 @@ export async function saveAttendanceSettings(
     { merge: true }
   );
 }
+
+// =========================================================================
+// 13. TODAY'S CELEBRATIONS (Birthdays & Work Anniversaries)
+// =========================================================================
+
+export type CelebrationItem = {
+  id: string;
+  name: string;
+  occasion: "BIRTHDAY" | "WORK_ANNIVERSARY";
+  occasionText: string;
+};
+
+/**
+ * Returns today's birthdays and work anniversaries for active staff in the same tenant/branch.
+ * Privacy safe: Only returns first name and occasion text, omitting full dates or personal data.
+ */
+export async function getTodaysCelebrations(
+  tenantId?: string | null,
+  branchCode?: string | null
+): Promise<CelebrationItem[]> {
+  if (!tenantId) return [];
+
+  let query: FirebaseFirestore.Query = adminDb
+    .collection("staff")
+    .where("tenantId", "==", tenantId)
+    .where("isActive", "==", true);
+
+  if (branchCode) {
+    query = query.where("branchCode", "==", branchCode);
+  }
+
+  const snapshot = await query.get();
+  const now = new Date();
+  const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
+  const currentDay = String(now.getDate()).padStart(2, "0");
+  const todayMMDD = `${currentMonth}-${currentDay}`;
+
+  const celebrations: CelebrationItem[] = [];
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    if (data.isDeleted) continue;
+    const rawName = data.name || "Colleague";
+    const firstName = rawName.split(" ")[0] || rawName;
+
+    // Birthday check
+    if (data.dateOfBirth && typeof data.dateOfBirth === "string") {
+      const parts = data.dateOfBirth.split("-");
+      if (parts.length === 3) {
+        const dobMMDD = `${parts[1]}-${parts[2]}`;
+        if (dobMMDD === todayMMDD) {
+          celebrations.push({
+            id: `${doc.id}_dob`,
+            name: firstName,
+            occasion: "BIRTHDAY",
+            occasionText: `🎂 ${firstName}'s Birthday!`,
+          });
+        }
+      }
+    }
+
+    // Work Anniversary check
+    if (data.dateOfJoining && typeof data.dateOfJoining === "string") {
+      const parts = data.dateOfJoining.split("-");
+      if (parts.length === 3) {
+        const dojMMDD = `${parts[1]}-${parts[2]}`;
+        const joinYear = parseInt(parts[0], 10);
+        const thisYear = now.getFullYear();
+        const yearsCompleted = thisYear - joinYear;
+        if (dojMMDD === todayMMDD && yearsCompleted > 0) {
+          celebrations.push({
+            id: `${doc.id}_doj`,
+            name: firstName,
+            occasion: "WORK_ANNIVERSARY",
+            occasionText: `🎉 ${firstName}'s Work Anniversary (${yearsCompleted} yr${yearsCompleted > 1 ? "s" : ""})!`,
+          });
+        }
+      }
+    }
+  }
+
+  return celebrations;
+}
+
+// =========================================================================
+// 14. HR QUERIES ("Contact HR" System)
+// =========================================================================
+
+/**
+ * Creates a new HR query under staff/{staffId}/hr_queries/{queryId}
+ */
+export async function createHrQueryRecord(
+  staffId: string,
+  queryData: Omit<HrQueryDocument, "id">
+): Promise<string> {
+  const docRef = adminDb.collection("staff").doc(staffId).collection("hr_queries").doc();
+  const docToSave: HrQueryDocument = {
+    ...queryData,
+    id: docRef.id,
+  };
+  await docRef.set({
+    ...docToSave,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+/**
+ * Fetches HR queries submitted by a specific staff member
+ */
+export async function getStaffHrQueries(
+  staffId: string,
+  limitCount = 50
+): Promise<HrQueryDocument[]> {
+  const snapshot = await adminDb
+    .collection("staff")
+    .doc(staffId)
+    .collection("hr_queries")
+    .orderBy("raisedAtMs", "desc")
+    .limit(limitCount)
+    .get();
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      staffId: data.staffId,
+      staffName: data.staffName || "",
+      subject: data.subject || "",
+      message: data.message || "",
+      status: data.status || "OPEN",
+      raisedAtMs: data.raisedAtMs || 0,
+      resolvedAtMs: data.resolvedAtMs ?? null,
+      resolvedBy: data.resolvedBy ?? null,
+      resolutionNote: data.resolutionNote ?? null,
+      tenantId: data.tenantId || "",
+      branchCode: data.branchCode || "",
+    } as HrQueryDocument;
+  });
+}
+
+/**
+ * Fetches OPEN HR queries across staff members for Manager / Tenant Admin inbox
+ */
+export async function getPendingHrQueriesAcrossStaff(
+  tenantId?: string | null,
+  storeId?: string | null
+): Promise<HrQueryDocument[]> {
+  let query: FirebaseFirestore.Query = adminDb
+    .collectionGroup("hr_queries")
+    .where("status", "==", "OPEN");
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+
+  const snapshot = await query.get();
+
+  let results: HrQueryDocument[] = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      staffId: data.staffId,
+      staffName: data.staffName || "",
+      subject: data.subject || "",
+      message: data.message || "",
+      status: data.status || "OPEN",
+      raisedAtMs: data.raisedAtMs || 0,
+      resolvedAtMs: data.resolvedAtMs ?? null,
+      resolvedBy: data.resolvedBy ?? null,
+      resolutionNote: data.resolutionNote ?? null,
+      tenantId: data.tenantId || "",
+      branchCode: data.branchCode || "",
+    } as HrQueryDocument;
+  });
+
+  if (storeId) {
+    const cleanStore = storeId.toUpperCase().trim();
+    results = results.filter((q) => (q.branchCode || "").toUpperCase().trim() === cleanStore);
+  }
+
+  // Sort descending by raised time
+  results.sort((a, b) => b.raisedAtMs - a.raisedAtMs);
+  return results;
+}
+
+/**
+ * Resolves an HR query with an optional resolution note
+ */
+export async function resolveHrQueryRecord(
+  staffId: string,
+  queryId: string,
+  resolvedBy: string,
+  resolutionNote?: string
+): Promise<void> {
+  const docRef = adminDb.collection("staff").doc(staffId).collection("hr_queries").doc(queryId);
+  await docRef.update({
+    status: "RESOLVED",
+    resolvedAtMs: Date.now(),
+    resolvedBy,
+    resolutionNote: resolutionNote ? resolutionNote.trim() : null,
+    resolvedAt: FieldValue.serverTimestamp(),
+  });
+}
+
 

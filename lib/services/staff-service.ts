@@ -15,6 +15,12 @@ export type StaffRow = {
   boundDeviceId?: string | null;
   boundDeviceLabel?: string | null;
   boundAtMs?: number | null;
+  dateOfBirth?: string;
+  dateOfJoining?: string;
+  emergencyContact?: string;
+  bloodGroup?: string;
+  photoUrl?: string;
+  reportsToStaffId?: string | null;
 };
 
 export async function getStaffList(role: string, tenantId: string | null, storeId: string | null, roleFilter: string): Promise<StaffRow[]> {
@@ -43,6 +49,12 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       boundDeviceId: data.boundDeviceId ?? null,
       boundDeviceLabel: data.boundDeviceLabel ?? null,
       boundAtMs: data.boundAtMs ?? null,
+      dateOfBirth: data.dateOfBirth ?? "",
+      dateOfJoining: data.dateOfJoining ?? "",
+      emergencyContact: data.emergencyContact ?? "",
+      bloodGroup: data.bloodGroup ?? "",
+      photoUrl: data.photoUrl ?? "",
+      reportsToStaffId: data.reportsToStaffId ?? null,
     };
   });
 }

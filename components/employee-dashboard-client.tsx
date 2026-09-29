@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback } from "react";
+import { useState, useEffect, useTransition, useCallback, useRef } from "react";
 import {
   recordGeoPingAction,
   remoteCheckInAction,
   uploadAttendanceSelfieAction,
   submitRegularization,
   applyLeave,
+  submitHrQueryAction,
   getEmployeeDashboardDataAction,
 } from "@/actions/hr";
+
 import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
 import { handleEmployeeSessionRevocation } from "@/lib/utils/device";
 
@@ -91,9 +93,16 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
   const [lastPingTime, setLastPingTime] = useState<string | null>(null);
   const [isPinging, setIsPinging] = useState(false);
 
+  // Stable refs to prevent re-creation loops
+  const dataRef = useRef<any>(data);
+  dataRef.current = data;
+  const isPingingRef = useRef(false);
+  const lastPingMsRef = useRef(0);
+
   // Modals state
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [showRegModal, setShowRegModal] = useState(false);
+  const [showQueryModal, setShowQueryModal] = useState(false);
 
   // Leave Form
   const [leaveType, setLeaveType] = useState<LeaveType>("PL");
@@ -108,10 +117,16 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
   const [regReason, setRegReason] = useState("");
   const [regMsg, setRegMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // Active requests tab
-  const [requestsTab, setRequestsTab] = useState<"LEAVES" | "REGULARIZATIONS">("LEAVES");
+  // HR Query Form
+  const [querySubject, setQuerySubject] = useState("");
+  const [queryMessage, setQueryMessage] = useState("");
+  const [queryMsg, setQueryMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const refreshData = async () => {
+  // Active requests tab
+  const [requestsTab, setRequestsTab] = useState<"LEAVES" | "REGULARIZATIONS" | "QUERIES">("LEAVES");
+
+
+  const refreshData = useCallback(async () => {
     try {
       const res = await getEmployeeDashboardDataAction();
       if (!res.ok) {
@@ -122,24 +137,37 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     } catch (err: any) {
       if (await handleRevocationCheck(err)) return;
     }
-  };
+  }, []);
 
-  // Perform single Geo Ping
-  const executePing = useCallback(async () => {
+  // Throttled Geo Ping: Throttled by 30s minimum for manual clicks, 90s for auto
+  const executePing = useCallback(async (isManual = false) => {
+    if (isPingingRef.current) return;
+
+    const now = Date.now();
+    const minGap = isManual ? 20000 : 90000;
+    if (now - lastPingMsRef.current < minGap) {
+      return;
+    }
+
     if (!navigator.geolocation) {
       setGeoError("Geolocation is not supported by your browser or device.");
       return;
     }
 
+    isPingingRef.current = true;
     setIsPinging(true);
     setGeoError(null);
 
+    const currentData = dataRef.current;
     let selfieUrl: string | null = null;
-    const requireSelfie = Boolean(data?.settings?.requireSelfieOnCheckIn && !data?.todayAttendance?.checkInMs);
+    const requireSelfie = Boolean(
+      currentData?.settings?.requireSelfieOnCheckIn && !currentData?.todayAttendance?.checkInMs
+    );
 
     if (requireSelfie) {
       const selfieResult = await captureSelfieFrame();
       if (!selfieResult.ok || !selfieResult.base64) {
+        isPingingRef.current = false;
         setIsPinging(false);
         setGeoError(selfieResult.error || "Camera selfie is required for check-in.");
         return;
@@ -150,6 +178,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
         const uploadRes = await uploadAttendanceSelfieAction(selfieResult.base64, todayStr);
         if (!uploadRes.ok) {
           if (await handleRevocationCheck(uploadRes)) return;
+          isPingingRef.current = false;
           setIsPinging(false);
           setGeoError(uploadRes.error || "Failed to upload check-in selfie.");
           return;
@@ -157,6 +186,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
         selfieUrl = uploadRes.selfieUrl ?? null;
       } catch (err: any) {
         if (await handleRevocationCheck(err)) return;
+        isPingingRef.current = false;
         setIsPinging(false);
         setGeoError(err?.message || "Failed to upload check-in selfie.");
         return;
@@ -169,10 +199,37 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
         try {
           const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl);
           if (res.ok) {
+            lastPingMsRef.current = Date.now();
             setCurrentDistanceMeters(res.distanceMeters ?? null);
             setIsInsideGeofence(res.isInside ?? null);
             setLastPingTime(new Date().toLocaleTimeString());
-            await refreshData();
+
+            // Update in-place without remounting or re-fetching whole dashboard
+            setData((prev: any) => {
+              if (!prev) return prev;
+              const prevToday = prev.todayAttendance;
+              const isFirstCheckIn = !prevToday?.checkInMs && res.checkInMs;
+
+              const updatedAttendance = {
+                ...(prevToday || {}),
+                status: res.status ?? prevToday?.status ?? (res.isInside ? "PRESENT" : null),
+                checkInMs: res.checkInMs ?? prevToday?.checkInMs ?? null,
+                checkOutMs: res.checkOutMs !== undefined ? res.checkOutMs : prevToday?.checkOutMs,
+                lastLocationState: res.isInside ? "INSIDE" : "OUTSIDE",
+                selfieUrl: res.selfieUrl || prevToday?.selfieUrl,
+              };
+
+              if (isFirstCheckIn) {
+                setTimeout(() => {
+                  refreshData();
+                }, 1000);
+              }
+
+              return {
+                ...prev,
+                todayAttendance: updatedAttendance,
+              };
+            });
           } else {
             if (await handleRevocationCheck(res)) return;
             setGeoError(res.error || "Failed to record location ping.");
@@ -181,10 +238,12 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           if (await handleRevocationCheck(err)) return;
           setGeoError(err?.message || "Error submitting location ping.");
         } finally {
+          isPingingRef.current = false;
           setIsPinging(false);
         }
       },
       (error) => {
+        isPingingRef.current = false;
         setIsPinging(false);
         if (error.code === error.PERMISSION_DENIED) {
           setGeoError("Location permission denied. Please allow location access in your browser.");
@@ -196,21 +255,25 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
-  }, [data]);
+  }, [refreshData]);
 
-  // Periodic ping if tracking is active
+  const executePingRef = useRef(executePing);
+  executePingRef.current = executePing;
+
+  // Periodic ping if tracking is active (interval: every 2.5 minutes)
   useEffect(() => {
     if (!geoTrackingActive) return;
 
-    // Ping immediately
-    executePing();
+    // Ping once on activation
+    executePingRef.current(false);
 
-    const interval = setInterval(() => {
-      executePing();
-    }, 60000); // 60 seconds
+    const intervalId = setInterval(() => {
+      executePingRef.current(false);
+    }, 150000); // 150 seconds (2.5 min)
 
-    return () => clearInterval(interval);
-  }, [geoTrackingActive, executePing]);
+    return () => clearInterval(intervalId);
+  }, [geoTrackingActive]);
+
 
   const handleApplyLeave = () => {
     setLeaveMsg(null);
@@ -272,12 +335,45 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     });
   };
 
+  const handleSubmitQuery = () => {
+    setQueryMsg(null);
+    if (!querySubject.trim()) {
+      setQueryMsg({ type: "error", text: "Please provide a subject for your HR query." });
+      return;
+    }
+    if (!queryMessage.trim()) {
+      setQueryMsg({ type: "error", text: "Please enter your message or question for HR." });
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const res = await submitHrQueryAction(querySubject.trim(), queryMessage.trim());
+        if (res.ok) {
+          setQueryMsg({ type: "success", text: "Query submitted to HR / Management!" });
+          setQuerySubject("");
+          setQueryMessage("");
+          await refreshData();
+          setTimeout(() => setShowQueryModal(false), 1200);
+        } else {
+          if (await handleRevocationCheck(res)) return;
+          setQueryMsg({ type: "error", text: res.error || "Failed to submit HR query." });
+        }
+      } catch (err: any) {
+        if (await handleRevocationCheck(err)) return;
+        setQueryMsg({ type: "error", text: err?.message || "Failed to submit HR query." });
+      }
+    });
+  };
+
   const staff = data?.staff;
   const store = data?.store;
   const todayAtt = data?.todayAttendance;
   const balance = data?.leaveBalance;
   const leaves = data?.leaves || [];
   const regularizations = data?.regularizations || [];
+  const todayCelebrations = data?.todayCelebrations || [];
+  const hrQueries = data?.hrQueries || [];
 
   // Birthday / Anniversary Check
   const checkMilestone = (dateStr?: string) => {
@@ -298,14 +394,48 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Milestone Banners */}
-      {(birthdayMilestone || anniversaryMilestone) && (
+      {/* Today's Celebrations & Milestones */}
+      {todayCelebrations.length > 0 ? (
         <div
           style={{
             padding: "14px 18px",
             borderRadius: 16,
             background: "linear-gradient(135deg, rgba(236, 72, 153, 0.15), rgba(168, 85, 247, 0.15))",
             border: "1px solid rgba(236, 72, 153, 0.3)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 28 }}>🎉</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "var(--text-primary)" }}>
+              Today's Celebrations 🌟
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 700, marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {todayCelebrations.map((c: any) => (
+                <span
+                  key={c.id}
+                  style={{
+                    background: "rgba(255, 255, 255, 0.08)",
+                    border: "1px solid rgba(255, 255, 255, 0.15)",
+                    padding: "3px 10px",
+                    borderRadius: 8,
+                  }}
+                >
+                  {c.occasionText}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (birthdayMilestone || anniversaryMilestone) ? (
+        <div
+          style={{
+            padding: "14px 18px",
+            borderRadius: 16,
+            background: "linear-gradient(135deg, rgba(236, 72, 153, 0.12), rgba(168, 85, 247, 0.12))",
+            border: "1px solid rgba(236, 72, 153, 0.25)",
             display: "flex",
             alignItems: "center",
             gap: 12,
@@ -319,11 +449,29 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
             <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
               {birthdayMilestone && `Your birthday is ${birthdayMilestone}. `}
               {anniversaryMilestone && `Your ClickOut work anniversary is ${anniversaryMilestone}. `}
-              We are proud to have you on the team!
+              No other team celebrations today.
             </div>
           </div>
         </div>
+      ) : (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderRadius: 12,
+            background: "var(--card-bg)",
+            border: "1px solid var(--border)",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>✨</span>
+          <span>Today's Celebrations: No celebrations today</span>
+        </div>
       )}
+
 
       {/* 1. Live Attendance Geo Card */}
       <div
@@ -451,7 +599,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <button
             type="button"
-            onClick={executePing}
+            onClick={() => executePing(true)}
             disabled={isPinging}
             style={{
               flex: 1,
@@ -462,12 +610,13 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
               fontWeight: 800,
               fontSize: 14,
               border: "none",
-              cursor: "pointer",
+              cursor: isPinging ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               gap: 8,
               boxShadow: "0 2px 10px rgba(59, 130, 246, 0.3)",
+              opacity: isPinging ? 0.7 : 1,
             }}
           >
             {isPinging ? "📡 Verifying GPS..." : "📍 Mark Attendance / Ping Location"}
@@ -476,7 +625,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           <button
             type="button"
             onClick={() => setGeoTrackingActive((prev) => !prev)}
-            title="Toggle background auto-pinging every 60s"
+            title="Toggle background auto-pinging every 2.5 minutes"
             style={{
               padding: "12px 16px",
               borderRadius: 12,
@@ -489,7 +638,11 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
               whiteSpace: "nowrap",
             }}
           >
-            {geoTrackingActive ? "🟢 Auto: ON" : "⚪ Auto: OFF"}
+            {geoTrackingActive
+              ? lastPingTime
+                ? `🟢 Auto: ON (${lastPingTime})`
+                : "🟢 Auto: ON"
+              : "⚪ Auto: OFF"}
           </button>
         </div>
 
@@ -676,7 +829,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
         </div>
 
         {/* Quick action buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
           <button
             type="button"
             onClick={() => {
@@ -724,7 +877,32 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           >
             <span>⏱️</span> Regularize
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setQueryMsg(null);
+              setShowQueryModal(true);
+            }}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontWeight: 800,
+              fontSize: 13,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <span>💬</span> Contact HR
+          </button>
         </div>
+
       </div>
 
       {/* 3. My Profile Details */}
@@ -795,7 +973,7 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           <div style={{ fontWeight: 800, fontSize: 16, color: "var(--text-primary)" }}>
             Recent Requests History
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button
               type="button"
               onClick={() => setRequestsTab("LEAVES")}
@@ -827,6 +1005,22 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
               }}
             >
               Regularizations ({regularizations.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setRequestsTab("QUERIES")}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: "1px solid var(--border)",
+                background: requestsTab === "QUERIES" ? "var(--cta-bg)" : "transparent",
+                color: requestsTab === "QUERIES" ? "var(--cta-text)" : "var(--text-secondary)",
+              }}
+            >
+              Queries ({hrQueries.length})
             </button>
           </div>
         </div>
@@ -887,61 +1081,129 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
               ))}
             </div>
           )
-        ) : regularizations.length === 0 ? (
+        ) : requestsTab === "REGULARIZATIONS" ? (
+          regularizations.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-secondary)", fontSize: 13 }}>
+              No recent attendance regularizations.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {regularizations.map((r: any) => (
+                <div
+                  key={r.id}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 12,
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                      {r.requestType?.replace("_", " ")} • {r.date}
+                    </div>
+                    {r.reason && (
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                        "{r.reason}"
+                      </div>
+                    )}
+                  </div>
+                  <span
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      background:
+                        r.status === "APPROVED"
+                          ? "rgba(34, 197, 94, 0.15)"
+                          : r.status === "REJECTED"
+                          ? "rgba(239, 68, 68, 0.15)"
+                          : "rgba(245, 158, 11, 0.15)",
+                      color:
+                        r.status === "APPROVED"
+                          ? "#22c55e"
+                          : r.status === "REJECTED"
+                          ? "#ef4444"
+                          : "#f59e0b",
+                    }}
+                  >
+                    {r.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        ) : hrQueries.length === 0 ? (
           <div style={{ textAlign: "center", padding: "20px 0", color: "var(--text-secondary)", fontSize: 13 }}>
-            No recent attendance regularizations.
+            No HR queries submitted yet.
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {regularizations.map((r: any) => (
+            {hrQueries.map((q: any) => (
               <div
-                key={r.id}
+                key={q.id}
                 style={{
-                  padding: "10px 14px",
+                  padding: "12px 14px",
                   borderRadius: 12,
                   background: "rgba(255,255,255,0.02)",
                   border: "1px solid var(--border)",
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
+                  flexDirection: "column",
+                  gap: 6,
                 }}
               >
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
-                    {r.requestType?.replace("_", " ")} • {r.date}
-                  </div>
-                  {r.reason && (
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
-                      "{r.reason}"
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                      {q.subject}
                     </div>
-                  )}
+                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4 }}>
+                      {q.message}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: 6,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      background:
+                        q.status === "RESOLVED"
+                          ? "rgba(34, 197, 94, 0.15)"
+                          : "rgba(245, 158, 11, 0.15)",
+                      color: q.status === "RESOLVED" ? "#22c55e" : "#f59e0b",
+                    }}
+                  >
+                    {q.status}
+                  </span>
                 </div>
-                <span
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    background:
-                      r.status === "APPROVED"
-                        ? "rgba(34, 197, 94, 0.15)"
-                        : r.status === "REJECTED"
-                        ? "rgba(239, 68, 68, 0.15)"
-                        : "rgba(245, 158, 11, 0.15)",
-                    color:
-                      r.status === "APPROVED"
-                        ? "#22c55e"
-                        : r.status === "REJECTED"
-                        ? "#ef4444"
-                        : "#f59e0b",
-                  }}
-                >
-                  {r.status}
-                </span>
+                {q.resolutionNote && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#22c55e",
+                      background: "rgba(34, 197, 94, 0.08)",
+                      border: "1px solid rgba(34, 197, 94, 0.2)",
+                      borderRadius: 6,
+                      padding: "6px 10px",
+                      marginTop: 4,
+                    }}
+                  >
+                    <strong>Resolution Note:</strong> {q.resolutionNote}
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 2 }}>
+                  Raised {q.raisedAtMs ? new Date(q.raisedAtMs).toLocaleDateString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
+                </div>
               </div>
             ))}
           </div>
         )}
+
       </div>
 
       {/* APPLY LEAVE MODAL */}
@@ -1261,6 +1523,135 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
                 }}
               >
                 {isPending ? "Submitting..." : "Submit Request"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CONTACT HR MODAL */}
+      {showQueryModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 20,
+              padding: 24,
+              maxWidth: 460,
+              width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 18, color: "var(--text-primary)" }}>
+              Contact HR / Management
+            </div>
+
+            {queryMsg && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: queryMsg.type === "success" ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                  color: queryMsg.type === "success" ? "#22c55e" : "#ef4444",
+                  border: `1px solid ${queryMsg.type === "success" ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                }}
+              >
+                {queryMsg.text}
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
+                QUERY SUBJECT
+              </label>
+              <input
+                type="text"
+                value={querySubject}
+                onChange={(e) => setQuerySubject(e.target.value)}
+                placeholder="e.g. Salary discrepancy / Tax form / Leave policy query"
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
+                MESSAGE / DETAILS
+              </label>
+              <textarea
+                value={queryMessage}
+                onChange={(e) => setQueryMessage(e.target.value)}
+                placeholder="Describe your query or issue in detail..."
+                rows={4}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  resize: "none",
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setShowQueryModal(false)}
+                disabled={isPending}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitQuery}
+                disabled={isPending}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "var(--cta-bg)",
+                  color: "var(--cta-text)",
+                  fontWeight: 800,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {isPending ? "Submitting..." : "Send to HR"}
               </button>
             </div>
           </div>

@@ -16,6 +16,18 @@ const ROLE_OPTIONS: OptionItem[] = [
   { value: "AUDITOR", label: "AUDITOR (Financial CA Ledger)", icon: "📊" },
 ];
 
+const BLOOD_GROUP_OPTIONS: OptionItem[] = [
+  { value: "", label: "Select Blood Group (Optional)", icon: "🩸" },
+  { value: "A+", label: "A+", icon: "🩸" },
+  { value: "A-", label: "A-", icon: "🩸" },
+  { value: "B+", label: "B+", icon: "🩸" },
+  { value: "B-", label: "B-", icon: "🩸" },
+  { value: "O+", label: "O+", icon: "🩸" },
+  { value: "O-", label: "O-", icon: "🩸" },
+  { value: "AB+", label: "AB+", icon: "🩸" },
+  { value: "AB-", label: "AB-", icon: "🩸" },
+];
+
 export function EditStaffModal({
   staff,
   branches,
@@ -31,6 +43,10 @@ export function EditStaffModal({
   const [branchCode, setBranchCode] = useState(staff.branchCode || "HQ");
   const [phone, setPhone] = useState(staff.phone || "");
   const [email, setEmail] = useState(staff.email || "");
+  const [dateOfBirth, setDateOfBirth] = useState(staff.dateOfBirth || "");
+  const [dateOfJoining, setDateOfJoining] = useState(staff.dateOfJoining || "");
+  const [emergencyContact, setEmergencyContact] = useState(staff.emergencyContact || "");
+  const [bloodGroup, setBloodGroup] = useState(staff.bloodGroup || "");
   const [error, setError] = useState("");
   const [resetSuccess, setResetSuccess] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -73,6 +89,10 @@ export function EditStaffModal({
         phone,
         email: email || undefined,
         branchCode,
+        dateOfBirth: dateOfBirth || undefined,
+        dateOfJoining: dateOfJoining || undefined,
+        emergencyContact: emergencyContact || undefined,
+        bloodGroup: bloodGroup || undefined,
       });
 
       if (!res.ok) {
@@ -83,6 +103,7 @@ export function EditStaffModal({
       }
     });
   }
+
 
   return (
     <Modal onClose={onClose}>
@@ -307,7 +328,148 @@ export function EditStaffModal({
             </div>
           </div>
 
+          {/* Personal Details Section */}
+          <div
+            style={{
+              padding: "14px 16px",
+              borderRadius: 14,
+              background: "color-mix(in srgb, var(--border) 15%, transparent)",
+              border: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 15 }}>👤</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
+                Personal Details
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)" }}>
+                (Optional)
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {/* Date of Birth */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>
+                  Date of Birth
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "0 10px",
+                  }}
+                >
+                  <span style={{ fontSize: 14, marginRight: 6 }}>🎂</span>
+                  <input
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      padding: "8px 0",
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Date of Joining */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>
+                  Date of Joining
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "0 10px",
+                  }}
+                >
+                  <span style={{ fontSize: 14, marginRight: 6 }}>📅</span>
+                  <input
+                    type="date"
+                    value={dateOfJoining}
+                    onChange={(e) => setDateOfJoining(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      padding: "8px 0",
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {/* Emergency Contact */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>
+                  Emergency Contact
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "0 10px",
+                  }}
+                >
+                  <span style={{ fontSize: 14, marginRight: 6 }}>🆘</span>
+                  <input
+                    type="tel"
+                    value={emergencyContact}
+                    onChange={(e) => setEmergencyContact(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                    placeholder="10-digit mobile"
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: "none",
+                      outline: "none",
+                      padding: "8px 0",
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Blood Group */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 5 }}>
+                  Blood Group
+                </label>
+                <CustomSelect
+                  value={bloodGroup}
+                  onChange={setBloodGroup}
+                  options={BLOOD_GROUP_OPTIONS}
+                  prefixIcon="🩸"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Device Authentication Link Management */}
+
           <div
             style={{
               padding: "12px 14px",

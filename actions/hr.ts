@@ -16,6 +16,8 @@ import {
   createSalaryStructureSchema,
   createRegularizationSchema,
   attendanceSettingsSchema,
+  createHrQuerySchema,
+  resolveHrQuerySchema,
   AttendanceStatus,
   LeaveType,
   RegularizationType,
@@ -44,7 +46,13 @@ import {
   deductStaffLeaveBalance,
   getAttendanceSettings,
   saveAttendanceSettings,
+  getTodaysCelebrations,
+  createHrQueryRecord,
+  getStaffHrQueries,
+  getPendingHrQueriesAcrossStaff,
+  resolveHrQueryRecord,
 } from "@/lib/services/hr-service";
+
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
@@ -1045,6 +1053,8 @@ export async function getEmployeeDashboardDataAction() {
   const leaves = await getStaffLeaves(staffId);
   const regularizations = await getStaffRegularizations(staffId);
   const settings = await getAttendanceSettings(staffSelf.tenantId);
+  const todayCelebrations = await getTodaysCelebrations(staffSelf.tenantId, staffSelf.branchCode);
+  const hrQueries = await getStaffHrQueries(staffId);
 
   return {
     ok: true,
@@ -1066,6 +1076,8 @@ export async function getEmployeeDashboardDataAction() {
       leaveBalance: serializeFirestoreDoc(leaveBalance),
       leaves: serializeFirestoreDoc(leaves.slice(0, 10)),
       regularizations: serializeFirestoreDoc(regularizations.slice(0, 10)),
+      todayCelebrations: serializeFirestoreDoc(todayCelebrations),
+      hrQueries: serializeFirestoreDoc(hrQueries.slice(0, 10)),
       settings: serializeFirestoreDoc({
         allowRemoteCheckIn: settings.allowRemoteCheckIn,
         requireSelfieOnCheckIn: settings.requireSelfieOnCheckIn,
@@ -1100,7 +1112,7 @@ export async function getAttendanceSettingsAction(tenantId?: string) {
   await requireRoutePlan(effectiveTenantId, "hr");
 
   const settings = await getAttendanceSettings(effectiveTenantId);
-  return { ok: true, settings };
+  return { ok: true, settings: serializeFirestoreDoc(settings) };
 }
 
 export async function updateAttendanceSettingsAction(tenantId: string | undefined, rawSettings: unknown) {
@@ -1151,5 +1163,131 @@ export async function updateAttendanceSettingsAction(tenantId: string | undefine
 
   return { ok: true, message: "Attendance settings saved successfully." };
 }
+
+// =========================================================================
+// 13. HR QUERY (Contact HR) SERVER ACTIONS
+// =========================================================================
+
+export async function submitHrQueryAction(subject: string, message: string) {
+  const staff = await requireStaffSelf();
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  const parsed = createHrQuerySchema.safeParse({ subject, message });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message || "Invalid HR query data.",
+    };
+  }
+
+  const staffName = staff.staffDoc?.name || "Staff Member";
+  const queryId = await createHrQueryRecord(staff.staffId, {
+    staffId: staff.staffId,
+    staffName,
+    subject: parsed.data.subject,
+    message: parsed.data.message,
+    status: "OPEN",
+    raisedAtMs: Date.now(),
+    resolvedAtMs: null,
+    resolvedBy: null,
+    resolutionNote: null,
+    tenantId: staff.tenantId || "",
+    branchCode: staff.branchCode || "HQ",
+  });
+
+  revalidatePath("/employee");
+  revalidatePath("/manager");
+  revalidatePath("/hr");
+
+  return { ok: true, queryId, message: "Your query has been sent to HR / Management." };
+}
+
+export async function getPendingHrQueriesAction() {
+  const { role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? null : tenantId;
+  const effectiveStoreId = role === "manager" ? storeId : null;
+
+  if (effectiveTenantId) {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const pendingQueries = await getPendingHrQueriesAcrossStaff(
+    effectiveTenantId,
+    effectiveStoreId
+  );
+  return { ok: true, pendingQueries: serializeFirestoreDoc(pendingQueries) };
+}
+
+export async function resolveHrQueryAction(
+  staffId: string,
+  queryId: string,
+  resolutionNote?: string
+) {
+  const { session, role, tenantId, storeId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const parsed = resolveHrQuerySchema.safeParse({ staffId, queryId, resolutionNote });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message || "Invalid query resolution data.",
+    };
+  }
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, error: "Staff member not found." };
+  }
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(tenantId, staff.tenantId);
+  }
+
+  if (role === "manager") {
+    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+    const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+    assertStoreScope(managerStore, staffBranch);
+  }
+
+  const actorEmail = session.user?.email || (session.user as any)?.uid || "Manager";
+  await resolveHrQueryRecord(staffId, queryId, actorEmail, parsed.data.resolutionNote);
+
+  // Audit Log
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_QUERY_RESOLVED",
+    actionType: "HR_QUERY_RESOLVED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: staff.tenantId,
+    branchCode: staff.branchCode,
+    target: `staff/${staffId}/hr_queries/${queryId}`,
+    targetId: queryId,
+    details: `Resolved HR query for staff ${staff.name} (${staff.empId}). Note: ${parsed.data.resolutionNote || "No note"}`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/employee");
+  revalidatePath("/manager");
+
+  return { ok: true, message: "Query marked as resolved." };
+}
+
 
 

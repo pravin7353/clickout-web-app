@@ -164,6 +164,12 @@ export async function onboardStaff(raw: unknown) {
       trustScore: 100,
       createdAt: FieldValue.serverTimestamp(),
       tenantId: effectiveTenantId,
+      dateOfBirth: data.dateOfBirth || "",
+      dateOfJoining: data.dateOfJoining || "",
+      emergencyContact: data.emergencyContact || "",
+      bloodGroup: data.bloodGroup || "",
+      photoUrl: data.photoUrl || "",
+      reportsToStaffId: data.reportsToStaffId || null,
     });
 
     if (email) {
@@ -318,6 +324,24 @@ export async function updateStaff(raw: unknown) {
     };
     if ((parsed.data as any).authUid !== undefined) {
       updatePayload.authUid = (parsed.data as any).authUid || null;
+    }
+    if (parsed.data.dateOfBirth !== undefined) {
+      updatePayload.dateOfBirth = parsed.data.dateOfBirth || "";
+    }
+    if (parsed.data.dateOfJoining !== undefined) {
+      updatePayload.dateOfJoining = parsed.data.dateOfJoining || "";
+    }
+    if (parsed.data.emergencyContact !== undefined) {
+      updatePayload.emergencyContact = parsed.data.emergencyContact || "";
+    }
+    if (parsed.data.bloodGroup !== undefined) {
+      updatePayload.bloodGroup = parsed.data.bloodGroup || "";
+    }
+    if (parsed.data.photoUrl !== undefined) {
+      updatePayload.photoUrl = parsed.data.photoUrl || "";
+    }
+    if (parsed.data.reportsToStaffId !== undefined) {
+      updatePayload.reportsToStaffId = parsed.data.reportsToStaffId || null;
     }
 
     await adminDb.collection("staff").doc(id).update(updatePayload);
