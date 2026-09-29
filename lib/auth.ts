@@ -51,9 +51,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
-          // 🛡️ Soft Device Binding check in authorize
-          if (sData.boundDeviceId && submittedDeviceId && sData.boundDeviceId !== submittedDeviceId) {
-            return null;
+          // 🛡️ Soft Device Binding check in authorize:
+          // If staff.boundDeviceId is set, submittedDeviceId MUST be present and equal.
+          if (sData.boundDeviceId) {
+            if (!submittedDeviceId || sData.boundDeviceId !== submittedDeviceId) {
+              return null;
+            }
           }
 
           const sRole = (sData.role ?? (decoded as any).role ?? "").toString().toLowerCase();

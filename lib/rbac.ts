@@ -99,8 +99,11 @@ export async function requireStaffSelf() {
 
   // 🛡️ Soft Device Binding verification:
   // Note: Browser device binding is a SOFT control (not hardware-level).
-  if (staffData.boundDeviceId && user.deviceId && staffData.boundDeviceId !== user.deviceId) {
-    throw new Error("SESSION_REVOKED");
+  // If staff.boundDeviceId is set, user.deviceId MUST be present and equal.
+  if (staffData.boundDeviceId) {
+    if (!user.deviceId || staffData.boundDeviceId !== user.deviceId) {
+      throw new Error("SESSION_REVOKED");
+    }
   }
 
   const role = (staffData.role ?? user.role ?? "").toString().toLowerCase() as Role;

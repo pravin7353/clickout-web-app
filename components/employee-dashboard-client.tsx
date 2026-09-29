@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from "react";
-import { signOut } from "next-auth/react";
 import {
   recordGeoPingAction,
   remoteCheckInAction,
@@ -11,11 +10,12 @@ import {
   getEmployeeDashboardDataAction,
 } from "@/actions/hr";
 import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
+import { handleEmployeeSessionRevocation } from "@/lib/utils/device";
 
 async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
   const errMsg = typeof resOrErr === "string" ? resOrErr : resOrErr?.error || resOrErr?.message;
   if (errMsg === "SESSION_REVOKED" || errMsg?.includes("SESSION_REVOKED")) {
-    await signOut({ callbackUrl: "/employee/login?revoked=1" });
+    await handleEmployeeSessionRevocation();
     return true;
   }
   return false;

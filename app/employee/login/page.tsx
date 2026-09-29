@@ -38,8 +38,12 @@ export default function EmployeeLoginPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("revoked") === "1" || params.get("reason") === "SESSION_REVOKED") {
+      const isRevoked = params.get("revoked") === "1" || params.get("reason") === "SESSION_REVOKED";
+      if (isRevoked) {
         setRevokedMessage("Your device link was reset. Please log in again.");
+        // Automatically flush stale client auth & NextAuth session cookies
+        clientAuth.signOut().catch(() => {});
+        signOut({ redirect: false }).catch(() => {});
       } else if (params.get("message")) {
         setRevokedMessage(params.get("message") || "");
       }
@@ -199,8 +203,9 @@ export default function EmployeeLoginPage() {
     }
   }
 
-  // Active session card view
-  if (status === "authenticated" && session?.user) {
+  // Active session card view (suppressed if revoked notice is active)
+  const isRevokedParam = typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("revoked") === "1" || new URLSearchParams(window.location.search).get("reason") === "SESSION_REVOKED");
+  if (!revokedMessage && !isRevokedParam && status === "authenticated" && session?.user) {
     const user = session.user as any;
     const hasStaffClaim = Boolean(user.staffId);
     const role = (user.role || "STAFF").toUpperCase();

@@ -197,3 +197,22 @@ export async function getClientDeviceInfo(): Promise<{
     fingerprint,
   };
 }
+
+import { signOut } from "next-auth/react";
+import { clientAuth } from "@/lib/firebase-client";
+
+/**
+ * Cleanly signs out of both Firebase client and NextAuth, then navigates to /employee/login?revoked=1
+ * to ensure all session cookies and local auth tokens are flushed.
+ */
+export async function handleEmployeeSessionRevocation(): Promise<void> {
+  try {
+    await clientAuth.signOut();
+  } catch {}
+  try {
+    await signOut({ redirect: false });
+  } catch {}
+  if (typeof window !== "undefined") {
+    window.location.href = "/employee/login?revoked=1";
+  }
+}

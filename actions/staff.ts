@@ -849,27 +849,30 @@ export async function linkStaffPhoneLogin(
   const staffId = staffDoc.id;
   const effectiveTenantId = staffData.tenantId ?? null;
 
-  // 🛡️ Soft Device Binding Mismatch Check
-  if (currentBoundDeviceId && deviceId && currentBoundDeviceId !== deviceId) {
-    // Write admin audit log: STAFF_DEVICE_MISMATCH_ATTEMPT (WARNING, no location data)
-    await adminDb.collection("admin_audit_logs").add({
-      action: "STAFF_DEVICE_MISMATCH_ATTEMPT",
-      actionType: "STAFF_DEVICE_MISMATCH_ATTEMPT",
-      actor: phone || staffData.phone || "Unknown",
-      actorId: phone || staffData.phone || "Unknown",
-      tenantId: effectiveTenantId ?? "UNKNOWN",
-      branchCode: staffData.branchCode || null,
-      target: `staff/${staffId}`,
-      targetId: staffId,
-      details: `Device mismatch attempt for staff ${staffData.name || staffId} (${staffData.empId || ""}). Attempted device: ${deviceLabel || "Unknown"}. Registered device: ${staffData.boundDeviceLabel || currentBoundDeviceId}.`,
-      severity: "WARNING",
-      timestamp: FieldValue.serverTimestamp(),
-    });
+  // 🛡️ Soft Device Binding Mismatch Check:
+  // When boundDeviceId is set, submitted deviceId must be present and equal
+  if (currentBoundDeviceId) {
+    if (!deviceId || currentBoundDeviceId !== deviceId) {
+      // Write admin audit log: STAFF_DEVICE_MISMATCH_ATTEMPT (WARNING, no location data)
+      await adminDb.collection("admin_audit_logs").add({
+        action: "STAFF_DEVICE_MISMATCH_ATTEMPT",
+        actionType: "STAFF_DEVICE_MISMATCH_ATTEMPT",
+        actor: phone || staffData.phone || "Unknown",
+        actorId: phone || staffData.phone || "Unknown",
+        tenantId: effectiveTenantId ?? "UNKNOWN",
+        branchCode: staffData.branchCode || null,
+        target: `staff/${staffId}`,
+        targetId: staffId,
+        details: `Device mismatch attempt for staff ${staffData.name || staffId} (${staffData.empId || ""}). Attempted device: ${deviceLabel || "Unknown"}. Registered device: ${staffData.boundDeviceLabel || currentBoundDeviceId}.`,
+        severity: "WARNING",
+        timestamp: FieldValue.serverTimestamp(),
+      });
 
-    return {
-      ok: false,
-      error: "This account is registered on another device. Ask your manager to reset your device.",
-    };
+      return {
+        ok: false,
+        error: "This account is registered on another device. Ask your manager to reset your device.",
+      };
+    }
   }
 
   // If authUid is already set to a DIFFERENT uid -> reject

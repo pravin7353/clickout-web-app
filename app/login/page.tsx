@@ -120,6 +120,16 @@ export default function LoginPage() {
   }
 
   if (status === "authenticated" && session?.user) {
+    const isOtpSession = (session.user as any)?.authMethod === "otp";
+    if (isOtpSession) {
+      router.replace("/employee");
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)" }}>
+          <p style={{ color: "var(--text-secondary)" }}>Redirecting to Employee Portal…</p>
+        </div>
+      );
+    }
+
     const role = ((session.user as any)?.role || "STAFF").toString().toUpperCase();
     const accessibleTenants = ((session.user as any)?.accessibleTenants as any[]) || [];
     const userEmail = session.user.email || "Active User";
@@ -127,10 +137,6 @@ export default function LoginPage() {
     const destinationPath =
       role === "TENANT_ADMIN"
         ? "/tenant-admin"
-        : role === "CASHIER"
-        ? "/cashier"
-        : role === "GUARD"
-        ? "/guard"
         : role === "AUDITOR"
         ? accessibleTenants.length > 1
           ? "/select-company"
