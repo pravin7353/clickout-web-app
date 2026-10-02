@@ -1,8 +1,6 @@
 import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SignOutButton } from "@/components/sign-out-button";
-import Link from "next/link";
 
 export default async function EmployeeLayout({
   children,
@@ -71,21 +69,7 @@ export default async function EmployeeLayout({
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ThemeToggle />
-          <Link
-            href="/login"
-            style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 700,
-              textDecoration: "none",
-              color: "var(--danger)",
-              border: "1px solid var(--danger)",
-              background: "transparent",
-            }}
-          >
-            ⏻ Exit
-          </Link>
+          <SignOutButton label="⏻ Exit" />
         </div>
       </header>
 
