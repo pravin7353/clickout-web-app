@@ -111,6 +111,14 @@ export default function LoginPage() {
 
   const { data: session, status } = useSession();
 
+  const isOtpSession = status === "authenticated" && (session?.user as any)?.authMethod === "otp";
+
+  useEffect(() => {
+    if (isOtpSession) {
+      router.replace("/employee");
+    }
+  }, [isOtpSession, router]);
+
   if (verifying) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)" }}>
@@ -119,16 +127,15 @@ export default function LoginPage() {
     );
   }
 
+  if (isOtpSession) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)" }}>
+        <p style={{ color: "var(--text-secondary)" }}>Redirecting to Employee Portal…</p>
+      </div>
+    );
+  }
+
   if (status === "authenticated" && session?.user) {
-    const isOtpSession = (session.user as any)?.authMethod === "otp";
-    if (isOtpSession) {
-      router.replace("/employee");
-      return (
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)" }}>
-          <p style={{ color: "var(--text-secondary)" }}>Redirecting to Employee Portal…</p>
-        </div>
-      );
-    }
 
     const role = ((session.user as any)?.role || "STAFF").toString().toUpperCase();
     const accessibleTenants = ((session.user as any)?.accessibleTenants as any[]) || [];
