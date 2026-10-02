@@ -51,6 +51,8 @@ import {
   getStaffHrQueries,
   getPendingHrQueriesAcrossStaff,
   resolveHrQueryRecord,
+  markAbsentees,
+  updateOwnProfile as updateOwnProfileService,
 } from "@/lib/services/hr-service";
 
 import { FieldValue } from "firebase-admin/firestore";
@@ -1015,7 +1017,15 @@ export async function getStaffLeaveBalanceAction() {
 export async function getEmployeeDashboardDataAction() {
   const staffSelf = await requireStaffSelf();
   const staffId = staffSelf.staffId;
-  const staff = { id: staffId, ...staffSelf.staffDoc };
+  const staff: any = { id: staffId, ...(staffSelf.staffDoc || {}) };
+  if (!staff.dateOfJoining && staff.createdAt) {
+    try {
+      const createdDate = (staff.createdAt as any)?.toDate ? (staff.createdAt as any).toDate() : new Date(staff.createdAt as any);
+      staff.dateOfJoining = createdDate.toISOString().split("T")[0];
+    } catch {
+      // fallback
+    }
+  }
 
   if (staffSelf.tenantId) {
     await requireRoutePlan(staffSelf.tenantId, "hr");
@@ -1288,6 +1298,134 @@ export async function resolveHrQueryAction(
 
   return { ok: true, message: "Query marked as resolved." };
 }
+
+// =========================================================================
+// 15. MANUAL ABSENT MARKING TRIGGER (Tenant Admin / Super Admin)
+// =========================================================================
+export async function triggerMarkAbsentees(tenantId?: string, date?: string) {
+  const { session, role, tenantId: sessionTenantId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || sessionTenantId) : sessionTenantId;
+  if (!effectiveTenantId) {
+    return { ok: false, error: "Tenant ID required." };
+  }
+
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(sessionTenantId, tenantId);
+  }
+
+  await requireRoutePlan(effectiveTenantId, "hr");
+
+  const targetDate = date || new Date().toISOString().split("T")[0];
+  const { markedCount } = await markAbsentees(effectiveTenantId, targetDate);
+
+  const actorEmail = session.user?.email || (session.user as any)?.uid || "Admin";
+
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_ABSENT_MARKING_TRIGGERED",
+    actionType: "HR_ABSENT_MARKING_TRIGGERED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: effectiveTenantId,
+    target: `tenants/${effectiveTenantId}/attendance/${targetDate}`,
+    details: `Triggered manual absent marking for date ${targetDate}. Result: ${markedCount} staff marked ABSENT.`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+
+  return { ok: true, markedCount, date: targetDate };
+}
+
+export const triggerMarkAbsenteesAction = triggerMarkAbsentees;
+
+// =========================================================================
+// 16. UPDATE OWN PROFILE (Employee Self-Service Action)
+// =========================================================================
+export async function updateOwnProfile(
+  staffId: string,
+  payload: { emergencyContact?: string; photoBase64?: string; photoUrl?: string }
+) {
+  const staffSelf = await requireStaffSelf();
+
+  if (staffSelf.staffId !== staffId) {
+    return { ok: false, error: "Unauthorized: You can only edit your own profile." };
+  }
+
+  if (staffSelf.tenantId) {
+    await requireRoutePlan(staffSelf.tenantId, "hr");
+  }
+
+  let finalPhotoUrl = payload.photoUrl;
+
+  if (payload.photoBase64) {
+    try {
+      const cleanBase64 = payload.photoBase64.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(cleanBase64, "base64");
+
+      if (buffer.length > 5 * 1024 * 1024) {
+        return { ok: false, error: "Photo file too large. Max 5MB allowed." };
+      }
+
+      const token = randomUUID();
+      const storagePath = `staff_photos/${staffSelf.tenantId}/${staffId}/profile.jpg`;
+      const bucket = adminStorage.bucket();
+      const fileRef = bucket.file(storagePath);
+
+      await fileRef.save(buffer, {
+        metadata: {
+          contentType: "image/jpeg",
+          metadata: {
+            firebaseStorageDownloadTokens: token,
+            staffId,
+            tenantId: staffSelf.tenantId,
+          },
+        },
+      });
+
+      finalPhotoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(
+        storagePath
+      )}?alt=media&token=${token}`;
+    } catch (err: any) {
+      return { ok: false, error: err?.message || "Failed to upload profile photo." };
+    }
+  }
+
+  const updateData: { emergencyContact?: string; photoUrl?: string } = {};
+  if (payload.emergencyContact !== undefined) {
+    updateData.emergencyContact = payload.emergencyContact;
+  }
+  if (finalPhotoUrl !== undefined) {
+    updateData.photoUrl = finalPhotoUrl;
+  }
+
+  const res = await updateOwnProfileService(staffId, updateData);
+  if (!res.ok) {
+    return res;
+  }
+
+  // Audit Log
+  await adminDb.collection("admin_audit_logs").add({
+    action: "STAFF_OWN_PROFILE_UPDATED",
+    actionType: "STAFF_OWN_PROFILE_UPDATED",
+    actor: staffSelf.session.user?.email || staffId,
+    actorId: staffId,
+    tenantId: staffSelf.tenantId,
+    target: `staff/${staffId}`,
+    details: `Staff member updated own profile (Emergency contact / Photo).`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/employee");
+  return { ok: true, photoUrl: finalPhotoUrl };
+}
+
+export const updateOwnProfileAction = updateOwnProfile;
 
 
 

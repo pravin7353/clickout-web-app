@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getEmployeeDashboardDataAction } from "@/actions/hr";
-import { EmployeeDashboardClient } from "@/components/employee-dashboard-client";
+import { HomeTabClient } from "@/components/employee/home-tab-client";
 import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
 import Link from "next/link";
 
@@ -115,7 +115,7 @@ export default async function EmployeePage() {
 
   return (
     <FeatureLockWidget route="employee">
-      <EmployeeDashboardClient initialData={res.data} />
+      <HomeTabClient initialData={res.data} />
     </FeatureLockWidget>
   );
 }

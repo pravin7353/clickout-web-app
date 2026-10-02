@@ -1320,4 +1320,34 @@ export async function resolveHrQueryRecord(
   });
 }
 
+/**
+ * Updates self-service editable profile fields for a staff member.
+ * Strictly limited to emergencyContact and photoUrl only.
+ */
+export async function updateOwnProfile(
+  staffId: string,
+  data: { emergencyContact?: string; photoUrl?: string }
+): Promise<{ ok: boolean; error?: string }> {
+  const staffRef = adminDb.collection("staff").doc(staffId);
+  const snap = await staffRef.get();
+  if (!snap.exists) {
+    return { ok: false, error: "Staff member not found." };
+  }
+
+  const payload: Record<string, any> = {
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (data.emergencyContact !== undefined) {
+    payload.emergencyContact = data.emergencyContact.trim();
+  }
+
+  if (data.photoUrl !== undefined) {
+    payload.photoUrl = data.photoUrl.trim();
+  }
+
+  await staffRef.update(payload);
+  return { ok: true };
+}
+
 

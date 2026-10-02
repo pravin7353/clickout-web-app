@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { getAttendanceSettingsAction, updateAttendanceSettingsAction } from "@/actions/hr";
+import { getAttendanceSettingsAction, updateAttendanceSettingsAction, triggerMarkAbsentees } from "@/actions/hr";
 import { AttendanceSettingsDocument, DEFAULT_ATTENDANCE_SETTINGS } from "@/lib/schemas/hr-schema";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -33,6 +33,39 @@ export function HrAttendanceSettings({
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [employeePortalUrl, setEmployeePortalUrl] = useState("/employee/login");
   const [copied, setCopied] = useState(false);
+
+  // Manual Absent Marking (Admin Only / Testing)
+  const [absentDate, setAbsentDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isRunningAbsent, setIsRunningAbsent] = useState(false);
+  const [absentResult, setAbsentResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleRunAbsentMarking = async () => {
+    if (!canEdit) return;
+    setIsRunningAbsent(true);
+    setAbsentResult(null);
+
+    try {
+      const res = await triggerMarkAbsentees(tenantId || undefined, absentDate);
+      if (res.ok) {
+        setAbsentResult({
+          ok: true,
+          message: `Absent marking completed for ${res.date}. Marked ${res.markedCount} staff as ABSENT.`,
+        });
+      } else {
+        setAbsentResult({
+          ok: false,
+          message: res.error || "Failed to trigger absent marking.",
+        });
+      }
+    } catch (err: any) {
+      setAbsentResult({
+        ok: false,
+        message: err?.message || "An unexpected error occurred while running absent marking.",
+      });
+    } finally {
+      setIsRunningAbsent(false);
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -558,6 +591,120 @@ export function HrAttendanceSettings({
           </div>
         </div>
       </div>
+
+      {/* 5. Manual Absent Marking (Admin Only / Testing) */}
+      {isTenantAdminOrSuper && (
+        <div
+          style={{
+            background: "var(--card-bg)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            borderRadius: 18,
+            padding: 22,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16 }}>⚡</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
+                Run Absent Marking
+              </span>
+              <span
+                style={{
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  fontSize: 10,
+                  fontWeight: 900,
+                  letterSpacing: "0.05em",
+                  background: "rgba(245, 158, 11, 0.15)",
+                  color: "#f59e0b",
+                  border: "1px solid rgba(245, 158, 11, 0.3)",
+                  textTransform: "uppercase",
+                }}
+              >
+                ADMIN ONLY
+              </span>
+            </div>
+
+            <span style={{ fontSize: 12, color: "var(--text-secondary)", fontStyle: "italic" }}>
+              In production, this runs via Cloud Scheduler at end of day.
+            </span>
+          </div>
+
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            Manually trigger the absentee batch evaluation for all active staff. Staff who have not recorded attendance or checked in for the selected date will be marked as ABSENT according to tenant auto-mark rules and weekly off policies.
+          </p>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
+                TARGET DATE
+              </label>
+              <input
+                type="date"
+                value={absentDate}
+                onChange={(e) => setAbsentDate(e.target.value)}
+                disabled={isRunningAbsent || !canEdit}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, justifyContent: "flex-end", flex: 1, minWidth: 200 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "transparent" }}>ACTION</label>
+              <button
+                type="button"
+                onClick={handleRunAbsentMarking}
+                disabled={isRunningAbsent || !canEdit}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 10,
+                  background: "#f59e0b",
+                  color: "#000000",
+                  fontWeight: 800,
+                  fontSize: 13,
+                  border: "none",
+                  cursor: isRunningAbsent ? "not-allowed" : "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
+                  opacity: isRunningAbsent ? 0.7 : 1,
+                  alignSelf: "flex-start",
+                }}
+              >
+                {isRunningAbsent ? "⏳ Running Absent Marking..." : "⚡ Run Absent Marking"}
+              </button>
+            </div>
+          </div>
+
+          {absentResult && (
+            <div
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+                background: absentResult.ok ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                color: absentResult.ok ? "#22c55e" : "#ef4444",
+                border: absentResult.ok ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
+              }}
+            >
+              {absentResult.ok ? `✅ ${absentResult.message}` : `⚠️ ${absentResult.message}`}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 📱 Employee Mobile App (PWA) QR Code Card */}
       <div

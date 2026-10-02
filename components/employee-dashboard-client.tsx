@@ -9,6 +9,7 @@ import {
   applyLeave,
   submitHrQueryAction,
   getEmployeeDashboardDataAction,
+  updateOwnProfile,
 } from "@/actions/hr";
 
 import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
@@ -122,6 +123,14 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
   const [queryMessage, setQueryMessage] = useState("");
   const [queryMsg, setQueryMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Own Profile Edit Form
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editEmergencyContact, setEditEmergencyContact] = useState("");
+  const [editPhotoBase64, setEditPhotoBase64] = useState<string | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   // Active requests tab
   const [requestsTab, setRequestsTab] = useState<"LEAVES" | "REGULARIZATIONS" | "QUERIES">("LEAVES");
 
@@ -232,11 +241,20 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
             });
           } else {
             if (await handleRevocationCheck(res)) return;
-            setGeoError(res.error || "Failed to record location ping.");
+            if (res.error === "STORE_GEOFENCE_NOT_CONFIGURED") {
+              setGeoError("Your store's location has not been configured yet. Ask your admin to set the store geo-fence in Store Settings.");
+            } else {
+              setGeoError(res.error || "Failed to record location ping.");
+            }
           }
         } catch (err: any) {
           if (await handleRevocationCheck(err)) return;
-          setGeoError(err?.message || "Error submitting location ping.");
+          const msg = err?.message || "Error submitting location ping.";
+          if (msg === "STORE_GEOFENCE_NOT_CONFIGURED" || msg.includes("STORE_GEOFENCE_NOT_CONFIGURED")) {
+            setGeoError("Your store's location has not been configured yet. Ask your admin to set the store geo-fence in Store Settings.");
+          } else {
+            setGeoError(msg);
+          }
         } finally {
           isPingingRef.current = false;
           setIsPinging(false);
@@ -391,6 +409,69 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
 
   const birthdayMilestone = checkMilestone(staff?.dateOfBirth);
   const anniversaryMilestone = checkMilestone(staff?.dateOfJoining);
+
+  const startEditProfile = () => {
+    setEditEmergencyContact(staff?.emergencyContact || "");
+    setEditPhotoBase64(null);
+    setEditPhotoPreview(staff?.photoUrl || null);
+    setProfileMsg(null);
+    setIsEditingProfile(true);
+  };
+
+  const cancelEditProfile = () => {
+    setIsEditingProfile(false);
+    setEditPhotoBase64(null);
+    setEditPhotoPreview(null);
+    setProfileMsg(null);
+  };
+
+  const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileMsg({ type: "error", text: "Selected photo must be smaller than 5MB." });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setEditPhotoBase64(base64);
+      setEditPhotoPreview(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!staff?.id) return;
+    setIsSavingProfile(true);
+    setProfileMsg(null);
+
+    try {
+      const res = await updateOwnProfile(staff.id, {
+        emergencyContact: editEmergencyContact.trim(),
+        photoBase64: editPhotoBase64 || undefined,
+      });
+
+      if (res.ok) {
+        setProfileMsg({ type: "success", text: "Employment profile updated successfully!" });
+        await refreshData();
+        setTimeout(() => {
+          setIsEditingProfile(false);
+          setProfileMsg(null);
+        }, 1200);
+      } else {
+        if (await handleRevocationCheck(res)) return;
+        setProfileMsg({ type: "error", text: res.error || "Failed to update profile." });
+      }
+    } catch (err: any) {
+      if (await handleRevocationCheck(err)) return;
+      setProfileMsg({ type: "error", text: err?.message || "An unexpected error occurred." });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -589,12 +670,6 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           </div>
         )}
 
-        {geoError && (
-          <div style={{ padding: "10px 14px", borderRadius: 10, fontSize: 12, background: "rgba(239, 68, 68, 0.1)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.3)" }}>
-            ⚠️ {geoError}
-          </div>
-        )}
-
         {/* Action Controls */}
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <button
@@ -645,6 +720,22 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
               : "⚪ Auto: OFF"}
           </button>
         </div>
+
+        {geoError && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              fontSize: 12,
+              background: "rgba(239, 68, 68, 0.1)",
+              color: "#ef4444",
+              border: "1px solid rgba(239, 68, 68, 0.3)",
+              lineHeight: 1.4,
+            }}
+          >
+            ⚠️ {geoError}
+          </div>
+        )}
 
         {data?.settings?.allowRemoteCheckIn && (
           <button
@@ -914,47 +1005,265 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
           padding: 20,
           display: "flex",
           flexDirection: "column",
-          gap: 14,
+          gap: 16,
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 16, color: "var(--text-primary)" }}>
-          My Employment Profile
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)",
+                color: "#ffffff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 900,
+                fontSize: 16,
+                overflow: "hidden",
+                border: "2px solid var(--border)",
+                flexShrink: 0,
+              }}
+            >
+              {staff?.photoUrl ? (
+                <img
+                  src={staff.photoUrl}
+                  alt={staff.name || "Employee"}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                <span>{(staff?.name || "E").charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "var(--text-primary)" }}>
+                My Employment Profile
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                {staff?.name} ({staff?.empId || "Staff"})
+              </div>
+            </div>
+          </div>
+
+          {!isEditingProfile ? (
+            <button
+              type="button"
+              onClick={startEditProfile}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                border: "1px solid var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-primary)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>✏️</span> Edit
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={cancelEditProfile}
+              disabled={isSavingProfile}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text-secondary)",
+                cursor: isSavingProfile ? "not-allowed" : "pointer",
+              }}
+            >
+              ✕ Cancel
+            </button>
+          )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>FULL NAME</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.name || "—"}</div>
+        {profileMsg && (
+          <div
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              fontSize: 12,
+              fontWeight: 700,
+              background: profileMsg.type === "success" ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
+              color: profileMsg.type === "success" ? "#22c55e" : "#ef4444",
+              border: profileMsg.type === "success" ? "1px solid rgba(34, 197, 94, 0.3)" : "1px solid rgba(239, 68, 68, 0.3)",
+            }}
+          >
+            {profileMsg.type === "success" ? `✅ ${profileMsg.text}` : `⚠️ ${profileMsg.text}`}
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>EMPLOYEE ID</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.empId || "—"}</div>
+        )}
+
+        {isEditingProfile ? (
+          /* Inline Edit Form for Self-Editable Fields */
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 14,
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
+              🔒 <strong>Read-Only Notice:</strong> Official HR fields (Name, EmpID, Date of Birth, Date of Joining, Blood Group, Branch) can only be modified by your Administrator. You may update your emergency contact and profile photo below.
+            </div>
+
+            {/* Emergency Contact */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
+                EMERGENCY CONTACT NUMBER (PHONE)
+              </label>
+              <input
+                type="tel"
+                value={editEmergencyContact}
+                onChange={(e) => setEditEmergencyContact(e.target.value)}
+                placeholder="e.g. +91 98765 43210"
+                disabled={isSavingProfile}
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 14,
+                  fontWeight: 700,
+                }}
+              />
+            </div>
+
+            {/* Profile Photo Upload */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)" }}>
+                PROFILE PHOTO (OPTIONAL)
+              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                {editPhotoPreview && (
+                  <div style={{ position: "relative" }}>
+                    <img
+                      src={editPhotoPreview}
+                      alt="Profile preview"
+                      style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                        border: "2px solid var(--cta-bg)",
+                      }}
+                    />
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileChange}
+                  disabled={isSavingProfile}
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    cursor: isSavingProfile ? "not-allowed" : "pointer",
+                  }}
+                />
+              </div>
+              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                Upload a clear portrait or selfie photo (PNG/JPEG, max 5MB)
+              </span>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={cancelEditProfile}
+                disabled={isSavingProfile}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: isSavingProfile ? "not-allowed" : "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={isSavingProfile}
+                style={{
+                  padding: "8px 20px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "var(--cta-bg)",
+                  color: "var(--cta-text)",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: isSavingProfile ? "not-allowed" : "pointer",
+                  boxShadow: "0 2px 8px rgba(59, 130, 246, 0.3)",
+                  opacity: isSavingProfile ? 0.7 : 1,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {isSavingProfile ? "💾 Saving..." : "💾 Save Changes"}
+              </button>
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DESIGNATION</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.role?.toUpperCase() || "—"}</div>
+        ) : (
+          /* Read-Only Grid */
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>FULL NAME</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.name || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>EMPLOYEE ID</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.empId || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DESIGNATION</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.role?.toUpperCase() || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>BRANCH CODE</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.branchCode || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DATE OF BIRTH</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.dateOfBirth || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DATE OF JOINING</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.dateOfJoining || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>BLOOD GROUP</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.bloodGroup || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>EMERGENCY CONTACT</div>
+              <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.emergencyContact || "—"}</div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>BRANCH CODE</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.branchCode || "—"}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DATE OF BIRTH</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.dateOfBirth || "—"}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>DATE OF JOINING</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.dateOfJoining || "—"}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>BLOOD GROUP</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.bloodGroup || "—"}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>EMERGENCY CONTACT</div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)", marginTop: 2 }}>{staff?.emergencyContact || "—"}</div>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* 4. Requests & History */}
