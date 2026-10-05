@@ -456,8 +456,8 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: 18,
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.05)",
           display: "flex",
@@ -467,7 +467,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
       >
         {/* Top Row: Date & Status Badge */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary, #0f172a)" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
             Today • {todayFormatted}
           </div>
 
@@ -551,14 +551,14 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
             style={{
               padding: "12px",
               borderRadius: 14,
-              background: "var(--bg, #f8fafc)",
-              border: "1px solid var(--border, rgba(0,0,0,0.06))",
+              background: "var(--scaffold-bg)",
+              border: "1px solid var(--border)",
             }}
           >
-            <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800, letterSpacing: "0.03em" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, letterSpacing: "0.03em" }}>
               CHECK IN
             </div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary)", marginTop: 4 }}>
               {checkInTimeFormatted || "—"}
             </div>
           </div>
@@ -567,14 +567,14 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
             style={{
               padding: "12px",
               borderRadius: 14,
-              background: "var(--bg, #f8fafc)",
-              border: "1px solid var(--border, rgba(0,0,0,0.06))",
+              background: "var(--scaffold-bg)",
+              border: "1px solid var(--border)",
             }}
           >
-            <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800, letterSpacing: "0.03em" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, letterSpacing: "0.03em" }}>
               CHECK OUT
             </div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary)", marginTop: 4 }}>
               {checkOutTimeFormatted || "—"}
             </div>
           </div>
@@ -594,8 +594,8 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                 ? "rgba(34, 197, 94, 0.1)"
                 : todayAtt?.lastLocationState === "OUTSIDE"
                 ? "rgba(239, 68, 68, 0.1)"
-                : "var(--bg, #f8fafc)",
-            border: "1px solid var(--border, rgba(0,0,0,0.06))",
+                : "var(--scaffold-bg)",
+            border: "1px solid var(--border)",
           }}
         >
           <span
@@ -606,7 +606,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                   ? "#22c55e"
                   : todayAtt?.lastLocationState === "OUTSIDE"
                   ? "#ef4444"
-                  : "var(--text-secondary, #64748b)",
+                  : "var(--text-secondary)",
             }}
           >
             {todayAtt?.lastLocationState === "INSIDE" || isInsideGeofence
@@ -617,7 +617,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
           </span>
 
           {currentDistanceMeters !== null && (
-            <span style={{ color: "var(--text-secondary, #64748b)", fontWeight: 700, fontSize: 11 }}>
+            <span style={{ color: "var(--text-secondary)", fontWeight: 700, fontSize: 11 }}>
               ~{Math.round(currentDistanceMeters)}m from store
             </span>
           )}
@@ -692,7 +692,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
 
         {/* Single line tiny last verified text */}
         {lastPingTime && (
-          <div style={{ fontSize: 11, color: "var(--text-secondary, #64748b)", textAlign: "center" }}>
+          <div style={{ fontSize: 11, color: "var(--text-secondary)", textAlign: "center" }}>
             Last ping: {lastPingTime}
           </div>
         )}
@@ -702,15 +702,15 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "16px",
           display: "flex",
           flexDirection: "column",
           gap: 12,
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
           Upcoming Holidays
         </div>
 
@@ -737,24 +737,24 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                     flexShrink: 0,
                     padding: "8px 14px",
                     borderRadius: 12,
-                    background: "#fef3c7",
+                    background: "rgba(245, 158, 11, 0.12)",
                     border: "1px solid rgba(245, 158, 11, 0.3)",
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
                   }}
                 >
-                  <span style={{ fontSize: 12, fontWeight: 900, color: "#92400e" }}>
+                  <span style={{ fontSize: 12, fontWeight: 900, color: "#f59e0b" }}>
                     {formattedChipDate}
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#78350f" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>
                     {h.name}
                   </span>
                 </div>
               );
             })
           ) : (
-            <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)" }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
               No upcoming holidays in the next 60 days.
             </div>
           )}
@@ -765,15 +765,15 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "16px",
           display: "flex",
           flexDirection: "column",
           gap: 10,
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
           Today's Celebrations
         </div>
 
@@ -792,7 +792,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                   gap: 10,
                   fontSize: 13,
                   fontWeight: 700,
-                  color: "var(--text-primary, #0f172a)",
+                  color: "var(--text-primary)",
                 }}
               >
                 {c.occasionText?.toLowerCase().includes("birthday") ? "🎂" : "🎉"} {c.occasionText}
@@ -800,7 +800,7 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
             ))}
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)" }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
             No celebrations today
           </div>
         )}

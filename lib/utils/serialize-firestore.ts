@@ -18,6 +18,15 @@ export function serializeFirestoreDoc<T = any>(val: any): T {
     return (d instanceof Date ? d.getTime() : d) as unknown as T;
   }
 
+  // Raw Firestore timestamp object {_seconds, _nanoseconds}
+  if (
+    typeof val === "object" &&
+    typeof val._seconds === "number" &&
+    typeof val._nanoseconds === "number"
+  ) {
+    return (val._seconds * 1000 + Math.round(val._nanoseconds / 1000000)) as unknown as T;
+  }
+
   // Native Date instance
   if (val instanceof Date) {
     return val.getTime() as unknown as T;

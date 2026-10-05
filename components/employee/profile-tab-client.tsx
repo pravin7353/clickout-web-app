@@ -14,14 +14,21 @@ async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
   return false;
 }
 
+const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
+
 interface ProfileTabClientProps {
   initialData: any;
 }
 
 export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
   const [data, setData] = useState<any>(initialData);
-  const [isEditingEmergency, setIsEditingEmergency] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  
+  // Editable fields
   const [emergencyContact, setEmergencyContact] = useState(data?.staff?.emergencyContact || "");
+  const [dateOfBirth, setDateOfBirth] = useState(data?.staff?.dateOfBirth || "");
+  const [bloodGroup, setBloodGroup] = useState(data?.staff?.bloodGroup || "");
+  
   const [isSaving, setIsSaving] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -72,7 +79,23 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
     }
   }
 
-  const handleSaveEmergency = async () => {
+  const handleStartEdit = () => {
+    setEmergencyContact(staff?.emergencyContact || "");
+    setDateOfBirth(staff?.dateOfBirth || "");
+    setBloodGroup(staff?.bloodGroup || "");
+    setMsg(null);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setEmergencyContact(staff?.emergencyContact || "");
+    setDateOfBirth(staff?.dateOfBirth || "");
+    setBloodGroup(staff?.bloodGroup || "");
+    setIsEditing(false);
+    setMsg(null);
+  };
+
+  const handleSaveProfile = async () => {
     if (!staff?.id) return;
     setIsSaving(true);
     setMsg(null);
@@ -80,21 +103,23 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
     try {
       const res = await updateOwnProfile(staff.id, {
         emergencyContact: emergencyContact.trim(),
+        dateOfBirth: dateOfBirth.trim(),
+        bloodGroup: bloodGroup.trim(),
       });
 
       if (res.ok) {
-        setMsg({ type: "success", text: "Emergency contact updated!" });
+        setMsg({ type: "success", text: "Profile details updated successfully!" });
         const fresh = await getEmployeeDashboardDataAction();
         if (fresh.ok && fresh.data) {
           setData(fresh.data);
         }
         setTimeout(() => {
-          setIsEditingEmergency(false);
+          setIsEditing(false);
           setMsg(null);
         }, 1200);
       } else {
         if (await handleRevocationCheck(res)) return;
-        setMsg({ type: "error", text: res.error || "Failed to update emergency contact." });
+        setMsg({ type: "error", text: res.error || "Failed to update profile details." });
       }
     } catch (err: any) {
       if (await handleRevocationCheck(err)) return;
@@ -110,8 +135,8 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
       <div
         style={{
           borderRadius: 24,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "24px 20px",
           display: "flex",
           flexDirection: "column",
@@ -151,11 +176,11 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
 
         <div>
           {/* Name — large, centered */}
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: "var(--text-primary, #0f172a)" }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: "var(--text-primary)" }}>
             {displayName}
           </h2>
           {/* Designation • Branch • EmpID — small grey, centered */}
-          <div style={{ fontSize: 13, color: "var(--text-secondary, #64748b)", fontWeight: 600, marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: "var(--text-secondary)", fontWeight: 600, marginTop: 4 }}>
             {staff?.role ? staff.role.toUpperCase() : "STAFF"} • {staff?.branchCode || "HQ"} • {staff?.empId || "—"}
           </div>
         </div>
@@ -181,133 +206,183 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: 18,
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          gap: 14,
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.04)",
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
-          Employment Information
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>
+            Employment Information
+          </div>
+          {!isEditing ? (
+            <button
+              type="button"
+              onClick={handleStartEdit}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--scaffold-bg)",
+                color: "var(--text-primary)",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              <span>✏️</span> Edit Profile
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={isSaving}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#22c55e",
+                  color: "#ffffff",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: isSaving ? "not-allowed" : "pointer",
+                }}
+              >
+                {isSaving ? "Saving..." : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                disabled={isSaving}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-secondary)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {/* Date of Birth 🔒 */}
-          <div style={{ padding: "12px", borderRadius: 14, background: "var(--bg, #f8fafc)", border: "1px solid var(--border, rgba(0,0,0,0.06))" }}>
-            <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
-              <span>🔒</span> DATE OF BIRTH
+          {/* Date of Birth ✏️ */}
+          <div style={{ padding: "12px", borderRadius: 14, background: "var(--scaffold-bg)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
+              <span>{isEditing ? "✏️" : "🎂"}</span> DATE OF BIRTH
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
-              {staff?.dateOfBirth || "—"}
-            </div>
+            {!isEditing ? (
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", marginTop: 4 }}>
+                {staff?.dateOfBirth || "—"}
+              </div>
+            ) : (
+              <input
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                disabled={isSaving}
+                style={{
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--card-bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              />
+            )}
           </div>
 
           {/* Date of Joining 🔒 */}
-          <div style={{ padding: "12px", borderRadius: 14, background: "var(--bg, #f8fafc)", border: "1px solid var(--border, rgba(0,0,0,0.06))" }}>
-            <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
+          <div style={{ padding: "12px", borderRadius: 14, background: "var(--scaffold-bg)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
               <span>🔒</span> {dojIsApprox ? "JOINED (APPROX)" : "DATE OF JOINING"}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", marginTop: 4 }}>
               {dojDisplay}
             </div>
           </div>
 
-          {/* Blood Group 🔒 */}
-          <div style={{ padding: "12px", borderRadius: 14, background: "var(--bg, #f8fafc)", border: "1px solid var(--border, rgba(0,0,0,0.06))" }}>
-            <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
-              <span>🔒</span> BLOOD GROUP
+          {/* Blood Group ✏️ */}
+          <div style={{ padding: "12px", borderRadius: 14, background: "var(--scaffold-bg)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
+              <span>{isEditing ? "✏️" : "🩸"}</span> BLOOD GROUP
             </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
-              {staff?.bloodGroup || "—"}
-            </div>
+            {!isEditing ? (
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", marginTop: 4 }}>
+                {staff?.bloodGroup || "—"}
+              </div>
+            ) : (
+              <select
+                value={bloodGroup}
+                onChange={(e) => setBloodGroup(e.target.value)}
+                disabled={isSaving}
+                style={{
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--card-bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                <option value="">Select Blood Group</option>
+                {BLOOD_GROUPS.map((bg) => (
+                  <option key={bg} value={bg}>
+                    {bg}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Emergency Contact ✏️ */}
-          <div style={{ padding: "12px", borderRadius: 14, background: "var(--bg, #f8fafc)", border: "1px solid var(--border, rgba(0,0,0,0.06))" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800 }}>
-                EMERGENCY CONTACT
-              </div>
-              {!isEditingEmergency && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditingEmergency(true)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    padding: 0,
-                  }}
-                  title="Edit Emergency Contact"
-                >
-                  ✏️
-                </button>
-              )}
+          <div style={{ padding: "12px", borderRadius: 14, background: "var(--scaffold-bg)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800, display: "flex", alignItems: "center", gap: 4 }}>
+              <span>{isEditing ? "✏️" : "📞"}</span> EMERGENCY CONTACT
             </div>
-
-            {!isEditingEmergency ? (
-              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary, #0f172a)", marginTop: 4 }}>
+            {!isEditing ? (
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", marginTop: 4 }}>
                 {staff?.emergencyContact || "—"}
               </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
-                <input
-                  type="tel"
-                  value={emergencyContact}
-                  onChange={(e) => setEmergencyContact(e.target.value)}
-                  placeholder="Phone number"
-                  disabled={isSaving}
-                  style={{
-                    padding: "6px 8px",
-                    borderRadius: 8,
-                    border: "1px solid #22c55e",
-                    background: "var(--card-bg, #ffffff)",
-                    color: "var(--text-primary, #0f172a)",
-                    fontSize: 13,
-                    fontWeight: 700,
-                  }}
-                />
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button
-                    type="button"
-                    onClick={handleSaveEmergency}
-                    disabled={isSaving}
-                    style={{
-                      flex: 1,
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      background: "#22c55e",
-                      color: "#ffffff",
-                      border: "none",
-                      fontSize: 11,
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditingEmergency(false)}
-                    disabled={isSaving}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      background: "transparent",
-                      color: "var(--text-secondary, #64748b)",
-                      border: "1px solid var(--border, #cbd5e1)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <input
+                type="tel"
+                value={emergencyContact}
+                onChange={(e) => setEmergencyContact(e.target.value)}
+                placeholder="+91 98765 43210"
+                disabled={isSaving}
+                style={{
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--card-bg)",
+                  color: "var(--text-primary)",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              />
             )}
           </div>
         </div>
@@ -317,8 +392,8 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: 16,
           display: "flex",
           flexDirection: "column",
@@ -326,20 +401,20 @@ export function ProfileTabClient({ initialData }: ProfileTabClientProps) {
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.04)",
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary, #0f172a)", display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 6 }}>
           <span>📱</span> Linked Device Information
         </div>
 
-        <div style={{ fontSize: 13, color: "var(--text-primary, #0f172a)", fontWeight: 700 }}>
-          Linked Device: <span style={{ color: "var(--text-secondary, #64748b)" }}>{staff?.boundDeviceLabel || "Primary Mobile Device"}</span>
+        <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 700 }}>
+          Linked Device: <span style={{ color: "var(--text-secondary)" }}>{staff?.boundDeviceLabel || "Primary Mobile Device"}</span>
         </div>
 
-        <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)" }}>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
           Since: {boundAtDisplay}
         </div>
       </div>
 
-      {/* Logout button at bottom (red outline / styled SignOutButton) */}
+      {/* Logout button at bottom (SignOutButton) */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
         <SignOutButton label="⏻ Sign Out of Portal" />
       </div>

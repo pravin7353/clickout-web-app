@@ -41,10 +41,10 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
         style={{
           width: "100%",
           maxWidth: 430,
-          background: "var(--card-bg, #ffffff)",
+          background: "var(--card-bg)",
           borderTopLeftRadius: 24,
           borderTopRightRadius: 24,
-          border: "1px solid var(--border, rgba(0,0,0,0.1))",
+          border: "1px solid var(--border)",
           padding: "16px 20px 32px 20px",
           boxShadow: "0 -8px 30px rgba(0, 0, 0, 0.25)",
           display: "flex",
@@ -61,7 +61,7 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
             width: 36,
             height: 4,
             borderRadius: 2,
-            background: "var(--border, #cbd5e1)",
+            background: "var(--border)",
             alignSelf: "center",
             marginBottom: 2,
           }}
@@ -74,7 +74,7 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
               margin: 0,
               fontSize: 16,
               fontWeight: 800,
-              color: "var(--text-primary, #0f172a)",
+              color: "var(--text-primary)",
             }}
           >
             {title}
@@ -86,9 +86,9 @@ export function BottomSheet({ isOpen, onClose, title, children }: BottomSheetPro
               width: 32,
               height: 32,
               borderRadius: "50%",
-              border: "1px solid var(--border, rgba(0,0,0,0.1))",
-              background: "var(--bg, #f8fafc)",
-              color: "var(--text-secondary, #64748b)",
+              border: "1px solid var(--border)",
+              background: "var(--scaffold-bg)",
+              color: "var(--text-secondary)",
               fontSize: 14,
               fontWeight: 800,
               cursor: "pointer",

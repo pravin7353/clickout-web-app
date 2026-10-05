@@ -22,8 +22,8 @@ export function EmployeeHeader({ user }: EmployeeHeaderProps) {
         position: "sticky",
         top: 0,
         zIndex: 40,
-        background: "var(--card-bg, #ffffff)",
-        borderBottom: "1px solid var(--border, rgba(0,0,0,0.08))",
+        background: "var(--card-bg)",
+        borderBottom: "1px solid var(--border)",
         backdropFilter: "blur(12px)",
       }}
     >

@@ -79,7 +79,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Heading */}
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: "var(--text-primary, #0f172a)" }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: "var(--text-primary)" }}>
         Your HR Contact
       </h2>
 
@@ -87,8 +87,8 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "18px",
           display: "flex",
           flexDirection: "column",
@@ -115,21 +115,21 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
           </div>
 
           <div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary, #0f172a)" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary)" }}>
               {store?.name || staff?.branchCode || "HQ Operations"}
             </div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
               Store / Branch Management
             </div>
           </div>
         </div>
 
-        <div style={{ fontSize: 13, color: "var(--text-secondary, #64748b)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
           Your branch manager handles HR queries, attendance regularization approvals, and workplace escalations.
         </div>
 
         {store?.address && (
-          <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)" }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
             📍 Address: <b>{store.address}{store.city ? `, ${store.city}` : ""}</b>
           </div>
         )}
@@ -165,8 +165,8 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "18px",
           display: "flex",
           flexDirection: "column",
@@ -174,7 +174,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.04)",
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
           Recent Queries ({hrQueries.length})
         </div>
 
@@ -185,8 +185,8 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
                 key={q.id}
                 style={{
                   borderRadius: 14,
-                  background: "var(--bg, #f8fafc)",
-                  border: "1px solid var(--border, rgba(0,0,0,0.06))",
+                  background: "var(--scaffold-bg)",
+                  border: "1px solid var(--border)",
                   padding: 12,
                   display: "flex",
                   flexDirection: "column",
@@ -194,7 +194,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
                     {q.subject}
                   </div>
                   <span
@@ -212,7 +212,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
                   </span>
                 </div>
 
-                <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                   {q.message}
                 </div>
 
@@ -236,7 +236,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
             ))}
           </div>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", textAlign: "center", padding: "12px 0" }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", textAlign: "center", padding: "12px 0" }}>
             No past queries submitted.
           </div>
         )}
@@ -265,7 +265,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
               SUBJECT
             </label>
             <input
@@ -277,9 +277,9 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
               style={{
                 padding: "10px 12px",
                 borderRadius: 10,
-                border: "1px solid var(--border, #cbd5e1)",
-                background: "var(--bg, #f8fafc)",
-                color: "var(--text-primary, #0f172a)",
+                border: "1px solid var(--border)",
+                background: "var(--scaffold-bg)",
+                color: "var(--text-primary)",
                 fontSize: 13,
                 fontWeight: 700,
               }}
@@ -287,7 +287,7 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
               MESSAGE
             </label>
             <textarea
@@ -299,9 +299,9 @@ export function ContactTabClient({ initialData }: ContactTabClientProps) {
               style={{
                 padding: "10px 12px",
                 borderRadius: 10,
-                border: "1px solid var(--border, #cbd5e1)",
-                background: "var(--bg, #f8fafc)",
-                color: "var(--text-primary, #0f172a)",
+                border: "1px solid var(--border)",
+                background: "var(--scaffold-bg)",
+                color: "var(--text-primary)",
                 fontSize: 13,
                 resize: "none",
               }}

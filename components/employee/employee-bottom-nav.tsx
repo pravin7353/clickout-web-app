@@ -54,8 +54,8 @@ export function EmployeeBottomNav() {
         left: 0,
         right: 0,
         zIndex: 50,
-        background: "var(--card-bg, #ffffff)",
-        borderTop: "1px solid var(--border, rgba(0,0,0,0.08))",
+        background: "var(--card-bg)",
+        borderTop: "1px solid var(--border)",
         boxShadow: "0 -4px 16px rgba(0, 0, 0, 0.06)",
         backdropFilter: "blur(12px)",
         paddingBottom: "max(env(safe-area-inset-bottom, 0px), 6px)",
@@ -88,7 +88,7 @@ export function EmployeeBottomNav() {
                 minHeight: 44,
                 minWidth: 44,
                 borderRadius: 12,
-                color: active ? "#22c55e" : "var(--text-secondary, #64748b)",
+                color: active ? "#22c55e" : "var(--text-secondary)",
                 transition: "color 0.15s ease",
               }}
             >

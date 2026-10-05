@@ -418,7 +418,26 @@ export async function rejectLeave(staffId: string, leaveId: string, rejectionRea
 // 4. GET ATTENDANCE SUMMARY
 // =========================================================================
 export async function getAttendanceSummary(staffId: string, month: string) {
-  const { session, role, tenantId, storeId } = await requireRole([
+  const session = await auth();
+  if (!session?.user) {
+    return { ok: false, error: "Unauthorized: Please log in.", summary: null };
+  }
+
+  // If called by staff member via OTP session or employee portal
+  if ((session.user as any).authMethod === "otp" || (session.user as any).staffId) {
+    const staffSelf = await requireStaffSelf();
+    const effectiveStaffId = staffSelf.staffId;
+    if (staffId && staffId !== effectiveStaffId) {
+      return { ok: false, error: "Access denied.", summary: null };
+    }
+    if (staffSelf.tenantId) {
+      await requireRoutePlan(staffSelf.tenantId, "hr");
+    }
+    const summary = await getStaffAttendanceSummary(effectiveStaffId, month);
+    return { ok: true, summary: serializeFirestoreDoc(summary) };
+  }
+
+  const { session: adminSession, role, tenantId, storeId } = await requireRole([
     "super_admin",
     "tenant_admin",
     "manager",
@@ -443,24 +462,24 @@ export async function getAttendanceSummary(staffId: string, month: string) {
 
   // Store Check
   if (role === "manager") {
-    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+    const managerStore = (storeId || (adminSession.user as any)?.storeId || "").toUpperCase().trim();
     const staffBranch = (staff.branchCode || "").toUpperCase().trim();
     assertStoreScope(managerStore, staffBranch);
   }
 
   // Staff own view check
   if (role === "cashier" || role === "guard") {
-    const callerUid = (session.user as any)?.id || (session.user as any)?.uid || session.user?.email;
+    const callerUid = (adminSession.user as any)?.id || (adminSession.user as any)?.uid || adminSession.user?.email;
     const isSelf =
       callerUid === staffId ||
-      (session.user?.email && session.user.email.toLowerCase() === staff.email.toLowerCase());
+      (adminSession.user?.email && adminSession.user.email.toLowerCase() === staff.email?.toLowerCase());
     if (!isSelf) {
       return { ok: false, error: "Access denied.", summary: null };
     }
   }
 
   const summary = await getStaffAttendanceSummary(staffId, month);
-  return { ok: true, summary };
+  return { ok: true, summary: serializeFirestoreDoc(summary) };
 }
 
 // =========================================================================
@@ -1348,7 +1367,13 @@ export const triggerMarkAbsenteesAction = triggerMarkAbsentees;
 // =========================================================================
 export async function updateOwnProfile(
   staffId: string,
-  payload: { emergencyContact?: string; photoBase64?: string; photoUrl?: string }
+  payload: {
+    emergencyContact?: string;
+    photoBase64?: string;
+    photoUrl?: string;
+    dateOfBirth?: string;
+    bloodGroup?: string;
+  }
 ) {
   const staffSelf = await requireStaffSelf();
 
@@ -1395,9 +1420,21 @@ export async function updateOwnProfile(
     }
   }
 
-  const updateData: { emergencyContact?: string; photoUrl?: string } = {};
+  const updateData: {
+    emergencyContact?: string;
+    photoUrl?: string;
+    dateOfBirth?: string;
+    bloodGroup?: string;
+  } = {};
+
   if (payload.emergencyContact !== undefined) {
     updateData.emergencyContact = payload.emergencyContact;
+  }
+  if (payload.dateOfBirth !== undefined) {
+    updateData.dateOfBirth = payload.dateOfBirth;
+  }
+  if (payload.bloodGroup !== undefined) {
+    updateData.bloodGroup = payload.bloodGroup;
   }
   if (finalPhotoUrl !== undefined) {
     updateData.photoUrl = finalPhotoUrl;

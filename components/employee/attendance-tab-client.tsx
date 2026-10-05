@@ -147,7 +147,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
 
     let status = "FUTURE";
     let bg = "transparent";
-    let textColor = "var(--text-primary, #0f172a)";
+    let textColor = "var(--text-primary)";
 
     if (!isFuture) {
       if (record) {
@@ -190,7 +190,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
       } else {
         status = "UNLOGGED";
         bg = "rgba(239, 68, 68, 0.08)";
-        textColor = "var(--text-secondary, #64748b)";
+        textColor = "var(--text-secondary)";
       }
     } else {
       if (holidayName) {
@@ -202,7 +202,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
         bg = "rgba(139, 92, 246, 0.15)";
         textColor = "#8b5cf6";
       } else {
-        textColor = "var(--text-secondary, #64748b)";
+        textColor = "var(--text-secondary)";
       }
     }
 
@@ -227,8 +227,8 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
       <div
         style={{
           borderRadius: 18,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "12px 16px",
           display: "flex",
           justifyContent: "space-between",
@@ -243,9 +243,9 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
             width: 38,
             height: 38,
             borderRadius: 10,
-            border: "1px solid var(--border, rgba(0,0,0,0.1))",
-            background: "var(--bg, #f8fafc)",
-            color: "var(--text-primary, #0f172a)",
+            border: "1px solid var(--border)",
+            background: "var(--scaffold-bg)",
+            color: "var(--text-primary)",
             fontWeight: 800,
             fontSize: 18,
             cursor: "pointer",
@@ -257,7 +257,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
           ←
         </button>
 
-        <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary, #0f172a)" }}>
+        <div style={{ fontSize: 16, fontWeight: 900, color: "var(--text-primary)" }}>
           {monthName}
         </div>
 
@@ -268,9 +268,9 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
             width: 38,
             height: 38,
             borderRadius: 10,
-            border: "1px solid var(--border, rgba(0,0,0,0.1))",
-            background: "var(--bg, #f8fafc)",
-            color: "var(--text-primary, #0f172a)",
+            border: "1px solid var(--border)",
+            background: "var(--scaffold-bg)",
+            color: "var(--text-primary)",
             fontWeight: 800,
             fontSize: 18,
             cursor: "pointer",
@@ -287,8 +287,8 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
       <div
         style={{
           borderRadius: 20,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "16px",
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.05)",
         }}
@@ -309,7 +309,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
               style={{
                 fontSize: 11,
                 fontWeight: 800,
-                color: i >= 5 ? "#ef4444" : "var(--text-secondary, #64748b)",
+                color: i >= 5 ? "#ef4444" : "var(--text-secondary)",
                 padding: "4px 0",
               }}
             >
@@ -341,7 +341,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
                   borderRadius: 10,
                   border: cell.isToday
                     ? "2px solid #22c55e"
-                    : "1px solid rgba(0,0,0,0.04)",
+                    : "1px solid var(--border)",
                   background: cell.bg,
                   color: cell.textColor,
                   display: "flex",
@@ -358,28 +358,24 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
             );
           })}
         </div>
-
-        {loading && (
-          <div style={{ textAlign: "center", fontSize: 12, color: "var(--text-secondary, #64748b)", marginTop: 12 }}>
-            ⏳ Loading month data...
-          </div>
-        )}
       </div>
 
-      {/* Legend Row Below */}
+      {/* Legend Row */}
       <div
         style={{
           borderRadius: 18,
-          background: "var(--card-bg, #ffffff)",
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
           padding: "14px 16px",
           display: "flex",
           flexWrap: "wrap",
-          gap: "10px 14px",
-          justifyContent: "space-between",
-          alignItems: "center",
+          gap: "8px 14px",
           fontSize: 12,
-          fontWeight: 700,
+          fontWeight: 800,
+          color: "var(--text-secondary)",
+          alignItems: "center",
+          justifyContent: "space-between",
+          boxShadow: "0 2px 10px rgba(0, 0, 0, 0.04)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -422,7 +418,7 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Status Badge */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>
                 Status
               </div>
               <span
@@ -445,9 +441,9 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
                 style={{
                   padding: "10px 14px",
                   borderRadius: 12,
-                  background: "#fef3c7",
+                  background: "rgba(245, 158, 11, 0.12)",
                   border: "1px solid rgba(245, 158, 11, 0.3)",
-                  color: "#92400e",
+                  color: "#f59e0b",
                   fontWeight: 800,
                   fontSize: 13,
                 }}
@@ -463,14 +459,14 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
                   style={{
                     padding: "10px 12px",
                     borderRadius: 12,
-                    background: "var(--bg, #f8fafc)",
-                    border: "1px solid var(--border, rgba(0,0,0,0.06))",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
                   }}
                 >
-                  <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800 }}>
                     CHECK IN
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary, #0f172a)", marginTop: 2 }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary)", marginTop: 2 }}>
                     {selectedDay.record.checkInMs
                       ? new Date(selectedDay.record.checkInMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                       : "—"}
@@ -481,14 +477,14 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
                   style={{
                     padding: "10px 12px",
                     borderRadius: 12,
-                    background: "var(--bg, #f8fafc)",
-                    border: "1px solid var(--border, rgba(0,0,0,0.06))",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
                   }}
                 >
-                  <div style={{ fontSize: 10, color: "var(--text-secondary, #64748b)", fontWeight: 800 }}>
+                  <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 800 }}>
                     CHECK OUT
                   </div>
-                  <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary, #0f172a)", marginTop: 2 }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary)", marginTop: 2 }}>
                     {selectedDay.record.checkOutMs
                       ? new Date(selectedDay.record.checkOutMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
                       : "—"}
@@ -500,25 +496,25 @@ export function AttendanceTabClient({ staffId, initialMonth, settings, weeklyOff
                     gridColumn: "1 / -1",
                     padding: "10px 12px",
                     borderRadius: 12,
-                    background: "var(--bg, #f8fafc)",
-                    border: "1px solid var(--border, rgba(0,0,0,0.06))",
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
                     fontSize: 12,
-                    color: "var(--text-secondary, #64748b)",
+                    color: "var(--text-secondary)",
                   }}
                 >
                   Source: <b>{selectedDay.record.source === "GEO_AUTO" ? "Auto (GPS)" : "Manual Override"}</b>
                 </div>
               </div>
             ) : selectedDay.isWeeklyOff ? (
-              <div style={{ fontSize: 13, color: "var(--text-secondary, #64748b)" }}>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 Scheduled weekly off day.
               </div>
             ) : selectedDay.isFuture ? (
-              <div style={{ fontSize: 13, color: "var(--text-secondary, #64748b)" }}>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 Upcoming calendar date.
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: "var(--text-secondary, #64748b)" }}>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                 No attendance punches logged for this date.
               </div>
             )}

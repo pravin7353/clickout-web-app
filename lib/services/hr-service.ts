@@ -14,6 +14,7 @@ import {
 
 import { haversineDistanceMeters } from "@/lib/utils/geo";
 import { FieldValue } from "firebase-admin/firestore";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 
 export type AttendanceSummary = {
   staffId: string;
@@ -221,7 +222,8 @@ export async function getStaffAttendanceSummary(
   const records: AttendanceDocument[] = [];
 
   snapshot.forEach((doc) => {
-    const data = doc.data() as AttendanceDocument;
+    const rawData = doc.data();
+    const data = serializeFirestoreDoc<AttendanceDocument>(rawData);
     records.push(data);
 
     switch (data.status) {
@@ -1322,11 +1324,11 @@ export async function resolveHrQueryRecord(
 
 /**
  * Updates self-service editable profile fields for a staff member.
- * Strictly limited to emergencyContact and photoUrl only.
+ * Supports emergencyContact, dateOfBirth, bloodGroup, and photoUrl.
  */
 export async function updateOwnProfile(
   staffId: string,
-  data: { emergencyContact?: string; photoUrl?: string }
+  data: { emergencyContact?: string; photoUrl?: string; dateOfBirth?: string; bloodGroup?: string }
 ): Promise<{ ok: boolean; error?: string }> {
   const staffRef = adminDb.collection("staff").doc(staffId);
   const snap = await staffRef.get();
@@ -1340,6 +1342,14 @@ export async function updateOwnProfile(
 
   if (data.emergencyContact !== undefined) {
     payload.emergencyContact = data.emergencyContact.trim();
+  }
+
+  if (data.dateOfBirth !== undefined) {
+    payload.dateOfBirth = data.dateOfBirth.trim();
+  }
+
+  if (data.bloodGroup !== undefined) {
+    payload.bloodGroup = data.bloodGroup.trim();
   }
 
   if (data.photoUrl !== undefined) {

@@ -2,6 +2,7 @@
 [data-theme="light"],
 html[data-theme="light"] {
   color-scheme: light;
+  --bg: #FAFAF8;
   --scaffold-bg: #FAFAF8;
   --card-bg: #FFFFFF;
   --sidebar-bg: #F5F4F0;
@@ -26,6 +27,7 @@ html[data-theme="light"] {
 html[data-theme="dark"],
 html.dark {
   color-scheme: dark;
+  --bg: #141413;
   --scaffold-bg: #141413;
   --card-bg: #1E1E1C;
   --sidebar-bg: #181816;

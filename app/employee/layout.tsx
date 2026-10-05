@@ -19,8 +19,8 @@ export default async function EmployeeLayout({
     <div
       style={{
         minHeight: "100vh",
-        background: "var(--bg, #f8fafc)",
-        color: "var(--text-primary, #0f172a)",
+        background: "var(--scaffold-bg)",
+        color: "var(--text-primary)",
         display: "flex",
         justifyContent: "center",
       }}
@@ -33,7 +33,7 @@ export default async function EmployeeLayout({
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
-          background: "var(--bg, #f8fafc)",
+          background: "var(--scaffold-bg)",
           boxShadow: "0 0 40px rgba(0, 0, 0, 0.08)",
           position: "relative",
         }}

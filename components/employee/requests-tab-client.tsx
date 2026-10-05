@@ -180,10 +180,10 @@ export function RequestsTabClient({
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
-          background: "var(--card-bg, #ffffff)",
+          background: "var(--card-bg)",
           padding: 4,
           borderRadius: 14,
-          border: "1px solid var(--border, rgba(0,0,0,0.08))",
+          border: "1px solid var(--border)",
           gap: 4,
           boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
         }}
@@ -196,7 +196,7 @@ export function RequestsTabClient({
             borderRadius: 10,
             border: "none",
             background: activeTab === "LEAVES" ? "#22c55e" : "transparent",
-            color: activeTab === "LEAVES" ? "#ffffff" : "var(--text-secondary, #64748b)",
+            color: activeTab === "LEAVES" ? "#ffffff" : "var(--text-secondary)",
             fontWeight: 800,
             fontSize: 12,
             cursor: "pointer",
@@ -214,7 +214,7 @@ export function RequestsTabClient({
             borderRadius: 10,
             border: "none",
             background: activeTab === "REGULARIZATIONS" ? "#22c55e" : "transparent",
-            color: activeTab === "REGULARIZATIONS" ? "#ffffff" : "var(--text-secondary, #64748b)",
+            color: activeTab === "REGULARIZATIONS" ? "#ffffff" : "var(--text-secondary)",
             fontWeight: 800,
             fontSize: 12,
             cursor: "pointer",
@@ -232,7 +232,7 @@ export function RequestsTabClient({
             borderRadius: 10,
             border: "none",
             background: activeTab === "QUERIES" ? "#22c55e" : "transparent",
-            color: activeTab === "QUERIES" ? "#ffffff" : "var(--text-secondary, #64748b)",
+            color: activeTab === "QUERIES" ? "#ffffff" : "var(--text-secondary)",
             fontWeight: 800,
             fontSize: 12,
             cursor: "pointer",
@@ -252,8 +252,8 @@ export function RequestsTabClient({
                 key={l.id}
                 style={{
                   borderRadius: 16,
-                  background: "var(--card-bg, #ffffff)",
-                  border: "1px solid var(--border, rgba(0,0,0,0.08))",
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--border)",
                   padding: 14,
                   display: "flex",
                   flexDirection: "column",
@@ -295,17 +295,17 @@ export function RequestsTabClient({
                   </span>
                 </div>
 
-                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
                   📅 {l.from} → {l.to} ({l.daysCount || 1} day{l.daysCount === 1 ? "" : "s"})
                 </div>
 
-                <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                   Reason: {l.reason}
                 </div>
               </div>
             ))
           ) : (
-            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary, #64748b)", fontSize: 13 }}>
+            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary)", fontSize: 13 }}>
               No leave requests submitted yet.
             </div>
           )}
@@ -321,8 +321,8 @@ export function RequestsTabClient({
                 key={r.id}
                 style={{
                   borderRadius: 16,
-                  background: "var(--card-bg, #ffffff)",
-                  border: "1px solid var(--border, rgba(0,0,0,0.08))",
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--border)",
                   padding: 14,
                   display: "flex",
                   flexDirection: "column",
@@ -331,7 +331,7 @@ export function RequestsTabClient({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
                     📅 Date: {r.date}
                   </span>
 
@@ -355,17 +355,17 @@ export function RequestsTabClient({
                   </span>
                 </div>
 
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>
                   Type: {REGULARIZATION_LABELS[r.requestType] || r.requestType?.replace(/_/g, " ")}
                 </div>
 
-                <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                   Justification: {r.reason}
                 </div>
               </div>
             ))
           ) : (
-            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary, #64748b)", fontSize: 13 }}>
+            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary)", fontSize: 13 }}>
               No regularization requests logged.
             </div>
           )}
@@ -381,8 +381,8 @@ export function RequestsTabClient({
                 key={q.id}
                 style={{
                   borderRadius: 16,
-                  background: "var(--card-bg, #ffffff)",
-                  border: "1px solid var(--border, rgba(0,0,0,0.08))",
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--border)",
                   padding: 14,
                   display: "flex",
                   flexDirection: "column",
@@ -391,10 +391,9 @@ export function RequestsTabClient({
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary, #0f172a)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
                     {q.subject}
                   </div>
-
                   <span
                     style={{
                       padding: "3px 8px",
@@ -410,7 +409,7 @@ export function RequestsTabClient({
                   </span>
                 </div>
 
-                <div style={{ fontSize: 12, color: "var(--text-secondary, #64748b)", lineHeight: 1.4 }}>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                   {q.message}
                 </div>
 
@@ -433,7 +432,7 @@ export function RequestsTabClient({
               </div>
             ))
           ) : (
-            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary, #64748b)", fontSize: 13 }}>
+            <div style={{ textAlign: "center", padding: 32, color: "var(--text-secondary)", fontSize: 13 }}>
               No HR queries submitted.
             </div>
           )}
@@ -501,11 +500,11 @@ export function RequestsTabClient({
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>LEAVE TYPE</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>LEAVE TYPE</label>
           <select
             value={leaveType}
             onChange={(e) => setLeaveType(e.target.value as LeaveType)}
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
           >
             <option value="PL">Paid Leave (PL)</option>
             <option value="SL">Sick Leave (SL)</option>
@@ -515,33 +514,33 @@ export function RequestsTabClient({
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>FROM DATE</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>FROM DATE</label>
             <input
               type="date"
               value={leaveFrom}
               onChange={(e) => setLeaveFrom(e.target.value)}
-              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>TO DATE</label>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>TO DATE</label>
             <input
               type="date"
               value={leaveTo}
               onChange={(e) => setLeaveTo(e.target.value)}
-              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+              style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
             />
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>REASON</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>REASON</label>
           <textarea
             rows={3}
             value={leaveReason}
             onChange={(e) => setLeaveReason(e.target.value)}
             placeholder="Enter reason for leave..."
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontSize: 13, resize: "none" }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontSize: 13, resize: "none" }}
           />
         </div>
 
@@ -587,21 +586,21 @@ export function RequestsTabClient({
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>DATE</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>DATE</label>
           <input
             type="date"
             value={regDate}
             onChange={(e) => setRegDate(e.target.value)}
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
           />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>REQUEST TYPE</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>REQUEST TYPE</label>
           <select
             value={regType}
             onChange={(e) => setRegType(e.target.value)}
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
           >
             <option value="LATE_JUSTIFY">Late Arrival Justification</option>
             <option value="WFH">Work From Home</option>
@@ -612,13 +611,13 @@ export function RequestsTabClient({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>JUSTIFICATION NOTE</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>JUSTIFICATION NOTE</label>
           <textarea
             rows={3}
             value={regReason}
             onChange={(e) => setRegReason(e.target.value)}
             placeholder="Explain attendance irregularity..."
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontSize: 13, resize: "none" }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontSize: 13, resize: "none" }}
           />
         </div>
 
@@ -664,24 +663,24 @@ export function RequestsTabClient({
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>SUBJECT</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>SUBJECT</label>
           <input
             type="text"
             value={querySubject}
             onChange={(e) => setQuerySubject(e.target.value)}
             placeholder="e.g. Salary structure, policy clarification..."
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontWeight: 700 }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontWeight: 700 }}
           />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary, #64748b)" }}>MESSAGE</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)" }}>MESSAGE</label>
           <textarea
             rows={4}
             value={queryMessage}
             onChange={(e) => setQueryMessage(e.target.value)}
             placeholder="Type your message to HR..."
-            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border, #cbd5e1)", background: "var(--bg, #f8fafc)", color: "var(--text-primary, #0f172a)", fontSize: 13, resize: "none" }}
+            style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--scaffold-bg)", color: "var(--text-primary)", fontSize: 13, resize: "none" }}
           />
         </div>
 
