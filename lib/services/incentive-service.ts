@@ -3,6 +3,7 @@ import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getStaffDoc, getCurrentSalaryStructure } from "@/lib/services/hr-service";
 import { IncentiveRuleDocument } from "@/lib/schemas/incentive-schema";
 import { evaluateCategoryIncentive } from "@/lib/utils/incentive-calc";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 
 export type CategoryIncentiveDetail = {
   category: string;
@@ -144,10 +145,13 @@ export async function getTenantIncentiveRules(
   }
 
   const snap = await query.get();
-  return snap.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() as Omit<IncentiveRuleDocument, "id">),
-  }));
+  return snap.docs.map((doc) => {
+    const rawData = doc.data();
+    return {
+      id: doc.id,
+      ...serializeFirestoreDoc<Omit<IncentiveRuleDocument, "id">>(rawData),
+    };
+  });
 }
 
 /**

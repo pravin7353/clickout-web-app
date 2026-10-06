@@ -1,0 +1,24 @@
+name: Daily Mark Absentees Cron (23:59 IST)
+
+on:
+  schedule:
+    # 23:59 IST = 18:29 UTC (cron: '29 18 * * *')
+    - cron: '29 18 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  trigger-mark-absentees:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Mark Absentees Endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          TARGET_URL="${APP_URL:-https://admin.clickout.in}"
+          echo "Triggering Mark Absentees endpoint at $TARGET_URL/api/cron/mark-absentees ..."
+          curl -X POST "$TARGET_URL/api/cron/mark-absentees" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --fail || echo "Mark Absentees run completed."

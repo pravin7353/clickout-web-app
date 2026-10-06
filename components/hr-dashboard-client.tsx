@@ -258,7 +258,7 @@ export function HrDashboardClient({
       )}
 
       {activeTab === "settings" && (
-        <HrAttendanceSettings tenantId={tenantId} canEdit={canEdit} userRole={userRole} />
+        <HrAttendanceSettings tenantId={tenantId} canEdit={canEdit} userRole={userRole} staffList={staffList} />
       )}
 
       {/* 📱 Get Employee App Modal */}

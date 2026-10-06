@@ -50,6 +50,11 @@ import {
   createHrQueryRecord,
   getStaffHrQueries,
   getPendingHrQueriesAcrossStaff,
+  getHrQueriesHistoryAcrossStaff,
+  getLeavesHistoryAcrossStaff,
+  getRegularizationsHistoryAcrossStaff,
+  bulkRegularizeDate,
+  updateStaffShiftProfile,
   resolveHrQueryRecord,
   markAbsentees,
   updateOwnProfile as updateOwnProfileService,
@@ -1360,7 +1365,9 @@ export async function triggerMarkAbsentees(tenantId?: string, date?: string) {
   return { ok: true, markedCount, date: targetDate };
 }
 
-export const triggerMarkAbsenteesAction = triggerMarkAbsentees;
+export async function triggerMarkAbsenteesAction(tenantId?: string, date?: string) {
+  return triggerMarkAbsentees(tenantId, date);
+}
 
 // =========================================================================
 // 16. UPDATE OWN PROFILE (Employee Self-Service Action)
@@ -1463,6 +1470,214 @@ export async function updateOwnProfile(
 }
 
 export const updateOwnProfileAction = updateOwnProfile;
+
+// =========================================================================
+// 17. APPROVALS HISTORY & ARCHIVE (Monthly Maintained)
+// =========================================================================
+
+export async function getLeavesHistoryAction(month?: string, status?: string) {
+  const { role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+    "auditor",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? null : tenantId;
+  const effectiveStoreId = role === "manager" ? storeId : null;
+
+  if (effectiveTenantId) {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const leaves = await getLeavesHistoryAcrossStaff(
+    effectiveTenantId,
+    month || null,
+    status || null,
+    effectiveStoreId
+  );
+
+  return { ok: true, leaves: serializeFirestoreDoc(leaves) };
+}
+
+export async function getRegularizationsHistoryAction(month?: string, status?: string) {
+  const { session, role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+    "auditor",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? null : tenantId;
+  const effectiveStoreId = role === "manager" ? storeId : null;
+  const managerStaffId = role === "manager" ? ((session.user as any)?.id || (session.user as any)?.uid || null) : null;
+
+  if (effectiveTenantId) {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const regularizations = await getRegularizationsHistoryAcrossStaff(
+    effectiveTenantId,
+    month || null,
+    status || null,
+    managerStaffId,
+    effectiveStoreId
+  );
+
+  return { ok: true, regularizations: serializeFirestoreDoc(regularizations) };
+}
+
+export async function getHrQueriesHistoryAction(month?: string, status?: string) {
+  const { role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+    "auditor",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? null : tenantId;
+  const effectiveStoreId = role === "manager" ? storeId : null;
+
+  if (effectiveTenantId) {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const queries = await getHrQueriesHistoryAcrossStaff(
+    effectiveTenantId,
+    month || null,
+    status || null,
+    effectiveStoreId
+  );
+
+  return { ok: true, queries: serializeFirestoreDoc(queries) };
+}
+
+// =========================================================================
+// 18. BULK REGULARIZE FALSE-ABSENTS FOR A SPECIFIC DATE (e.g. 2026-10-02)
+// =========================================================================
+
+export async function bulkRegularizeDateAction(
+  date: string,
+  reason: string,
+  updatedStatus: AttendanceStatus = "PRESENT"
+) {
+  const { session, role, tenantId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  if (!tenantId && role !== "super_admin") {
+    return { ok: false, error: "Tenant ID required." };
+  }
+
+  const effectiveTenantId = tenantId || "DEFAULT";
+  if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const actorEmail = session.user?.email || "Admin";
+
+  const result = await bulkRegularizeDate(
+    effectiveTenantId,
+    date,
+    reason || "Bulk Regularized by Admin",
+    updatedStatus,
+    actorEmail
+  );
+
+  // Audit Log
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_BULK_ATTENDANCE_REGULARIZED",
+    actionType: "HR_BULK_ATTENDANCE_REGULARIZED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: effectiveTenantId,
+    target: `tenants/${effectiveTenantId}/attendance/${date}`,
+    details: `Bulk regularized ${result.regularizedCount} staff for date ${date} as ${updatedStatus} (${reason}).`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/manager");
+  revalidatePath("/staff");
+
+  return {
+    ok: true,
+    regularizedCount: result.regularizedCount,
+    staffNames: result.staffNames,
+    message: `Successfully regularized ${result.regularizedCount} staff members for ${date}.`,
+  };
+}
+
+// =========================================================================
+// 19. UPDATE STAFF SHIFT & WEEKLY-OFF PROFILE
+// =========================================================================
+
+export async function updateStaffShiftProfileAction(
+  staffId: string,
+  payload: {
+    weeklyOffDay?: string;
+    attendanceMode?: "GEO_AUTO" | "MANUAL";
+    shiftStartOverride?: string;
+    shiftEndOverride?: string;
+    shiftStartTime?: string;
+    shiftEndTime?: string;
+  }
+): Promise<{ ok: boolean; success: boolean; message?: string; error?: string }> {
+  const { session, role, tenantId, storeId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, success: false, error: "Staff not found" };
+  }
+
+  if (staff.tenantId) {
+    await requireRoutePlan(staff.tenantId, "hr");
+  }
+
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(tenantId, staff.tenantId);
+  }
+
+  if (role === "manager") {
+    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+    const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+    assertStoreScope(managerStore, staffBranch);
+  }
+
+  const res = await updateStaffShiftProfile(staffId, payload);
+  if (!res.ok) {
+    return res;
+  }
+
+  const actorEmail = session.user?.email || "Manager";
+
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_STAFF_SHIFT_PROFILE_UPDATED",
+    actionType: "HR_STAFF_SHIFT_PROFILE_UPDATED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: staff.tenantId,
+    branchCode: staff.branchCode,
+    target: `staff/${staffId}`,
+    details: `Updated shift profile for staff ${staff.name || staffId} (Shift: ${payload.shiftStartOverride || payload.shiftStartTime || "Default"} to ${payload.shiftEndOverride || payload.shiftEndTime || "Default"}, Weekly-off: ${payload.weeklyOffDay || "Default"}, Mode: ${payload.attendanceMode || "GEO_AUTO"}).`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/staff");
+  revalidatePath(`/staff/${staffId}`);
+
+  return { ok: true, success: true, message: "Staff shift profile updated successfully." };
+}
+
 
 
 

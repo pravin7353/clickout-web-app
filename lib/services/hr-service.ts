@@ -15,6 +15,7 @@ import {
 import { haversineDistanceMeters } from "@/lib/utils/geo";
 import { FieldValue } from "firebase-admin/firestore";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+import { getHolidayForDate } from "@/lib/utils/holidays";
 
 export type AttendanceSummary = {
   staffId: string;
@@ -495,6 +496,74 @@ export async function getPendingLeavesAcrossStaff(
 }
 
 /**
+ * Fetches historical leave applications across staff members with month and status filter
+ */
+export async function getLeavesHistoryAcrossStaff(
+  tenantId?: string | null,
+  month?: string | null,
+  statusFilter?: string | null,
+  storeId?: string | null
+): Promise<(LeaveDocument & { staffId: string; staffName?: string; staffEmpId?: string })[]> {
+  let query: FirebaseFirestore.Query = adminDb.collectionGroup("leaves");
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+  if (statusFilter && statusFilter !== "ALL") {
+    query = query.where("status", "==", statusFilter);
+  }
+  if (storeId) {
+    query = query.where("branchCode", "==", storeId);
+  }
+
+  const snapshot = await query.orderBy("appliedAtMs", "desc").limit(100).get();
+  const results: (LeaveDocument & { staffId: string; staffName?: string; staffEmpId?: string })[] = [];
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const staffId = doc.ref.parent.parent?.id || "";
+
+    // If month is specified (YYYY-MM), filter by fromDate or appliedAtMs
+    if (month) {
+      const fromDate = data.fromDate || "";
+      const appliedDate = data.appliedAtMs ? new Date(data.appliedAtMs).toISOString().slice(0, 7) : "";
+      if (!fromDate.startsWith(month) && !appliedDate.startsWith(month)) {
+        continue;
+      }
+    }
+
+    let staffName = "";
+    let staffEmpId = "";
+
+    if (staffId) {
+      const sDoc = await adminDb.collection("staff").doc(staffId).get();
+      if (sDoc.exists) {
+        staffName = sDoc.data()?.name || "";
+        staffEmpId = sDoc.data()?.empId || "";
+      }
+    }
+
+    results.push({
+      id: doc.id,
+      staffId,
+      staffName,
+      staffEmpId,
+      fromDate: data.fromDate,
+      toDate: data.toDate,
+      type: data.type,
+      status: data.status,
+      reason: data.reason,
+      appliedAtMs: data.appliedAtMs,
+      approvedBy: data.approvedBy ?? null,
+      tenantId: data.tenantId,
+      branchCode: data.branchCode,
+    });
+  }
+
+  return results;
+}
+
+/**
  * Processes periodic GPS ping for staff geo-attendance.
  * Enforces tenant attendance settings, anti-spoofing velocity validation, and re-entrant attendance lifecycle.
  */
@@ -795,61 +864,156 @@ export async function remoteCheckIn(
 
 /**
  * Scheduled/cron absentee batch job.
- * Note: Respects autoMarkAbsentEnabled and skips weekly off days.
+ * Evaluates tenant attendance settings, weekly offs, festival holidays, and employee personal weekly offs.
  */
 export async function markAbsentees(
   tenantId: string,
   date: string
-): Promise<{ markedCount: number }> {
+): Promise<{ markedCount: number; skippedCount?: number; totalStaff?: number; skippedReason?: string }> {
   const settings = await getAttendanceSettings(tenantId);
-  if (!settings.autoMarkAbsentEnabled) {
-    return { markedCount: 0 };
+  const autoMarkEnabled =
+    settings.autoMarkAbsentEnabled !== false &&
+    (settings as any).autoMarkAbsent !== false;
+
+  if (!autoMarkEnabled) {
+    return { markedCount: 0, skippedCount: 0, totalStaff: 0, skippedReason: "AUTO_MARK_ABSENT_DISABLED" };
   }
 
-  // Skip weekly off days
-  const dateObj = new Date(date);
-  const dayOfWeek = dateObj.getDay();
-  if ((settings.weeklyOffDays ?? [0]).includes(dayOfWeek)) {
-    return { markedCount: 0 };
+  // Parse IST day info
+  const [y, m, d] = date.split("-").map(Number);
+  const dateObj = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const dayName = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+  }).format(dateObj);
+
+  const dayMap: Record<string, number> = {
+    sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+  };
+  const dayIndex = dayMap[dayName.toLowerCase()] ?? dateObj.getDay();
+
+  const isWeeklyOffMatch = (config: any) => {
+    if (config === undefined || config === null) return false;
+    const list = Array.isArray(config) ? config : [config];
+    for (const item of list) {
+      if (typeof item === "number" && item === dayIndex) return true;
+      if (typeof item === "string") {
+        const norm = item.trim().toLowerCase();
+        if (norm === dayName.toLowerCase()) return true;
+        if (dayMap[norm] !== undefined && dayMap[norm] === dayIndex) return true;
+      }
+    }
+    return false;
+  };
+
+  // 1. Skip tenant weekly off days
+  if (isWeeklyOffMatch(settings.weeklyOffDays)) {
+    return { markedCount: 0, skippedCount: 0, totalStaff: 0, skippedReason: `WEEKLY_OFF (${dayName})` };
   }
+
+  // 2. Skip festival holidays
+  const standardHoliday = getHolidayForDate(date);
+  if (standardHoliday) {
+    return { markedCount: 0, skippedCount: 0, totalStaff: 0, skippedReason: `FESTIVAL_HOLIDAY (${standardHoliday.name})` };
+  }
+
+  try {
+    const tenantHolidayDoc = await adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("holidays")
+      .doc(date)
+      .get();
+    if (tenantHolidayDoc.exists) {
+      return { markedCount: 0, skippedCount: 0, totalStaff: 0, skippedReason: `FESTIVAL_HOLIDAY (${tenantHolidayDoc.data()?.name || "Holiday"})` };
+    }
+  } catch {}
 
   const staffSnap = await adminDb
     .collection("staff")
     .where("tenantId", "==", tenantId)
     .where("isActive", "==", true)
-    .where("isDeleted", "==", false)
     .get();
 
-  let markedCount = 0;
-  const batch = adminDb.batch();
+  const activeStaffDocs = staffSnap.docs.filter((d) => d.data().isDeleted !== true);
+  const totalStaff = activeStaffDocs.length;
 
-  for (const doc of staffSnap.docs) {
+  let markedCount = 0;
+  let skippedCount = 0;
+  let batch = adminDb.batch();
+  let opsCount = 0;
+
+  for (const doc of activeStaffDocs) {
     const staffId = doc.id;
     const staffData = doc.data();
-    const attRef = adminDb.collection("staff").doc(staffId).collection("attendance").doc(date);
-    const attSnap = await attRef.get();
 
-    if (!attSnap.exists) {
-      batch.set(attRef, {
-        date,
-        checkInMs: null,
-        checkOutMs: null,
-        status: "ABSENT",
-        source: "GEO_AUTO",
-        branchCode: staffData.branchCode || "HQ",
-        tenantId,
-        markedBy: "CRON_ABSENTEE_SYSTEM",
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      markedCount++;
+    const tenantAttRef = adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("attendance")
+      .doc(`${staffId}_${date}`);
+
+    const staffAttRef = adminDb
+      .collection("staff")
+      .doc(staffId)
+      .collection("attendance")
+      .doc(date);
+
+    const [tenantSnap, staffSnapDoc] = await Promise.all([
+      tenantAttRef.get(),
+      staffAttRef.get(),
+    ]);
+
+    if (tenantSnap.exists || staffSnapDoc.exists) {
+      skippedCount++;
+      continue;
+    }
+
+    // Check staff personal weekly off override
+    const staffWeeklyOff =
+      staffData.weeklyOffDays ??
+      staffData.weeklyOff ??
+      staffData.personalWeeklyOff ??
+      staffData.weeklyOffDay;
+
+    if (staffWeeklyOff !== undefined && isWeeklyOffMatch(staffWeeklyOff)) {
+      skippedCount++;
+      continue;
+    }
+
+    const attendancePayload = {
+      staffId,
+      tenantId,
+      branchCode: staffData.branchCode || "HQ",
+      date,
+      status: "ABSENT",
+      checkIn: null,
+      checkOut: null,
+      checkInMs: null,
+      checkOutMs: null,
+      source: "CRON",
+      markedBy: "CRON_ABSENTEE_SYSTEM",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    batch.set(tenantAttRef, attendancePayload);
+    batch.set(staffAttRef, attendancePayload);
+    opsCount += 2;
+    markedCount++;
+
+    if (opsCount >= 300) {
+      await batch.commit();
+      batch = adminDb.batch();
+      opsCount = 0;
     }
   }
 
-  if (markedCount > 0) {
+  if (opsCount > 0) {
     await batch.commit();
   }
 
-  return { markedCount };
+  return { markedCount, skippedCount, totalStaff };
 }
 
 // ==========================================
@@ -939,6 +1103,85 @@ export async function getPendingRegularizationsAcrossStaff(
     }
 
     // Hierarchy filter for managers (only direct reports)
+    if (managerStaffId && staffReportsTo !== managerStaffId) {
+      continue;
+    }
+
+    results.push({
+      id: doc.id,
+      staffId,
+      staffName,
+      staffEmpId,
+      date: data.date,
+      requestType: data.requestType,
+      reason: data.reason,
+      originalStatus: data.originalStatus,
+      requestedStatus: data.requestedStatus,
+      status: data.status,
+      approvedBy: data.approvedBy ?? null,
+      tenantId: data.tenantId,
+      branchCode: data.branchCode,
+      appliedAtMs: data.appliedAtMs,
+      resolvedAtMs: data.resolvedAtMs ?? null,
+      rejectionReason: data.rejectionReason,
+    });
+  }
+
+  return results;
+}
+
+/**
+ * Fetches historical regularization requests across staff members with month and status filter
+ */
+export async function getRegularizationsHistoryAcrossStaff(
+  tenantId?: string | null,
+  month?: string | null,
+  statusFilter?: string | null,
+  managerStaffId?: string | null,
+  storeId?: string | null
+): Promise<(RegularizationDocument & { staffName?: string; staffEmpId?: string })[]> {
+  let query: FirebaseFirestore.Query = adminDb.collectionGroup("regularizations");
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+  if (statusFilter && statusFilter !== "ALL") {
+    query = query.where("status", "==", statusFilter);
+  }
+  if (storeId) {
+    query = query.where("branchCode", "==", storeId);
+  }
+
+  const snapshot = await query.orderBy("appliedAtMs", "desc").limit(100).get();
+  const results: (RegularizationDocument & { staffName?: string; staffEmpId?: string })[] = [];
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const staffId = doc.ref.parent.parent?.id || data.staffId || "";
+
+    // Month filter check (YYYY-MM)
+    if (month) {
+      const regDate = data.date || "";
+      const appliedDate = data.appliedAtMs ? new Date(data.appliedAtMs).toISOString().slice(0, 7) : "";
+      if (!regDate.startsWith(month) && !appliedDate.startsWith(month)) {
+        continue;
+      }
+    }
+
+    let staffName = "";
+    let staffEmpId = "";
+    let staffReportsTo: string | null = null;
+
+    if (staffId) {
+      const sDoc = await adminDb.collection("staff").doc(staffId).get();
+      if (sDoc.exists) {
+        const sData = sDoc.data();
+        staffName = sData?.name || "";
+        staffEmpId = sData?.empId || "";
+        staffReportsTo = sData?.reportsToStaffId || null;
+      }
+    }
+
     if (managerStaffId && staffReportsTo !== managerStaffId) {
       continue;
     }
@@ -1081,7 +1324,9 @@ export async function getAttendanceSettings(tenantId: string): Promise<Attendanc
     shiftStartTime: data.shiftStartTime ?? DEFAULT_ATTENDANCE_SETTINGS.shiftStartTime,
     shiftEndTime: data.shiftEndTime ?? DEFAULT_ATTENDANCE_SETTINGS.shiftEndTime,
     gracePeriodMinutes: Number(data.gracePeriodMinutes ?? DEFAULT_ATTENDANCE_SETTINGS.gracePeriodMinutes),
+    defaultWeeklyOffDay: data.defaultWeeklyOffDay ?? DEFAULT_ATTENDANCE_SETTINGS.defaultWeeklyOffDay,
     weeklyOffDays: Array.isArray(data.weeklyOffDays) ? data.weeklyOffDays : DEFAULT_ATTENDANCE_SETTINGS.weeklyOffDays,
+    holidays: Array.isArray(data.holidays) ? data.holidays : DEFAULT_ATTENDANCE_SETTINGS.holidays,
     geoRadiusMeters: Number(data.geoRadiusMeters ?? DEFAULT_ATTENDANCE_SETTINGS.geoRadiusMeters),
     halfDayThresholdMinutes: Number(data.halfDayThresholdMinutes ?? DEFAULT_ATTENDANCE_SETTINGS.halfDayThresholdMinutes),
     lateCountForAbsent: Number(data.lateCountForAbsent ?? DEFAULT_ATTENDANCE_SETTINGS.lateCountForAbsent),
@@ -1302,6 +1547,184 @@ export async function getPendingHrQueriesAcrossStaff(
   results.sort((a, b) => b.raisedAtMs - a.raisedAtMs);
   return results;
 }
+
+/**
+ * Fetches historical HR queries across staff members with month and status filter
+ */
+export async function getHrQueriesHistoryAcrossStaff(
+  tenantId?: string | null,
+  month?: string | null,
+  statusFilter?: string | null,
+  storeId?: string | null
+): Promise<HrQueryDocument[]> {
+  let query: FirebaseFirestore.Query = adminDb.collectionGroup("hr_queries");
+
+  if (tenantId) {
+    query = query.where("tenantId", "==", tenantId);
+  }
+  if (statusFilter && statusFilter !== "ALL") {
+    query = query.where("status", "==", statusFilter);
+  }
+
+  const snapshot = await query.get();
+
+  let results: HrQueryDocument[] = snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      staffId: data.staffId,
+      staffName: data.staffName || "",
+      subject: data.subject || "",
+      message: data.message || "",
+      status: data.status || "OPEN",
+      raisedAtMs: data.raisedAtMs || 0,
+      resolvedAtMs: data.resolvedAtMs ?? null,
+      resolvedBy: data.resolvedBy ?? null,
+      resolutionNote: data.resolutionNote ?? null,
+      tenantId: data.tenantId || "",
+      branchCode: data.branchCode || "",
+    } as HrQueryDocument;
+  });
+
+  if (month) {
+    results = results.filter((q) => {
+      const raisedDate = q.raisedAtMs ? new Date(q.raisedAtMs).toISOString().slice(0, 7) : "";
+      return raisedDate.startsWith(month);
+    });
+  }
+
+  if (storeId) {
+    const cleanStore = storeId.toUpperCase().trim();
+    results = results.filter((q) => (q.branchCode || "").toUpperCase().trim() === cleanStore);
+  }
+
+  results.sort((a, b) => b.raisedAtMs - a.raisedAtMs);
+  return results;
+}
+
+/**
+ * Bulk regularizes all false-absents for a specific date across active staff (e.g. 2026-10-02 Gandhi Jayanti)
+ */
+export async function bulkRegularizeDate(
+  tenantId: string,
+  date: string,
+  reason: string,
+  updatedStatus: AttendanceStatus = "PRESENT",
+  actor: string = "Admin"
+): Promise<{ regularizedCount: number; staffNames: string[] }> {
+  const staffSnap = await adminDb
+    .collection("staff")
+    .where("tenantId", "==", tenantId)
+    .where("isActive", "==", true)
+    .get();
+
+  let regularizedCount = 0;
+  const staffNames: string[] = [];
+  let batch = adminDb.batch();
+  let opsCount = 0;
+
+  for (const staffDoc of staffSnap.docs) {
+    const staffId = staffDoc.id;
+    const staffData = staffDoc.data();
+
+    const tenantAttRef = adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("attendance")
+      .doc(`${staffId}_${date}`);
+
+    const staffAttRef = adminDb
+      .collection("staff")
+      .doc(staffId)
+      .collection("attendance")
+      .doc(date);
+
+    const [tSnap, sSnap] = await Promise.all([tenantAttRef.get(), staffAttRef.get()]);
+
+    const existingStatus = tSnap.data()?.status || sSnap.data()?.status;
+    // Regularize if absent or unlogged
+    if (existingStatus === "ABSENT" || !tSnap.exists || !sSnap.exists) {
+      const payload = {
+        staffId,
+        tenantId,
+        branchCode: staffData.branchCode || "HQ",
+        date,
+        status: updatedStatus,
+        checkInMs: tSnap.data()?.checkInMs || Date.now(),
+        checkOutMs: tSnap.data()?.checkOutMs || null,
+        source: "MANUAL",
+        markedBy: actor,
+        regularizationReason: reason,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      batch.set(tenantAttRef, payload, { merge: true });
+      batch.set(staffAttRef, payload, { merge: true });
+      opsCount += 2;
+      regularizedCount++;
+      staffNames.push(staffData.name || staffId);
+
+      if (opsCount >= 300) {
+        await batch.commit();
+        batch = adminDb.batch();
+        opsCount = 0;
+      }
+    }
+  }
+
+  if (opsCount > 0) {
+    await batch.commit();
+  }
+
+  return { regularizedCount, staffNames };
+}
+
+/**
+ * Updates staff attendance policy (Weekly-off day, attendance mode, field meetings min threshold)
+ */
+export async function updateStaffShiftProfile(
+  staffId: string,
+  data: {
+    weeklyOffDay?: string;
+    attendanceMode?: "GEO_AUTO" | "MANUAL";
+    shiftStartOverride?: string;
+    shiftEndOverride?: string;
+    shiftStartTime?: string;
+    shiftEndTime?: string;
+  }
+): Promise<{ ok: boolean; success: boolean; error?: string }> {
+  const staffRef = adminDb.collection("staff").doc(staffId);
+  const snap = await staffRef.get();
+  if (!snap.exists) {
+    return { ok: false, success: false, error: "Staff not found" };
+  }
+
+  const updates: Record<string, any> = {
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (data.weeklyOffDay !== undefined) {
+    updates.weeklyOffDay = data.weeklyOffDay;
+    updates.weeklyOffDays = [data.weeklyOffDay];
+  }
+  if (data.attendanceMode !== undefined) {
+    updates.attendanceMode = data.attendanceMode;
+  }
+  const start = data.shiftStartOverride ?? data.shiftStartTime;
+  if (start !== undefined) {
+    updates.shiftStartOverride = start;
+    updates.customShiftStartTime = start;
+  }
+  const end = data.shiftEndOverride ?? data.shiftEndTime;
+  if (end !== undefined) {
+    updates.shiftEndOverride = end;
+    updates.customShiftEndTime = end;
+  }
+
+  await staffRef.update(updates);
+  return { ok: true, success: true };
+}
+
 
 /**
  * Resolves an HR query with an optional resolution note
