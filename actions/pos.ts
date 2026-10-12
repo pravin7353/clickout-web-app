@@ -272,10 +272,11 @@ export async function createPosOrder(params: {
   customerPhone?: string;
   instantDiscountPercent?: number;
   targetBranchCode?: string;
+  shiftId?: string;
 }) {
   let session, role, tenantId, storeId;
   try {
-    ({ session, role, tenantId, storeId } = await requireEditAccess(["tenant_admin", "manager"]));
+    ({ session, role, tenantId, storeId } = await requireEditAccess(["tenant_admin", "manager", "cashier"]));
   } catch {
     return { ok: false, error: "You have view-only access and cannot process checkout orders." };
   }
@@ -514,7 +515,18 @@ export async function createPosOrder(params: {
       storeName,
       companyLogoUrl,
       storeLogoUrl,
+      shiftId: params.shiftId || null,
     });
+
+    // Update active POS shift totals if checkout is tied to a counter shift
+    if (params.shiftId && tenantId) {
+      const shiftDocRef = adminDb.collection("tenants").doc(tenantId).collection("posShifts").doc(params.shiftId);
+      batch.update(shiftDocRef, {
+        shiftTotalAmount: FieldValue.increment(totalAmount),
+        transactionCount: FieldValue.increment(1),
+        lastOrderAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     // Deduct stock
     for (const line of priced.lines) {

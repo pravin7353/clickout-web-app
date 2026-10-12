@@ -20,13 +20,26 @@ import { Modal } from "@/components/profile-menu";
 import { Card, Button, Input, Badge, ErrorBanner } from "@/components/ui";
 import { FlashSaleCountdown } from "@/components/flash-sale-countdown";
 
+export type ActivePosShiftInfo = {
+  shiftId: string;
+  counterName: string;
+  openedByName: string;
+  shiftTotalAmount: number;
+  transactionCount: number;
+};
+
 export function PosTerminal({
   branchCode,
   canEdit = false,
+  shiftInfo,
 }: {
   branchCode?: string | null;
   canEdit?: boolean;
+  shiftInfo?: ActivePosShiftInfo;
 }) {
+  const [currentShiftSales, setCurrentShiftSales] = useState(shiftInfo?.shiftTotalAmount || 0);
+  const [currentShiftTxns, setCurrentShiftTxns] = useState(shiftInfo?.transactionCount || 0);
+
   const [barcodeInput, setBarcodeInput] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<PosProduct[]>([]);
@@ -291,11 +304,16 @@ export function PosTerminal({
         customerPhone: customerPhone ? customerPhone.trim() : undefined,
         instantDiscountPercent: instantDiscount,
         targetBranchCode: branchCode ?? undefined,
+        shiftId: shiftInfo?.shiftId,
       });
 
       if (!res.ok) {
         setError(res.error ?? "Checkout failed.");
       } else {
+        if (shiftInfo) {
+          setCurrentShiftSales((prev) => prev + netEstimatedTotal);
+          setCurrentShiftTxns((prev) => prev + 1);
+        }
         const discountMsg = res.discountApplied && res.discountApplied > 0
           ? ` · Saved ₹${res.discountApplied.toFixed(0)}`
           : "";
@@ -322,8 +340,111 @@ export function PosTerminal({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Scope banner if applicable */}
-      {branchCode && (
+      {/* Active Multi-Counter POS Terminal Shift Banner */}
+      {shiftInfo && (
+        <div
+          style={{
+            padding: "16px 20px",
+            borderRadius: 18,
+            background: "linear-gradient(135deg, rgba(0, 210, 106, 0.12) 0%, rgba(0, 210, 106, 0.04) 100%)",
+            border: "1px solid var(--success)",
+            boxShadow: "0 4px 18px rgba(0, 210, 106, 0.12)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 14,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: "rgba(0, 210, 106, 0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 22,
+              }}
+            >
+              🖥️
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 17, fontWeight: 900, color: "var(--text-primary)" }}>
+                  {shiftInfo.counterName}
+                </span>
+                <span
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 8,
+                    background: "rgba(0, 210, 106, 0.2)",
+                    color: "var(--success)",
+                    fontSize: 11,
+                    fontWeight: 800,
+                  }}
+                >
+                  🟢 ACTIVE SHIFT
+                </span>
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--text-secondary)",
+                  marginTop: 3,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>
+                  Cashier: <strong style={{ color: "var(--text-primary)" }}>{shiftInfo.openedByName}</strong>
+                </span>
+                <span>·</span>
+                <span>
+                  Shift: <strong style={{ color: "var(--success)" }}>₹{currentShiftSales.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</strong>
+                </span>
+                <span>({currentShiftTxns} txns)</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  sessionStorage.removeItem("activeShift");
+                }
+                const bUrl = branchCode ? `/pos?store=${branchCode}` : "/pos";
+                window.location.href = bUrl;
+              }}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "var(--card-bg)",
+                color: "var(--text-primary)",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+              }}
+            >
+              <span>🔒 Lock / Switch Counter</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Scope banner if applicable (when not in multi-counter shift view) */}
+      {!shiftInfo && branchCode && (
         <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 6 }}>
           <span>Active POS Location:</span>
           <Badge color="var(--primary)">{branchCode}</Badge>

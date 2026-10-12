@@ -36,6 +36,8 @@ import {
   getStaffSalaryHistory,
   getPendingLeavesAcrossStaff,
   recordGeoPing,
+  AntiSpoofInput,
+  verifySuspiciousAttendance,
   remoteCheckIn,
   applyLateAbsentPenalty,
   createRegularizationRecord,
@@ -658,7 +660,8 @@ export async function recordGeoPingAction(
   latitude: number,
   longitude: number,
   timestampMs?: number,
-  selfieUrl?: string | null
+  selfieUrl?: string | null,
+  antiSpoofData?: AntiSpoofInput | null
 ) {
   const staff = await requireStaffSelf();
 
@@ -667,8 +670,55 @@ export async function recordGeoPingAction(
   }
 
   const effectiveTimestamp = timestampMs || Date.now();
-  const res = await recordGeoPing(staff.staffId, latitude, longitude, effectiveTimestamp, selfieUrl);
+  const res = await recordGeoPing(staff.staffId, latitude, longitude, effectiveTimestamp, selfieUrl, antiSpoofData);
   return res;
+}
+
+export async function verifySuspiciousAttendanceAction(
+  staffId: string,
+  date: string,
+  approvedStatus: AttendanceStatus = "PRESENT"
+) {
+  const { session, role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const staff = await getStaffDoc(staffId);
+  if (!staff) {
+    return { ok: false, error: "Staff member not found." };
+  }
+
+  if (role !== "super_admin" && tenantId) {
+    assertTenantScope(tenantId, staff.tenantId);
+  }
+
+  if (role === "manager") {
+    const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+    const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+    assertStoreScope(managerStore, staffBranch);
+  }
+
+  const actorEmail = session.user?.email || "Manager";
+
+  await verifySuspiciousAttendance(staffId, date, approvedStatus, actorEmail);
+
+  await adminDb.collection("admin_audit_logs").add({
+    action: "HR_SUSPICIOUS_ATTENDANCE_VERIFIED",
+    actionType: "HR_SUSPICIOUS_ATTENDANCE_VERIFIED",
+    actor: actorEmail,
+    actorId: actorEmail,
+    tenantId: staff.tenantId,
+    branchCode: staff.branchCode,
+    details: `Manager ${actorEmail} approved suspicious attendance for ${staff.name} (${staff.empId || staffId}) on ${date} as ${approvedStatus}.`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/manager");
+  return { ok: true };
 }
 
 // =========================================================================

@@ -14,6 +14,7 @@ import {
 
 import { RegularizationType, LeaveType } from "@/lib/schemas/hr-schema";
 import { handleEmployeeSessionRevocation } from "@/lib/utils/device";
+import { generateDeviceFingerprint } from "@/lib/utils/device-fingerprint";
 
 async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
   const errMsg = typeof resOrErr === "string" ? resOrErr : resOrErr?.error || resOrErr?.message;
@@ -205,8 +206,40 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
+
+        // Layer 1: Attempt secondary Network-based location reading (enableHighAccuracy: false)
+        let networkCoords: { latitude: number; longitude: number; accuracy: number } | null = null;
         try {
-          const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl);
+          const netPos = await new Promise<GeolocationPosition>((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: false,
+              timeout: 6000,
+              maximumAge: 0,
+            });
+          });
+          networkCoords = {
+            latitude: netPos.coords.latitude,
+            longitude: netPos.coords.longitude,
+            accuracy: netPos.coords.accuracy,
+          };
+        } catch {
+          // Network fallback unavailable, proceed with GPS
+        }
+
+        const fingerprint = await generateDeviceFingerprint();
+        const antiSpoofData = {
+          gpsCoords: {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          },
+          networkCoords,
+          deviceTimestamp: Date.now(),
+          deviceFingerprint: fingerprint,
+        };
+
+        try {
+          const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl, antiSpoofData);
           if (res.ok) {
             lastPingMsRef.current = Date.now();
             setCurrentDistanceMeters(res.distanceMeters ?? null);
@@ -226,6 +259,9 @@ export function EmployeeDashboardClient({ initialData }: EmployeeDashboardClient
                 checkOutMs: res.checkOutMs !== undefined ? res.checkOutMs : prevToday?.checkOutMs,
                 lastLocationState: res.isInside ? "INSIDE" : "OUTSIDE",
                 selfieUrl: res.selfieUrl || prevToday?.selfieUrl,
+                locationTrustScore: res.locationTrustScore,
+                trustFlags: res.trustFlags,
+                reviewRequired: res.reviewRequired,
               };
 
               if (isFirstCheckIn) {

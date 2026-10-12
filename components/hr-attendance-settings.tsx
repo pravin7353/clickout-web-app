@@ -690,6 +690,122 @@ export function HrAttendanceSettings({
         </div>
       </div>
 
+      {/* 4B. Anti-Spoofing & Mock Location Protection */}
+      <div
+        style={{
+          background: "var(--card-bg)",
+          border: "1px solid var(--border)",
+          borderRadius: 18,
+          padding: 22,
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span>🛡️</span> Anti-Spoofing &amp; Mock Location Security
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 800,
+              padding: "3px 10px",
+              borderRadius: 8,
+              background: settings.strictAntiSpoofingMode ? "rgba(239, 68, 68, 0.15)" : "rgba(34, 197, 94, 0.15)",
+              color: settings.strictAntiSpoofingMode ? "#ef4444" : "#22c55e",
+              border: `1px solid ${settings.strictAntiSpoofingMode ? "rgba(239, 68, 68, 0.3)" : "rgba(34, 197, 94, 0.3)"}`,
+            }}
+          >
+            {settings.strictAntiSpoofingMode ? "STRICT MODE ACTIVE" : "MONITORING MODE (DEFAULT)"}
+          </span>
+        </div>
+
+        {/* Strict Mode Toggle Box */}
+        <div
+          style={{
+            padding: 16,
+            borderRadius: 14,
+            background: settings.strictAntiSpoofingMode ? "rgba(239, 68, 68, 0.05)" : "rgba(255,255,255,0.02)",
+            border: `1px solid ${settings.strictAntiSpoofingMode ? "rgba(239, 68, 68, 0.3)" : "var(--border)"}`,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>
+              Strict Anti-Spoofing Mode
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
+              {settings.strictAntiSpoofingMode ? (
+                <strong style={{ color: "#ef4444" }}>
+                  ON: High-risk check-ins (Trust Score &lt; 50) are REJECTED immediately at the employee portal. Staff must contact manager.
+                </strong>
+              ) : (
+                <span>
+                  OFF (Default): Suspicious check-ins are flagged but allowed. Store manager reviews flagged records in the monthly log.
+                </span>
+              )}
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            disabled={!canEdit}
+            checked={Boolean(settings.strictAntiSpoofingMode)}
+            onChange={(e) =>
+              setSettings({ ...settings, strictAntiSpoofingMode: e.target.checked })
+            }
+            style={{ width: 20, height: 20, accentColor: "#ef4444", cursor: canEdit ? "pointer" : "not-allowed" }}
+          />
+        </div>
+
+        {/* Detection Layers Overview */}
+        <div
+          style={{
+            padding: 14,
+            borderRadius: 12,
+            background: "rgba(0,0,0,0.18)",
+            border: "1px solid var(--border)",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#3b82f6" }}>LAYER 1: CROSS-CHECK</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+              Compares GPS satellite vs Network/WiFi triangulation (&gt;500m diff = -40 pts)
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#3b82f6" }}>LAYER 2: ACCURACY ANOMALY</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+              Catches fake GPS apps reporting unrealistically perfect accuracy (&lt;3m = -30 pts)
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#3b82f6" }}>LAYER 3: CLOCK DRIFT</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+              Validates device timestamp against Firestore server time (&gt;5m drift = -20 pts)
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#3b82f6" }}>LAYER 4: TELEPORTATION</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+              Calculates implied velocity from previous check-in location (&gt;150 km/h = -50 pts)
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#3b82f6" }}>LAYER 5: DEVICE FINGERPRINT</div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+              Binds account to primary employee phone hardware (Mismatch = -25 pts)
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 5. Manual Absent Marking (Admin Only / Testing) */}
       {isTenantAdminOrSuper && (
         <div

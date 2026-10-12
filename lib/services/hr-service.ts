@@ -563,16 +563,32 @@ export async function getLeavesHistoryAcrossStaff(
   return results;
 }
 
+export interface AntiSpoofInput {
+  gpsCoords?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  } | null;
+  networkCoords?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  } | null;
+  deviceTimestamp?: number | null;
+  deviceFingerprint?: string | null;
+}
+
 /**
  * Processes periodic GPS ping for staff geo-attendance.
- * Enforces tenant attendance settings, anti-spoofing velocity validation, and re-entrant attendance lifecycle.
+ * Enforces 5-Layer Anti-Mock location verification, strict spoofing gates, and re-entrant attendance lifecycle.
  */
 export async function recordGeoPing(
   staffId: string,
   latitude: number,
   longitude: number,
   timestampMs: number,
-  selfieUrl?: string | null
+  selfieUrl?: string | null,
+  antiSpoofData?: AntiSpoofInput | null
 ): Promise<{
   ok: boolean;
   status?: AttendanceStatus;
@@ -581,6 +597,10 @@ export async function recordGeoPing(
   checkInMs?: number | null;
   checkOutMs?: number | null;
   selfieUrl?: string | null;
+  locationTrustScore?: number;
+  trustFlags?: string[];
+  reviewRequired?: boolean;
+  isSuspicious?: boolean;
   error?: string;
 }> {
   const staff = await getStaffDoc(staffId);
@@ -640,41 +660,14 @@ export async function recordGeoPing(
   const attSnap = await attRef.get();
   const existing = attSnap.exists ? (attSnap.data() as AttendanceDocument) : null;
 
-  // Anti-Spoofing Velocity Sanity Check (> 150 km/h)
-  if (
-    existing?.lastPingMs &&
-    existing.lastPingLat !== undefined &&
-    existing.lastPingLat !== null &&
-    existing.lastPingLng !== undefined &&
-    existing.lastPingLng !== null
-  ) {
-    const timeDeltaSec = (timestampMs - existing.lastPingMs) / 1000;
-    if (timeDeltaSec > 0 && timeDeltaSec < 3600) {
-      const distDeltaMeters = haversineDistanceMeters(
-        existing.lastPingLat,
-        existing.lastPingLng,
-        latitude,
-        longitude
-      );
-      const speedKmH = (distDeltaMeters / timeDeltaSec) * 3.6;
-      if (speedKmH > 150) {
-        return {
-          ok: false,
-          error: "ERR_SPOOFED_VELOCITY",
-          isInside,
-          distanceMeters: Math.round(distance),
-        };
-      }
-    }
-  }
-
-  // Server-side throttle: Skip Firestore write if pinged within last 90 seconds with unchanged state
+  // Mid-day throttle: Skip Firestore write if pinged within last 90 seconds with unchanged state
   const isStateUnchanged =
     (isInside && existing?.lastLocationState === "INSIDE") ||
     (!isInside && existing?.lastLocationState === "OUTSIDE");
 
   if (
     existing?.lastPingMs &&
+    existing?.checkInMs &&
     timestampMs - existing.lastPingMs < 90 * 1000 &&
     isStateUnchanged
   ) {
@@ -686,14 +679,162 @@ export async function recordGeoPing(
       checkInMs: existing.checkInMs,
       checkOutMs: existing.checkOutMs,
       selfieUrl: existing.selfieUrl || null,
+      locationTrustScore: existing.locationTrustScore ?? 100,
+      trustFlags: existing.trustFlags ?? [],
+      reviewRequired: existing.reviewRequired ?? false,
     };
   }
 
-  // Attendance Lifecycle State Engine
+  // Check if this ping constitutes a NEW CHECK-IN
+  const isCheckInEvent = isInside && (!existing || !existing.checkInMs);
 
-  if (!existing) {
-    if (isInside) {
-      // First detection inside -> Check-in with configurable shift timings
+  // =========================================================================
+  // ANTI-MOCK & ANTI-SPOOF DETECTION ENGINE (Layers 1 to 5)
+  // =========================================================================
+  const trustFlags: string[] = [];
+  let deductions = 0;
+
+  // LAYER 1 — Multiple Location Source Cross-Check (GPS vs Network/WiFi)
+  let locationMismatchFlag = false;
+  let mismatchDistanceMeters: number | null = null;
+  if (antiSpoofData?.gpsCoords && antiSpoofData?.networkCoords) {
+    const gpsLat = antiSpoofData.gpsCoords.latitude;
+    const gpsLng = antiSpoofData.gpsCoords.longitude;
+    const netLat = antiSpoofData.networkCoords.latitude;
+    const netLng = antiSpoofData.networkCoords.longitude;
+
+    const diffMeters = haversineDistanceMeters(gpsLat, gpsLng, netLat, netLng);
+    mismatchDistanceMeters = Math.round(diffMeters);
+
+    if (diffMeters > 500) {
+      locationMismatchFlag = true;
+      trustFlags.push("SUSPICIOUS_LOCATION_MISMATCH");
+      deductions += 40;
+    }
+  }
+
+  // LAYER 2 — Accuracy Value Anomaly Detection
+  let mockLocationSuspected = false;
+  const accuracy = antiSpoofData?.gpsCoords?.accuracy;
+  if (typeof accuracy === "number") {
+    if (accuracy === 0 || accuracy < 3) {
+      mockLocationSuspected = true;
+      trustFlags.push("ACCURACY_ANOMALY");
+      deductions += 30;
+    } else if (accuracy > 2000) {
+      trustFlags.push("ACCURACY_POOR");
+    }
+  }
+
+  // LAYER 3 — Timestamp vs Server Time Drift Check
+  let clockDriftMs: number | null = null;
+  if (typeof antiSpoofData?.deviceTimestamp === "number") {
+    clockDriftMs = Math.abs(timestampMs - antiSpoofData.deviceTimestamp);
+    const driftMinutes = clockDriftMs / (1000 * 60);
+    if (driftMinutes > 5) {
+      trustFlags.push("CLOCK_MANIPULATION_SUSPECTED");
+      deductions += 20;
+    }
+  }
+
+  // LAYER 4 — Speed / Teleportation Check (> 150 km/h)
+  let teleportationFlag = false;
+  let impliedSpeedKmph: number | null = null;
+
+  let lastLocLat: number | null = null;
+  let lastLocLng: number | null = null;
+  let lastLocMs: number | null = null;
+
+  if (existing?.lastPingMs && existing?.lastPingLat && existing?.lastPingLng) {
+    lastLocLat = existing.lastPingLat;
+    lastLocLng = existing.lastPingLng;
+    lastLocMs = existing.lastPingMs;
+  } else if ((staff as any).lastKnownLocation?.lat && (staff as any).lastKnownLocation?.timestampMs) {
+    lastLocLat = (staff as any).lastKnownLocation.lat;
+    lastLocLng = (staff as any).lastKnownLocation.lng;
+    lastLocMs = (staff as any).lastKnownLocation.timestampMs;
+  } else {
+    // Try querying previous day/record
+    try {
+      const prevSnap = await adminDb
+        .collection("staff")
+        .doc(staffId)
+        .collection("attendance")
+        .where("date", "<", dateStr)
+        .orderBy("date", "desc")
+        .limit(1)
+        .get();
+      if (!prevSnap.empty) {
+        const pData = prevSnap.docs[0].data();
+        const pMs = pData.checkOutMs || pData.lastPingMs || pData.checkInMs;
+        const pLat = pData.lastPingLat ?? pData.detectedLatitude;
+        const pLng = pData.lastPingLng ?? pData.detectedLongitude;
+        if (pMs && pLat && pLng) {
+          lastLocLat = pLat;
+          lastLocLng = pLng;
+          lastLocMs = pMs;
+        }
+      }
+    } catch {
+      // index not ready, continue
+    }
+  }
+
+  if (lastLocLat !== null && lastLocLng !== null && lastLocMs !== null) {
+    const timeDeltaHours = (timestampMs - lastLocMs) / (1000 * 3600);
+    if (timeDeltaHours > 0 && timeDeltaHours < 48) {
+      const distDeltaKm = haversineDistanceMeters(lastLocLat, lastLocLng, latitude, longitude) / 1000;
+      impliedSpeedKmph = Math.round(distDeltaKm / timeDeltaHours);
+      if (impliedSpeedKmph > 150) {
+        teleportationFlag = true;
+        trustFlags.push("TELEPORTATION_DETECTED");
+        deductions += 50;
+      }
+    }
+  }
+
+  // LAYER 5 — Device Fingerprint Binding
+  let deviceFingerprintMismatch = false;
+  const currentFingerprint = antiSpoofData?.deviceFingerprint || null;
+  const registeredFingerprint = (staff as any).registeredDeviceFingerprint || null;
+
+  if (currentFingerprint) {
+    if (!registeredFingerprint) {
+      // Auto-bind device fingerprint on first attendance/check-in
+      await adminDb.collection("staff").doc(staffId).update({
+        registeredDeviceFingerprint: currentFingerprint,
+        lastDeviceFingerprint: currentFingerprint,
+      });
+    } else if (registeredFingerprint !== currentFingerprint) {
+      deviceFingerprintMismatch = true;
+      trustFlags.push("DEVICE_MISMATCH");
+      deductions += 25;
+    }
+  }
+
+  // SERVER-SIDE RISK SCORING (0–100)
+  const locationTrustScore = Math.max(0, 100 - deductions);
+  const isStrict = settings.strictAntiSpoofingMode === true;
+
+  // STRICT ANTI-SPOOFING MODE ENFORCEMENT
+  if (isCheckInEvent && isStrict && locationTrustScore < 50) {
+    return {
+      ok: false,
+      error: `Check-in rejected: Location verification failed (Trust Score: ${locationTrustScore}/100). Please contact your store manager.`,
+      isInside,
+      distanceMeters: Math.round(distance),
+      locationTrustScore,
+      trustFlags,
+      isSuspicious: true,
+    };
+  }
+
+  // Determine Attendance Status
+  let initialStatus: AttendanceStatus = "PRESENT";
+  if (isCheckInEvent) {
+    if (locationTrustScore < 50) {
+      initialStatus = "SUSPICIOUS_CHECKIN";
+    } else {
       const [shiftH, shiftM] = (settings.shiftStartTime || "09:00").split(":").map(Number);
       const shiftStartObj = new Date(pingDate);
       shiftStartObj.setHours(shiftH, shiftM, 0, 0);
@@ -702,7 +843,6 @@ export async function recordGeoPing(
       const gracePeriodMs = (settings.gracePeriodMinutes ?? 15) * 60 * 1000;
       const halfDayThresholdMs = (settings.halfDayThresholdMinutes ?? 240) * 60 * 1000;
 
-      let initialStatus: AttendanceStatus;
       if (timestampMs <= shiftStartMs + gracePeriodMs) {
         initialStatus = "PRESENT";
       } else if (timestampMs < shiftStartMs + halfDayThresholdMs) {
@@ -710,7 +850,14 @@ export async function recordGeoPing(
       } else {
         initialStatus = "HALF_DAY";
       }
+    }
+  }
 
+  const reviewRequired = locationTrustScore < 80;
+
+  // Attendance Lifecycle State Engine
+  if (!existing) {
+    if (isInside) {
       const newDoc: AttendanceDocument = {
         date: dateStr,
         checkInMs: timestampMs,
@@ -727,9 +874,66 @@ export async function recordGeoPing(
         branchCode: staff.branchCode,
         tenantId: staff.tenantId,
         markedBy: "GEO_AUTO_SYSTEM",
+
+        // Anti-mock properties
+        checkInGPS: antiSpoofData?.gpsCoords
+          ? {
+              lat: antiSpoofData.gpsCoords.latitude,
+              lng: antiSpoofData.gpsCoords.longitude,
+              accuracy: antiSpoofData.gpsCoords.accuracy ?? 0,
+            }
+          : { lat: latitude, lng: longitude, accuracy: typeof accuracy === "number" ? accuracy : 10 },
+        checkInNetwork: antiSpoofData?.networkCoords
+          ? {
+              lat: antiSpoofData.networkCoords.latitude,
+              lng: antiSpoofData.networkCoords.longitude,
+              accuracy: antiSpoofData.networkCoords.accuracy ?? 0,
+            }
+          : null,
+        locationMismatchFlag,
+        mismatchDistanceMeters,
+        checkInAccuracyMeters: typeof accuracy === "number" ? Number(accuracy.toFixed(1)) : null,
+        mockLocationSuspected,
+        clockDriftMs,
+        impliedSpeedKmph,
+        teleportationFlag,
+        deviceFingerprintMismatch,
+        deviceFingerprint: currentFingerprint,
+        locationTrustScore,
+        trustFlags,
+        reviewRequired,
       };
 
       await attRef.set(newDoc);
+
+      // Update staff last location and suspicious check-in counter
+      const staffUpdates: any = {
+        lastKnownLocation: {
+          lat: latitude,
+          lng: longitude,
+          timestampMs,
+        },
+      };
+      if (locationTrustScore < 50) {
+        staffUpdates.suspiciousCheckInCount = FieldValue.increment(1);
+        staffUpdates.suspiciousCheckinCount30d = FieldValue.increment(1);
+
+        // Audit Log
+        await adminDb.collection("admin_audit_logs").add({
+          action: "HR_SUSPICIOUS_CHECKIN_DETECTED",
+          actionType: "HR_SUSPICIOUS_CHECKIN_DETECTED",
+          actor: staff.name || staffId,
+          actorId: staffId,
+          tenantId: staff.tenantId,
+          branchCode: staff.branchCode,
+          details: `Suspicious check-in recorded for ${staff.name} (${staff.empId || staffId}). Trust Score: ${locationTrustScore}/100. Flags: ${trustFlags.join(", ")}`,
+          severity: "WARNING",
+          timestamp: FieldValue.serverTimestamp(),
+        });
+      }
+
+      await adminDb.collection("staff").doc(staffId).update(staffUpdates);
+
       return {
         ok: true,
         status: initialStatus,
@@ -738,6 +942,10 @@ export async function recordGeoPing(
         checkInMs: timestampMs,
         checkOutMs: null,
         selfieUrl: selfieUrl || null,
+        locationTrustScore,
+        trustFlags,
+        reviewRequired,
+        isSuspicious: locationTrustScore < 50,
       };
     } else {
       // Outside and no check-in yet today
@@ -763,9 +971,51 @@ export async function recordGeoPing(
 
     let updatedCheckOutMs = existing.checkOutMs;
 
+    // If doc was created without checkInMs, and user just entered geofence
+    if (isCheckInEvent) {
+      updates.checkInMs = timestampMs;
+      updates.status = initialStatus;
+      updates.source = "GEO_AUTO";
+      updates.detectedLatitude = latitude;
+      updates.detectedLongitude = longitude;
+      updates.checkInGPS = antiSpoofData?.gpsCoords
+        ? {
+            lat: antiSpoofData.gpsCoords.latitude,
+            lng: antiSpoofData.gpsCoords.longitude,
+            accuracy: antiSpoofData.gpsCoords.accuracy ?? 0,
+          }
+        : { lat: latitude, lng: longitude, accuracy: typeof accuracy === "number" ? accuracy : 10 };
+      updates.checkInNetwork = antiSpoofData?.networkCoords
+        ? {
+            lat: antiSpoofData.networkCoords.latitude,
+            lng: antiSpoofData.networkCoords.longitude,
+            accuracy: antiSpoofData.networkCoords.accuracy ?? 0,
+          }
+        : null;
+      updates.locationMismatchFlag = locationMismatchFlag;
+      updates.mismatchDistanceMeters = mismatchDistanceMeters;
+      updates.checkInAccuracyMeters = typeof accuracy === "number" ? Number(accuracy.toFixed(1)) : null;
+      updates.mockLocationSuspected = mockLocationSuspected;
+      updates.clockDriftMs = clockDriftMs;
+      updates.impliedSpeedKmph = impliedSpeedKmph;
+      updates.teleportationFlag = teleportationFlag;
+      updates.deviceFingerprintMismatch = deviceFingerprintMismatch;
+      updates.deviceFingerprint = currentFingerprint;
+      updates.locationTrustScore = locationTrustScore;
+      updates.trustFlags = trustFlags;
+      updates.reviewRequired = reviewRequired;
+
+      if (locationTrustScore < 50) {
+        await adminDb.collection("staff").doc(staffId).update({
+          suspiciousCheckInCount: FieldValue.increment(1),
+          suspiciousCheckinCount30d: FieldValue.increment(1),
+        });
+      }
+    }
+
     if (!isInside) {
       // Outside -> Overwrite checkOutMs with latest ping ("last exit wins")
-      if (existing.checkInMs) {
+      if (existing.checkInMs || updates.checkInMs) {
         updates.checkOutMs = timestampMs;
         updatedCheckOutMs = timestampMs;
         updates.lastLocationState = "OUTSIDE";
@@ -783,14 +1033,42 @@ export async function recordGeoPing(
 
     return {
       ok: true,
-      status: existing.status,
+      status: updates.status || existing.status,
       isInside,
       distanceMeters: Math.round(distance),
-      checkInMs: existing.checkInMs,
+      checkInMs: updates.checkInMs ?? existing.checkInMs,
       checkOutMs: updatedCheckOutMs,
       selfieUrl: existing.selfieUrl || selfieUrl || null,
+      locationTrustScore: updates.locationTrustScore ?? existing.locationTrustScore ?? 100,
+      trustFlags: updates.trustFlags ?? existing.trustFlags ?? [],
+      reviewRequired: updates.reviewRequired ?? existing.reviewRequired ?? false,
+      isSuspicious: (updates.locationTrustScore ?? existing.locationTrustScore ?? 100) < 50,
     };
   }
+}
+
+/**
+ * Manager verification / resolution for suspicious attendance
+ */
+export async function verifySuspiciousAttendance(
+  staffId: string,
+  date: string,
+  approvedStatus: AttendanceStatus = "PRESENT",
+  verifierEmail: string
+) {
+  const attRef = adminDb.collection("staff").doc(staffId).collection("attendance").doc(date);
+  const snap = await attRef.get();
+  if (!snap.exists) {
+    throw new Error("Attendance record not found.");
+  }
+
+  await attRef.update({
+    status: approvedStatus,
+    reviewRequired: false,
+    verifiedBy: verifierEmail,
+    verifiedAtMs: Date.now(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
 }
 
 /**
@@ -1333,6 +1611,7 @@ export async function getAttendanceSettings(tenantId: string): Promise<Attendanc
     autoMarkAbsentEnabled: data.autoMarkAbsentEnabled !== false,
     allowRemoteCheckIn: data.allowRemoteCheckIn === true,
     requireSelfieOnCheckIn: data.requireSelfieOnCheckIn === true,
+    strictAntiSpoofingMode: data.strictAntiSpoofingMode === true,
     updatedBy: data.updatedBy ?? null,
     updatedAtMs: data.updatedAtMs ?? null,
   };

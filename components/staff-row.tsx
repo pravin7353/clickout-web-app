@@ -164,29 +164,64 @@ export function StaffRow({
           {staff.phone ? `+91 ${staff.phone}` : "N/A"}
         </td>
 
-        {/* SECURITY STATUS */}
+        {/* SECURITY STATUS & FRAUD MONITORING */}
         <td style={{ padding: "14px 16px" }}>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              fontWeight: 700,
-              color: staff.isActive ? "var(--success)" : "var(--text-secondary)",
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
             <span
               style={{
-                width: 7,
-                height: 7,
-                borderRadius: "50%",
-                background: staff.isActive ? "var(--success)" : "var(--text-secondary)",
-                boxShadow: staff.isActive ? "0 0 6px var(--success)" : "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                color: staff.isActive ? "var(--success)" : "var(--text-secondary)",
               }}
-            />
-            {staff.isActive ? "Active" : "Inactive"}
-          </span>
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: staff.isActive ? "var(--success)" : "var(--text-secondary)",
+                  boxShadow: staff.isActive ? "0 0 6px var(--success)" : "none",
+                }}
+              />
+              {staff.isActive ? "Active" : "Inactive"}
+            </span>
+
+            {/* Suspicious Check-in Count Badge (Last 30 Days) */}
+            {typeof staff.suspiciousCheckInCount === "number" && staff.suspiciousCheckInCount > 0 ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background:
+                    staff.suspiciousCheckInCount > 3
+                      ? "rgba(239, 68, 68, 0.18)"
+                      : "rgba(245, 158, 11, 0.15)",
+                  color: staff.suspiciousCheckInCount > 3 ? "#ef4444" : "#f59e0b",
+                  border: `1px solid ${
+                    staff.suspiciousCheckInCount > 3
+                      ? "rgba(239, 68, 68, 0.4)"
+                      : "rgba(245, 158, 11, 0.3)"
+                  }`,
+                  fontSize: 10,
+                  fontWeight: 800,
+                }}
+                title={`${staff.suspiciousCheckInCount} suspicious check-ins detected in the last 30 days`}
+              >
+                <span>{staff.suspiciousCheckInCount > 3 ? "🚨" : "⚠️"}</span>
+                <span>
+                  {staff.suspiciousCheckInCount > 3
+                    ? `${staff.suspiciousCheckInCount} Suspicious (High Risk)`
+                    : `${staff.suspiciousCheckInCount} Suspicious`}
+                </span>
+              </span>
+            ) : null}
+          </div>
         </td>
 
         {/* ACTIONS */}

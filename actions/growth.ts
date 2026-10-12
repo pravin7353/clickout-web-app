@@ -5,6 +5,9 @@ import { requireRole, requireEditAccess, resolveStoreScope } from "@/lib/rbac";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
+export { joinFeatureWaitlist, checkFeatureWaitlistStatus, sendSMS, sendWhatsApp } from "./growth-radar";
+export type { FeatureWaitlistChannel } from "./growth-radar";
+
 export async function sendWinbackOffer(params: {
   targetUserId: string;
   branchCode?: string;

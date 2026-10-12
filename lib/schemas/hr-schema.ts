@@ -4,7 +4,7 @@ import { z } from "zod";
 // 1. ATTENDANCE DATA MODEL & VALIDATION
 // ==========================================
 
-export const AttendanceStatusEnum = z.enum(["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "LATE"]);
+export const AttendanceStatusEnum = z.enum(["PRESENT", "ABSENT", "HALF_DAY", "LEAVE", "LATE", "SUSPICIOUS_CHECKIN"]);
 export type AttendanceStatus = z.infer<typeof AttendanceStatusEnum>;
 
 export const AttendanceSourceEnum = z.enum(["GEO_AUTO", "MANUAL"]);
@@ -70,6 +70,22 @@ export interface AttendanceDocument {
   branchCode: string;
   tenantId: string;
   markedBy: string;
+
+  // Anti-mock & spoof detection fields
+  checkInGPS?: { lat: number; lng: number; accuracy: number } | null;
+  checkInNetwork?: { lat: number; lng: number; accuracy: number } | null;
+  locationMismatchFlag?: boolean;
+  mismatchDistanceMeters?: number | null;
+  checkInAccuracyMeters?: number | null;
+  mockLocationSuspected?: boolean;
+  clockDriftMs?: number | null;
+  impliedSpeedKmph?: number | null;
+  teleportationFlag?: boolean;
+  deviceFingerprintMismatch?: boolean;
+  deviceFingerprint?: string | null;
+  locationTrustScore?: number;
+  trustFlags?: string[];
+  reviewRequired?: boolean;
 }
 
 // ==========================================
@@ -268,6 +284,7 @@ export const attendanceSettingsSchema = z.object({
   autoMarkAbsentEnabled: z.boolean().default(true),
   allowRemoteCheckIn: z.boolean().optional().default(false),
   requireSelfieOnCheckIn: z.boolean().optional().default(false),
+  strictAntiSpoofingMode: z.boolean().optional().default(false),
   updatedBy: z.string().nullable().optional(),
   updatedAtMs: z.number().nullable().optional(),
 });
@@ -287,6 +304,7 @@ export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsDocument = {
   autoMarkAbsentEnabled: true,
   allowRemoteCheckIn: false,
   requireSelfieOnCheckIn: false,
+  strictAntiSpoofingMode: false,
   updatedBy: null,
   updatedAtMs: null,
 };

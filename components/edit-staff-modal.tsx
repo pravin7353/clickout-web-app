@@ -17,7 +17,7 @@ const ROLE_OPTIONS: OptionItem[] = [
 ];
 
 const BLOOD_GROUP_OPTIONS: OptionItem[] = [
-  { value: "", label: "Select Blood Group (Optional)", icon: "🩸" },
+  { value: "", label: "Select Blood Group", icon: "🩸" },
   { value: "A+", label: "A+", icon: "🩸" },
   { value: "A-", label: "A-", icon: "🩸" },
   { value: "B+", label: "B+", icon: "🩸" },
@@ -55,18 +55,18 @@ export function EditStaffModal({
 
   const branchOptionsList: OptionItem[] = isBranchLocked
     ? branches.map((b) => ({
+      value: b.branchCode,
+      label: `${b.branchCode} — ${b.storeName}`,
+      icon: "🏪",
+    }))
+    : [
+      { value: "HQ", label: "ALL BRANCHES (HQ)", icon: "🌐" },
+      ...branches.map((b) => ({
         value: b.branchCode,
         label: `${b.branchCode} — ${b.storeName}`,
         icon: "🏪",
-      }))
-    : [
-        { value: "HQ", label: "ALL BRANCHES (HQ)", icon: "🌐" },
-        ...branches.map((b) => ({
-          value: b.branchCode,
-          label: `${b.branchCode} — ${b.storeName}`,
-          icon: "🏪",
-        })),
-      ];
+      })),
+    ];
 
   const lockedBranchInfo = branches.find((b) => b.branchCode === (staff.branchCode || branchCode)) || branches[0];
   const lockedBranchDisplay = lockedBranchInfo
@@ -501,11 +501,26 @@ export function EditStaffModal({
                 >
                   {(staff.authUid && !resetSuccess) ? "● LINKED" : "○ UNLINKED"}
                 </span>
+                {typeof staff.suspiciousCheckInCount === "number" && staff.suspiciousCheckInCount > 0 ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      background: staff.suspiciousCheckInCount > 3 ? "rgba(239, 68, 68, 0.2)" : "rgba(245, 158, 11, 0.18)",
+                      color: staff.suspiciousCheckInCount > 3 ? "#ef4444" : "#f59e0b",
+                      border: `1px solid ${staff.suspiciousCheckInCount > 3 ? "rgba(239, 68, 68, 0.4)" : "rgba(245, 158, 11, 0.3)"}`,
+                    }}
+                  >
+                    {staff.suspiciousCheckInCount > 3 ? "🚨" : "⚠️"} {staff.suspiciousCheckInCount} Suspicious Check-ins (30d)
+                  </span>
+                ) : null}
               </div>
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.4 }}>
                 {(staff.authUid && !resetSuccess)
-                  ? `Bound Device: ${staff.boundDeviceLabel || "Web Browser Device"}${staff.boundAtMs ? ` • Linked on ${new Date(staff.boundAtMs).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}`
-                  : "No device linked yet or device link has been cleared."}
+                  ? `Bound Device: ${staff.boundDeviceLabel || "Web Browser Device"}${staff.boundAtMs ? ` • Linked on ${new Date(staff.boundAtMs).toLocaleDateString("en-IN", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}` : ""}${staff.registeredDeviceFingerprint ? " • Hardware Fingerprint Bound" : ""}`
+                  : "No device linked yet or device link has been cleared. Resetting clears fingerprint to allow a new phone."}
               </p>
             </div>
 

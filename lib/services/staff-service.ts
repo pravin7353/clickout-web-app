@@ -20,6 +20,8 @@ export type StaffRow = {
   emergencyContact?: string;
   bloodGroup?: string;
   photoUrl?: string;
+  registeredDeviceFingerprint?: string | null;
+  suspiciousCheckInCount?: number;
   reportsToStaffId?: string | null;
 };
 
@@ -54,6 +56,8 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       emergencyContact: data.emergencyContact ?? "",
       bloodGroup: data.bloodGroup ?? "",
       photoUrl: data.photoUrl ?? "",
+      registeredDeviceFingerprint: data.registeredDeviceFingerprint ?? null,
+      suspiciousCheckInCount: typeof data.suspiciousCheckInCount === "number" ? data.suspiciousCheckInCount : (data.suspiciousCheckinCount30d || 0),
       reportsToStaffId: data.reportsToStaffId ?? null,
     };
   });

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { sendWinbackOffer, bulkSendWinbackOffers } from "@/actions/growth";
 import { useRouter } from "next/navigation";
+import { CampaignChannelSelect } from "@/components/campaign-channel-select";
 
 const DISCOUNT_PRESETS = [10, 15, 20, 25, 30];
 
@@ -26,6 +27,7 @@ export function SendOfferModal({
   const recipientCount = isBulk ? bulkUserIds!.length : 1;
   const recipientLabel = targetCustomer ? targetCustomer.name : `${recipientCount} Selected Customers`;
 
+  const [step, setStep] = useState<"CHANNEL_SELECT" | "BUILDER">("CHANNEL_SELECT");
   const [discountPercent, setDiscountPercent] = useState<number>(15);
   const [expiryDays, setExpiryDays] = useState<number>(3);
   const [title, setTitle] = useState(
@@ -126,7 +128,7 @@ export function SendOfferModal({
       <div
         style={{
           width: "100%",
-          maxWidth: 540,
+          maxWidth: step === "CHANNEL_SELECT" ? 580 : 540,
           background: "var(--card-bg)",
           borderRadius: 20,
           border: "1px solid var(--border)",
@@ -135,62 +137,110 @@ export function SendOfferModal({
           display: "flex",
           flexDirection: "column",
           maxHeight: "90vh",
+          transition: "max-width 0.2s ease",
         }}
       >
-        {/* Modal Header */}
-        <div
-          style={{
-            padding: "20px 24px 16px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-          }}
-        >
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 20 }}>📢</span>
-              <h2
-                style={{
-                  fontSize: 18,
-                  fontWeight: 800,
-                  color: "var(--text-primary)",
-                  margin: 0,
-                }}
-              >
-                Send Promotional Offer
-              </h2>
-            </div>
-            <p
+        {step === "CHANNEL_SELECT" ? (
+          <div style={{ padding: 24, overflowY: "auto" }}>
+            <CampaignChannelSelect
+              recipientLabel={recipientLabel}
+              onSelectPush={() => setStep("BUILDER")}
+              onClose={onClose}
+            />
+          </div>
+        ) : (
+          <>
+            {/* Modal Header */}
+            <div
               style={{
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                margin: "4px 0 0 0",
+                padding: "20px 24px 16px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
               }}
             >
-              Targeting: <strong style={{ color: "var(--success)" }}>{recipientLabel}</strong>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isPending}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--text-secondary)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: 4,
-              borderRadius: 6,
-            }}
-          >
-            ✕
-          </button>
-        </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setStep("CHANNEL_SELECT")}
+                    disabled={isPending}
+                    style={{
+                      background: "rgba(255, 255, 255, 0.05)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-secondary)",
+                      borderRadius: 8,
+                      padding: "4px 9px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      transition: "all 0.15s ease",
+                    }}
+                    title="Change campaign delivery channel"
+                  >
+                    ← Channels
+                  </button>
+                  <span style={{ fontSize: 20 }}>📢</span>
+                  <h2
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 800,
+                      color: "var(--text-primary)",
+                      margin: 0,
+                    }}
+                  >
+                    Send Push Campaign
+                  </h2>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5, flexWrap: "wrap" }}>
+                  <span
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 6,
+                      background: "rgba(0, 210, 106, 0.12)",
+                      color: "var(--success)",
+                      fontSize: 11,
+                      fontWeight: 800,
+                    }}
+                  >
+                    🔔 Push Notification
+                  </span>
+                  <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>·</span>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-secondary)",
+                      margin: 0,
+                    }}
+                  >
+                    Targeting: <strong style={{ color: "var(--success)" }}>{recipientLabel}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isPending}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  fontSize: 18,
+                  cursor: "pointer",
+                  padding: 4,
+                  borderRadius: 6,
+                }}
+              >
+                ✕
+              </button>
+            </div>
 
-        {/* Modal Body */}
-        <div style={{ padding: 24, overflowY: "auto" }}>
+            {/* Modal Body */}
+            <div style={{ padding: 24, overflowY: "auto" }}>
           <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {error && (
               <div
@@ -486,7 +536,9 @@ export function SendOfferModal({
             </div>
           </form>
         </div>
-      </div>
-    </div>
+      </>
+    )}
+  </div>
+</div>
   );
 }

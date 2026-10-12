@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { authorizeExit, rejectGatePass, forceOverride } from "@/actions/guard";
+import { closePosShift } from "@/actions/pos-counter";
 import { GateOrder } from "@/lib/services/gate-service";
+import { PosCounterWithShift } from "@/lib/services/pos-counter-service";
 import { Modal } from "@/components/profile-menu";
 import { Card, Button, Input, Badge, EmptyState, ErrorBanner } from "@/components/ui";
 import { QrCameraScannerModal } from "@/components/qr-camera-scanner-modal";
@@ -11,17 +13,24 @@ import { useRouter } from "next/navigation";
 export function GuardConsole({
   pending,
   history,
+  counters = [],
   branchCode,
   canEdit = false,
 }: {
   pending: GateOrder[];
   history: GateOrder[];
+  counters?: PosCounterWithShift[];
   branchCode?: string | null;
   canEdit?: boolean;
 }) {
   const [scanInput, setScanInput] = useState("");
   const [showCameraScanner, setShowCameraScanner] = useState(false);
   const [selectedPass, setSelectedPass] = useState<GateOrder | null>(null);
+
+  // Close Shift from Guard Console state
+  const [closingShiftCounter, setClosingShiftCounter] = useState<PosCounterWithShift | null>(null);
+  const [guardClosingCash, setGuardClosingCash] = useState("");
+  const [closingShiftError, setClosingShiftError] = useState("");
 
   // Reject Modal State
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
@@ -69,6 +78,36 @@ export function GuardConsole({
       } else {
         setSuccess(`✅ ${res.msg ?? "Gate Authorized & Opened!"}`);
         setScanInput("");
+        router.refresh();
+      }
+    });
+  }
+
+  function handleGuardCloseShift(e: React.FormEvent) {
+    e.preventDefault();
+    if (!closingShiftCounter?.activeShift) return;
+    setClosingShiftError("");
+
+    const cash = parseFloat(guardClosingCash);
+    if (isNaN(cash) || cash < 0) {
+      setClosingShiftError("Please enter valid counted cash.");
+      return;
+    }
+
+    startTransition(async () => {
+      const res = await closePosShift({
+        shiftId: closingShiftCounter.activeShift!.id,
+        closingCash: cash,
+        notes: "Closed from Guard Console",
+        targetBranchCode: branchCode ?? undefined,
+      });
+
+      if (!res.ok) {
+        setClosingShiftError(res.error || "Failed to close shift.");
+      } else {
+        setClosingShiftCounter(null);
+        setGuardClosingCash("");
+        setSuccess(`✅ Closed shift for ${closingShiftCounter.name}.`);
         router.refresh();
       }
     });
@@ -343,6 +382,108 @@ export function GuardConsole({
         </div>
       </Card>
 
+      {/* Active POS Counters Section */}
+      <Card style={{ padding: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>🖥️</span>
+            <div>
+              <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                Active POS Counters
+              </h3>
+              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                Live store counter terminals and shift status
+              </span>
+            </div>
+          </div>
+          <Badge color={counters.some((c) => c.activeShift?.status === "OPEN") ? "var(--success)" : "var(--text-secondary)"}>
+            {counters.filter((c) => c.activeShift?.status === "OPEN").length} Open
+          </Badge>
+        </div>
+
+        {counters.filter((c) => c.activeShift?.status === "OPEN").length === 0 ? (
+          <div style={{ padding: "12px 0", color: "var(--text-secondary)", fontSize: 13, textAlign: "center" }}>
+            No active POS counter shifts open right now.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {counters
+              .filter((c) => c.activeShift?.status === "OPEN")
+              .map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    background: "var(--scaffold-bg)",
+                    border: "1px solid var(--border)",
+                    flexWrap: "wrap",
+                    gap: 12,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 16 }}>🟢</span>
+                    <div>
+                      <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>
+                        {c.name} ({c.activeShift?.openedByName || "Cashier"})
+                      </strong>
+                      <div style={{ fontSize: 11, color: "var(--success)", fontWeight: 700 }}>
+                        OPEN
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary)" }}>
+                        ₹{c.activeShift?.shiftTotalAmount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {c.activeShift?.transactionCount} txns
+                      </div>
+                    </div>
+
+                    {canEdit && (
+                      <Button
+                        variant="danger"
+                        disabled={isPending}
+                        onClick={() => setClosingShiftCounter(c)}
+                        style={{ fontSize: 12, padding: "5px 12px" }}
+                      >
+                        Close
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+            <div
+              style={{
+                marginTop: 6,
+                paddingTop: 12,
+                borderTop: "1px dashed var(--border)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontWeight: 800,
+                fontSize: 14,
+              }}
+            >
+              <span style={{ color: "var(--text-secondary)" }}>Store Total Today:</span>
+              <span style={{ color: "var(--success)", fontSize: 16 }}>
+                ₹{counters.reduce((sum, c) => sum + c.todayTotalAmount, 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}{" "}
+                <span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 500 }}>
+                  ({counters.reduce((sum, c) => sum + c.todayTransactionCount, 0)} txns)
+                </span>
+              </span>
+            </div>
+          </div>
+        )}
+      </Card>
+
       {/* Recent Gate Activity History */}
       <div>
         <h3 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 12px 0", color: "var(--text-primary)" }}>
@@ -560,6 +701,73 @@ export function GuardConsole({
               >
                 {isPending ? "Executing..." : "Confirm & Force Open"}
               </Button>
+            </form>
+          </Card>
+        </Modal>
+      )}
+
+      {/* Guard Shift Close Modal */}
+      {closingShiftCounter && closingShiftCounter.activeShift && (
+        <Modal onClose={() => setClosingShiftCounter(null)}>
+          <Card style={{ width: 440, padding: 24 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, margin: "0 0 4px", color: "var(--text-primary)" }}>
+              Close Shift: {closingShiftCounter.name}
+            </h3>
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 16px" }}>
+              Cashier: <strong>{closingShiftCounter.activeShift.openedByName}</strong>
+            </p>
+
+            {closingShiftError && <ErrorBanner message={closingShiftError} />}
+
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                background: "var(--scaffold-bg)",
+                border: "1px solid var(--border)",
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+                marginBottom: 16,
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>Opening Float:</span>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>
+                  ₹{(closingShiftCounter.activeShift.openingCash || 0).toLocaleString("en-IN")}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>Shift Total:</span>
+                <div style={{ fontSize: 14, fontWeight: 900, color: "var(--success)" }}>
+                  ₹{closingShiftCounter.activeShift.shiftTotalAmount.toLocaleString("en-IN")}
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardCloseShift} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                  Physical Cash Counted in Drawer (₹) *
+                </label>
+                <Input
+                  type="number"
+                  step="any"
+                  placeholder="Count cash in drawer..."
+                  value={guardClosingCash}
+                  onChange={(e) => setGuardClosingCash(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                <Button type="button" variant="secondary" onClick={() => setClosingShiftCounter(null)} disabled={isPending}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="danger" disabled={isPending}>
+                  {isPending ? "Closing..." : "Confirm Close Shift"}
+                </Button>
+              </div>
             </form>
           </Card>
         </Modal>

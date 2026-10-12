@@ -9,6 +9,7 @@ import {
   getEmployeeDashboardDataAction,
 } from "@/actions/hr";
 import { handleEmployeeSessionRevocation } from "@/lib/utils/device";
+import { generateDeviceFingerprint } from "@/lib/utils/device-fingerprint";
 
 async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
   const errMsg = typeof resOrErr === "string" ? resOrErr : resOrErr?.error || resOrErr?.message;
@@ -186,8 +187,42 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
         async (position) => {
           setGpsPermissionDenied(false);
           const { latitude, longitude } = position.coords;
+
+          // Layer 1: Attempt secondary Network-based location reading (enableHighAccuracy: false)
+          let networkCoords: { latitude: number; longitude: number; accuracy: number } | null = null;
           try {
-            const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl);
+            const netPos = await new Promise<GeolocationPosition>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: false,
+                timeout: 6000,
+                maximumAge: 0,
+              });
+            });
+            networkCoords = {
+              latitude: netPos.coords.latitude,
+              longitude: netPos.coords.longitude,
+              accuracy: netPos.coords.accuracy,
+            };
+          } catch {
+            // Network fallback unavailable or timed out, continue with GPS
+          }
+
+          // Layer 5: Collect device fingerprint
+          const fingerprint = await generateDeviceFingerprint();
+
+          const antiSpoofData = {
+            gpsCoords: {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            },
+            networkCoords,
+            deviceTimestamp: Date.now(),
+            deviceFingerprint: fingerprint,
+          };
+
+          try {
+            const res = await recordGeoPingAction(latitude, longitude, undefined, selfieUrl, antiSpoofData);
             if (res.ok) {
               lastPingMsRef.current = Date.now();
               setCurrentDistanceMeters(res.distanceMeters ?? null);
@@ -208,6 +243,9 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                   checkOutMs: res.checkOutMs !== undefined ? res.checkOutMs : prevToday?.checkOutMs,
                   lastLocationState: res.isInside ? "INSIDE" : "OUTSIDE",
                   selfieUrl: res.selfieUrl || prevToday?.selfieUrl,
+                  locationTrustScore: res.locationTrustScore,
+                  trustFlags: res.trustFlags,
+                  reviewRequired: res.reviewRequired,
                 };
 
                 if (isFirstCheckIn) {
@@ -526,6 +564,38 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
                 }}
               >
                 ● HALF DAY
+              </span>
+            )}
+            {todayAtt?.status === "SUSPICIOUS_CHECKIN" && (
+              <span
+                style={{
+                  background: "#dc2626",
+                  color: "#ffffff",
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                🚨 SUSPICIOUS
+              </span>
+            )}
+            {todayAtt?.reviewRequired && todayAtt?.status !== "SUSPICIOUS_CHECKIN" && (
+              <span
+                style={{
+                  background: "rgba(245, 158, 11, 0.2)",
+                  color: "#f59e0b",
+                  border: "1px solid rgba(245, 158, 11, 0.4)",
+                  padding: "4px 10px",
+                  borderRadius: 20,
+                  fontSize: 10,
+                  fontWeight: 800,
+                }}
+              >
+                ⚠️ REVIEW
               </span>
             )}
             {!todayAtt?.status && (

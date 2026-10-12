@@ -1,5 +1,6 @@
-﻿import { requireRole, resolveStoreScope } from "@/lib/rbac";
+import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getPendingExits, getGateHistory } from "@/lib/services/gate-service";
+import { getPosCountersWithStatus } from "@/lib/services/pos-counter-service";
 import { GuardConsole } from "@/components/guard-console";
 import { PageHeader } from "@/components/ui";
 import { FeatureLockWidget } from "@/components/subscription/FeatureLockWidget";
@@ -21,9 +22,10 @@ export default async function GuardPage({
 
   const staffIdentifier = (session.user as any)?.id || session.user?.email || "";
 
-  const [pending, history] = await Promise.all([
+  const [pending, history, counters] = await Promise.all([
     getPendingExits(role, tenantId, effectiveStoreId),
     getGateHistory(role, tenantId, effectiveStoreId),
+    tenantId ? getPosCountersWithStatus(tenantId, effectiveStoreId) : Promise.resolve([]),
   ]);
 
   return (
@@ -39,6 +41,7 @@ export default async function GuardPage({
         <GuardConsole
           pending={pending}
           history={history}
+          counters={counters}
           branchCode={effectiveStoreId}
           canEdit={canEdit}
         />

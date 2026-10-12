@@ -976,12 +976,14 @@ export async function resetStaffDeviceLink(staffId: string) {
 
   const previousAuthUid = staffData.authUid;
 
-  // Clear authUid, boundDeviceId, boundDeviceLabel, boundAtMs
+  // Clear authUid, boundDeviceId, boundDeviceLabel, boundAtMs, registeredDeviceFingerprint
   await adminDb.collection("staff").doc(staffId).update({
     authUid: null,
     boundDeviceId: null,
     boundDeviceLabel: null,
     boundAtMs: null,
+    registeredDeviceFingerprint: null,
+    lastDeviceFingerprint: null,
     updatedAt: FieldValue.serverTimestamp(),
     lastEditedByEmail: session.user?.email,
   });
