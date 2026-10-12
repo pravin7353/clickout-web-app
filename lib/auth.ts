@@ -16,12 +16,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ipAddress = (credentials?.ipAddress as string) || "";
         const submittedDeviceId = (credentials?.deviceId as string) || "";
         const submittedDeviceLabel = (credentials?.deviceLabel as string) || "";
-        if (!idToken) return null;
+        try {
+          const fs = await import("fs");
+          fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] authorize called. idToken: ${!!idToken}\n`);
+        } catch {}
 
         let decoded: any;
         try {
           decoded = await adminAuth.verifyIdToken(idToken);
+          try {
+            const fs = await import("fs");
+            fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] decoded: ${decoded.email}, uid: ${decoded.uid}, roleClaim: ${decoded.role}\n`);
+          } catch {}
         } catch (err: any) {
+          try {
+            const fs = await import("fs");
+            fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] verifyIdToken error: ${err.message}\n`);
+          } catch {}
           console.error("[AUTH_VERIFY_ERROR]", err?.message || err);
           return null;
         }
@@ -173,7 +184,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const role = (data.role ?? "").toString().toLowerCase();
-        if (!ALLOWED_WEB_ROLES.includes(role)) return null; // cashier/guard: no admin portal access
+        try {
+          const fs = await import("fs");
+          fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] staff doc found: ${staffRef.id}, raw role: ${data.role}, normalized: ${role}, allowed: ${ALLOWED_WEB_ROLES.includes(role)}\n`);
+        } catch {}
+        if (!ALLOWED_WEB_ROLES.includes(role)) {
+          try {
+            const fs = await import("fs");
+            fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] REJECTED: role ${role} not in ${JSON.stringify(ALLOWED_WEB_ROLES)}\n`);
+          } catch {}
+          return null; // cashier/guard: no admin portal access
+        }
 
         const effectiveTenantId = accessibleTenants[0]?.tenantId ?? data.tenantId ?? null;
 
@@ -232,6 +253,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const isCashier = role === "cashier";
+        try {
+          const fs = await import("fs");
+          fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[${new Date().toISOString()}] SUCCESS returning user object: role ${role}, isCashier: ${isCashier}\n`);
+        } catch {}
 
         return {
           id: staffRef.id,
