@@ -26,6 +26,7 @@ import {
 import { getStaffDoc } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 
 // =========================================================================
 // 1. GET MONTHLY INCENTIVE REPORT (Managers / Admins only)
@@ -263,7 +264,7 @@ export async function getIncentiveRulesAction(roleFilter?: "cashier" | "guard") 
   }
   const rules = await getTenantIncentiveRules(effectiveTenantId, roleFilter);
 
-  return { ok: true, rules };
+  return { ok: true, rules: rules.map((r: any) => serializeFirestoreDoc(r)) };
 }
 
 // =========================================================================

@@ -4,7 +4,7 @@ import { adminDb, adminAuth } from "./firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
 import { handleLoginFingerprint, checkDeviceLock } from "@/lib/services/trust-service";
 
-const ALLOWED_WEB_ROLES = ["super_admin", "tenant_admin", "manager", "auditor"];
+const ALLOWED_WEB_ROLES = ["super_admin", "tenant_admin", "manager", "auditor", "cashier"];
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -215,6 +215,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           ipAddress,
         });
 
+        const isCashier = role === "cashier";
+
         return {
           id: staffRef.id,
           authUid: uid,
@@ -227,6 +229,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           accessibleTenants,
           fingerprint: deviceFingerprint || null,
           authMethod: "email",
+          posOnly: isCashier,
+          redirectPath: isCashier ? "/cashier" : undefined,
         };
       },
     }),
@@ -246,6 +250,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.deviceId = (user as any).deviceId;
         token.deviceLabel = (user as any).deviceLabel;
         token.authMethod = (user as any).authMethod;
+        token.posOnly = (user as any).posOnly ?? ((user as any).role === "cashier");
+        token.redirectPath = (user as any).redirectPath || ((user as any).role === "cashier" ? "/cashier" : undefined);
       }
       return token;
     },
@@ -263,6 +269,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       (session.user as any).deviceId = token.deviceId;
       (session.user as any).deviceLabel = token.deviceLabel;
       (session.user as any).authMethod = token.authMethod;
+      (session.user as any).posOnly = token.posOnly;
+      (session.user as any).redirectPath = token.redirectPath;
       return session;
     },
   },

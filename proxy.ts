@@ -23,6 +23,27 @@ export const proxy = auth((req) => {
     }
   }
 
+  // Enforce posOnly / cashier role restrictions: block all routes except /cashier, /pos, /api, /login
+  const isCashierRole = user?.role && user.role.toLowerCase() === "cashier";
+  if (user?.posOnly || isCashierRole) {
+    const isAllowedRoute =
+      pathname.startsWith("/cashier") ||
+      pathname.startsWith("/pos") ||
+      pathname.startsWith("/api") ||
+      pathname === "/login";
+    const isStatic =
+      pathname.startsWith("/_next") ||
+      pathname === "/favicon.ico" ||
+      pathname.includes(".");
+
+    if (!isAllowedRoute && !isStatic) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/cashier";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
   return NextResponse.next();
 });
 

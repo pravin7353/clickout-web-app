@@ -5,9 +5,7 @@ import {
   getPendingLeavesAction,
   getPendingRegularizationsAction,
   getPendingHrQueriesAction,
-  getLeavesHistoryAction,
-  getRegularizationsHistoryAction,
-  getHrQueriesHistoryAction,
+  getApprovalHistoryAction,
   approveLeave,
   rejectLeave,
   approveRegularization,
@@ -38,6 +36,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
   const [historyMonth, setHistoryMonth] = useState<string>(currentMonthStr);
   const [historyCategory, setHistoryCategory] = useState<"ALL" | "LEAVES" | "REGULARIZATIONS" | "QUERIES">("ALL");
   const [historyStatusFilter, setHistoryStatusFilter] = useState<string>("ALL");
+  const [historyList, setHistoryList] = useState<any[]>([]);
   const [historyLeaves, setHistoryLeaves] = useState<any[]>([]);
   const [historyRegs, setHistoryRegs] = useState<any[]>([]);
   const [historyQueries, setHistoryQueries] = useState<any[]>([]);
@@ -91,23 +90,15 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
     }
   };
 
-  const loadHistoryData = async (month: string, status: string) => {
+  const loadHistoryData = async (month: string) => {
     setHistoryLoading(true);
     try {
-      const [lRes, rRes, qRes] = await Promise.all([
-        getLeavesHistoryAction(month, status),
-        getRegularizationsHistoryAction(month, status),
-        getHrQueriesHistoryAction(month, status),
-      ]);
-
-      if (lRes.ok && lRes.leaves) {
-        setHistoryLeaves(lRes.leaves);
-      }
-      if (rRes.ok && rRes.regularizations) {
-        setHistoryRegs(rRes.regularizations);
-      }
-      if (qRes.ok && qRes.queries) {
-        setHistoryQueries(qRes.queries);
+      const res = await getApprovalHistoryAction(month);
+      if (res.ok && res.history) {
+        setHistoryList(res.history);
+        setHistoryLeaves(res.leaves || []);
+        setHistoryRegs(res.regularizations || []);
+        setHistoryQueries(res.queries || []);
       }
     } catch (err: any) {
       console.error("Failed to load approval history:", err);
@@ -118,13 +109,14 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
 
   useEffect(() => {
     loadPendingData();
+    loadHistoryData(historyMonth);
   }, []);
 
   useEffect(() => {
     if (mainTab === "HISTORY") {
-      loadHistoryData(historyMonth, historyStatusFilter);
+      loadHistoryData(historyMonth);
     }
-  }, [mainTab, historyMonth, historyStatusFilter]);
+  }, [mainTab, historyMonth]);
 
   const handleApproveLeave = (staffId: string, leaveId: string) => {
     setActionError(null);
@@ -134,7 +126,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
       if (res.ok) {
         setActionSuccess("Leave request approved successfully.");
         await loadPendingData();
-        if (mainTab === "HISTORY") loadHistoryData(historyMonth, historyStatusFilter);
+        loadHistoryData(historyMonth);
       } else {
         setActionError(res.error || "Failed to approve leave.");
       }
@@ -149,7 +141,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
       if (res.ok) {
         setActionSuccess("Attendance regularization approved successfully.");
         await loadPendingData();
-        if (mainTab === "HISTORY") loadHistoryData(historyMonth, historyStatusFilter);
+        loadHistoryData(historyMonth);
       } else {
         setActionError(res.error || "Failed to approve regularization.");
       }
@@ -169,7 +161,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
           setRejectItem(null);
           setRejectionReason("");
           await loadPendingData();
-          if (mainTab === "HISTORY") loadHistoryData(historyMonth, historyStatusFilter);
+          loadHistoryData(historyMonth);
         } else {
           setActionError(res.error || "Failed to reject leave.");
         }
@@ -180,7 +172,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
           setRejectItem(null);
           setRejectionReason("");
           await loadPendingData();
-          if (mainTab === "HISTORY") loadHistoryData(historyMonth, historyStatusFilter);
+          loadHistoryData(historyMonth);
         } else {
           setActionError(res.error || "Failed to reject regularization.");
         }
@@ -204,7 +196,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
         setResolveQueryItem(null);
         setResolutionNote("");
         await loadPendingData();
-        if (mainTab === "HISTORY") loadHistoryData(historyMonth, historyStatusFilter);
+        loadHistoryData(historyMonth);
       } else {
         setActionError(res.error || "Failed to resolve query.");
       }
@@ -214,50 +206,112 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
   const staffMap = new Map((staffList || []).map((s) => [s.id, s]));
   const totalPending = leaves.length + regularizations.length + queries.length;
 
+  const filteredHistory = historyList.filter((item) => {
+    if (historyCategory === "LEAVES" && item.type !== "LEAVE") return false;
+    if (historyCategory === "REGULARIZATIONS" && item.type !== "REGULARIZATION") return false;
+    if (historyCategory === "QUERIES" && item.type !== "QUERY") return false;
+    if (historyStatusFilter !== "ALL" && item.status !== historyStatusFilter) return false;
+    return true;
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Top View Selector: Inbox vs History Archive */}
+      {/* Top Filter Tabs: All Pending, Leaves, Regularizations, HR Queries, and History */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", gap: 8, background: "rgba(0,0,0,0.2)", padding: 4, borderRadius: 12 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <button
             type="button"
-            onClick={() => setMainTab("PENDING")}
+            onClick={() => { setMainTab("PENDING"); setPendingFilter("ALL"); }}
             style={{
-              padding: "8px 18px",
+              padding: "8px 16px",
               borderRadius: 8,
               fontSize: 13,
-              fontWeight: 800,
+              fontWeight: 700,
               cursor: "pointer",
-              border: "none",
-              background: mainTab === "PENDING" ? "var(--cta-bg)" : "transparent",
-              color: mainTab === "PENDING" ? "var(--cta-text)" : "var(--text-secondary)",
+              border: "1px solid var(--border)",
+              background: mainTab === "PENDING" && pendingFilter === "ALL" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: mainTab === "PENDING" && pendingFilter === "ALL" ? "var(--cta-text)" : "var(--text-secondary)",
               transition: "all 0.15s ease",
             }}
           >
-            📥 Pending Inbox ({totalPending})
+            All Pending ({totalPending})
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMainTab("PENDING"); setPendingFilter("LEAVES"); }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: mainTab === "PENDING" && pendingFilter === "LEAVES" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: mainTab === "PENDING" && pendingFilter === "LEAVES" ? "var(--cta-text)" : "var(--text-secondary)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            🌴 Leaves ({leaves.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMainTab("PENDING"); setPendingFilter("REGULARIZATIONS"); }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: mainTab === "PENDING" && pendingFilter === "REGULARIZATIONS" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: mainTab === "PENDING" && pendingFilter === "REGULARIZATIONS" ? "var(--cta-text)" : "var(--text-secondary)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ⏱️ Regularizations ({regularizations.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMainTab("PENDING"); setPendingFilter("QUERIES"); }}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: mainTab === "PENDING" && pendingFilter === "QUERIES" ? "var(--cta-bg)" : "var(--card-bg)",
+              color: mainTab === "PENDING" && pendingFilter === "QUERIES" ? "var(--cta-text)" : "var(--text-secondary)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            💬 HR Queries ({queries.length})
           </button>
           <button
             type="button"
             onClick={() => setMainTab("HISTORY")}
             style={{
-              padding: "8px 18px",
+              padding: "8px 16px",
               borderRadius: 8,
               fontSize: 13,
-              fontWeight: 800,
+              fontWeight: 700,
               cursor: "pointer",
-              border: "none",
-              background: mainTab === "HISTORY" ? "var(--cta-bg)" : "transparent",
+              border: "1px solid var(--border)",
+              background: mainTab === "HISTORY" ? "var(--cta-bg)" : "var(--card-bg)",
               color: mainTab === "HISTORY" ? "var(--cta-text)" : "var(--text-secondary)",
               transition: "all 0.15s ease",
             }}
           >
-            📚 Monthly Approvals Archive
+            📜 History ({historyList.length})
           </button>
         </div>
 
         <button
           type="button"
-          onClick={() => (mainTab === "PENDING" ? loadPendingData() : loadHistoryData(historyMonth, historyStatusFilter))}
+          onClick={() => {
+            loadPendingData();
+            loadHistoryData(historyMonth);
+          }}
           disabled={loading || historyLoading || isPending}
           style={{
             padding: "8px 16px",
@@ -312,73 +366,6 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
       {/* VIEW 1: PENDING INBOX */}
       {mainTab === "PENDING" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Subfilter Pills */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => setPendingFilter("ALL")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "1px solid var(--border)",
-                background: pendingFilter === "ALL" ? "var(--cta-bg)" : "var(--card-bg)",
-                color: pendingFilter === "ALL" ? "var(--cta-text)" : "var(--text-secondary)",
-              }}
-            >
-              All Pending ({totalPending})
-            </button>
-            <button
-              type="button"
-              onClick={() => setPendingFilter("LEAVES")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "1px solid var(--border)",
-                background: pendingFilter === "LEAVES" ? "var(--cta-bg)" : "var(--card-bg)",
-                color: pendingFilter === "LEAVES" ? "var(--cta-text)" : "var(--text-secondary)",
-              }}
-            >
-              🌴 Leaves ({leaves.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setPendingFilter("REGULARIZATIONS")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "1px solid var(--border)",
-                background: pendingFilter === "REGULARIZATIONS" ? "var(--cta-bg)" : "var(--card-bg)",
-                color: pendingFilter === "REGULARIZATIONS" ? "var(--cta-text)" : "var(--text-secondary)",
-              }}
-            >
-              ⏱️ Regularizations ({regularizations.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setPendingFilter("QUERIES")}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
-                border: "1px solid var(--border)",
-                background: pendingFilter === "QUERIES" ? "var(--cta-bg)" : "var(--card-bg)",
-                color: pendingFilter === "QUERIES" ? "var(--cta-text)" : "var(--text-secondary)",
-              }}
-            >
-              💬 HR Queries ({queries.length})
-            </button>
-          </div>
 
           {loading ? (
             <div
@@ -708,7 +695,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
               background: "var(--card-bg)",
               border: "1px solid var(--border)",
               borderRadius: 12,
-              padding: 16,
+              padding: "14px 18px",
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
@@ -716,7 +703,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Month:</label>
                 <input
@@ -736,7 +723,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Category:</label>
+                <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Type:</label>
                 <select
                   value={historyCategory}
                   onChange={(e) => setHistoryCategory(e.target.value as any)}
@@ -747,9 +734,10 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
                     background: "var(--bg)",
                     color: "var(--text-primary)",
                     fontSize: 13,
+                    fontWeight: 600,
                   }}
                 >
-                  <option value="ALL">All Categories</option>
+                  <option value="ALL">All Types</option>
                   <option value="LEAVES">Leaves</option>
                   <option value="REGULARIZATIONS">Regularizations</option>
                   <option value="QUERIES">HR Queries</option>
@@ -768,6 +756,7 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
                     background: "var(--bg)",
                     color: "var(--text-primary)",
                     fontSize: 13,
+                    fontWeight: 600,
                   }}
                 >
                   <option value="ALL">All Statuses</option>
@@ -778,12 +767,12 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
               </div>
             </div>
 
-            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-              Records for {historyMonth}
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 600 }}>
+              Showing {filteredHistory.length} record{filteredHistory.length === 1 ? "" : "s"} for {historyMonth}
             </div>
           </div>
 
-          {/* History Tables */}
+          {/* History Records Table */}
           {historyLoading ? (
             <div
               style={{
@@ -795,216 +784,196 @@ export function HrApprovalsInbox({ staffList, userRole }: HrApprovalsInboxProps)
                 border: "1px solid var(--border)",
               }}
             >
-              ⏳ Loading approvals archive for {historyMonth}...
+              ⏳ Loading approvals history for {historyMonth}...
+            </div>
+          ) : filteredHistory.length === 0 ? (
+            <div
+              style={{
+                padding: "48px 24px",
+                textAlign: "center",
+                color: "var(--text-secondary)",
+                background: "var(--card-bg)",
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ fontSize: 32 }}>📁</span>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+                No approval records found for {historyMonth}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                No leave requests, attendance regularizations, or HR queries have been resolved in this period.
+              </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              {/* Leaves Archive */}
-              {(historyCategory === "ALL" || historyCategory === "LEAVES") && (
-                <div
-                  style={{
-                    background: "var(--card-bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 800, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
-                    <span>🌴 Leaves Archive ({historyLeaves.length})</span>
-                  </div>
-                  {historyLeaves.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
-                      No leaves found for {historyMonth}.
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
-                        <thead>
-                          <tr style={{ background: "rgba(0,0,0,0.15)", borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                            <th style={{ padding: "10px 16px" }}>Dates</th>
-                            <th style={{ padding: "10px 16px" }}>Employee</th>
-                            <th style={{ padding: "10px 16px" }}>Type</th>
-                            <th style={{ padding: "10px 16px" }}>Reason</th>
-                            <th style={{ padding: "10px 16px" }}>Status</th>
-                            <th style={{ padding: "10px 16px" }}>Action By</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {historyLeaves.map((l) => (
-                            <tr key={l.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                              <td style={{ padding: "12px 16px", fontWeight: 700 }}>
-                                {l.fromDate} → {l.toDate}
-                              </td>
-                              <td style={{ padding: "12px 16px" }}>
-                                {l.staffName || l.staffId} {l.staffEmpId && `[${l.staffEmpId}]`}
-                              </td>
-                              <td style={{ padding: "12px 16px" }}>
-                                <span style={{ padding: "2px 6px", borderRadius: 4, background: "rgba(59,130,246,0.15)", color: "#3b82f6", fontSize: 11, fontWeight: 700 }}>
-                                  {l.type}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{l.reason}</td>
-                              <td style={{ padding: "12px 16px" }}>
-                                <span
-                                  style={{
-                                    padding: "3px 8px",
-                                    borderRadius: 6,
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    background: l.status === "APPROVED" ? "rgba(34,197,94,0.15)" : l.status === "REJECTED" ? "rgba(239,68,68,0.15)" : "rgba(234,179,8,0.15)",
-                                    color: l.status === "APPROVED" ? "#22c55e" : l.status === "REJECTED" ? "#ef4444" : "#eab308",
-                                  }}
-                                >
-                                  {l.status}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 16px", color: "var(--text-secondary)", fontSize: 12 }}>
-                                {l.approvedBy || "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+            <div
+              style={{
+                background: "var(--card-bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ background: "rgba(0,0,0,0.15)", borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+                      <th style={{ padding: "12px 16px" }}>Employee</th>
+                      <th style={{ padding: "12px 16px" }}>Request Type</th>
+                      <th style={{ padding: "12px 16px" }}>Status</th>
+                      <th style={{ padding: "12px 16px" }}>Decision Info</th>
+                      <th style={{ padding: "12px 16px" }}>Request Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHistory.map((item) => {
+                      const isApproved = item.status === "APPROVED";
+                      const isRejected = item.status === "REJECTED";
 
-              {/* Regularizations Archive */}
-              {(historyCategory === "ALL" || historyCategory === "REGULARIZATIONS") && (
-                <div
-                  style={{
-                    background: "var(--card-bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 800, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
-                    <span>⏱️ Regularizations Archive ({historyRegs.length})</span>
-                  </div>
-                  {historyRegs.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
-                      No regularizations found for {historyMonth}.
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
-                        <thead>
-                          <tr style={{ background: "rgba(0,0,0,0.15)", borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                            <th style={{ padding: "10px 16px" }}>Date</th>
-                            <th style={{ padding: "10px 16px" }}>Employee</th>
-                            <th style={{ padding: "10px 16px" }}>Type</th>
-                            <th style={{ padding: "10px 16px" }}>Reason</th>
-                            <th style={{ padding: "10px 16px" }}>Status</th>
-                            <th style={{ padding: "10px 16px" }}>Action By / Note</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {historyRegs.map((r) => (
-                            <tr key={r.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                              <td style={{ padding: "12px 16px", fontWeight: 700 }}>{r.date}</td>
-                              <td style={{ padding: "12px 16px" }}>
-                                {r.staffName || r.staffId} {r.staffEmpId && `[${r.staffEmpId}]`}
-                              </td>
-                              <td style={{ padding: "12px 16px" }}>
-                                <span style={{ padding: "2px 6px", borderRadius: 4, background: "rgba(234,179,8,0.15)", color: "#eab308", fontSize: 11, fontWeight: 700 }}>
-                                  {r.requestType?.replace(/_/g, " ")}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>{r.reason}</td>
-                              <td style={{ padding: "12px 16px" }}>
-                                <span
-                                  style={{
-                                    padding: "3px 8px",
-                                    borderRadius: 6,
-                                    fontSize: 11,
-                                    fontWeight: 800,
-                                    background: r.status === "APPROVED" ? "rgba(34,197,94,0.15)" : r.status === "REJECTED" ? "rgba(239,68,68,0.15)" : "rgba(234,179,8,0.15)",
-                                    color: r.status === "APPROVED" ? "#22c55e" : r.status === "REJECTED" ? "#ef4444" : "#eab308",
-                                  }}
-                                >
-                                  {r.status}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 16px", color: "var(--text-secondary)", fontSize: 12 }}>
-                                {r.approvedBy || "—"} {r.rejectionReason && `(Note: ${r.rejectionReason})`}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+                      return (
+                        <tr key={`${item.type}_${item.id}`} style={{ borderBottom: "1px solid var(--border)" }}>
+                          <td style={{ padding: "14px 16px", verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: "var(--text-primary)" }}>
+                              {item.staffName}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                              {item.staffEmpId ? `[${item.staffEmpId}]` : ""} • Branch: {item.branchCode || "HQ"}
+                            </div>
+                          </td>
 
-              {/* HR Queries Archive */}
-              {(historyCategory === "ALL" || historyCategory === "QUERIES") && (
-                <div
-                  style={{
-                    background: "var(--card-bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", fontWeight: 800, fontSize: 14, display: "flex", justifyContent: "space-between" }}>
-                    <span>💬 HR Queries Archive ({historyQueries.length})</span>
-                  </div>
-                  {historyQueries.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
-                      No HR queries found for {historyMonth}.
-                    </div>
-                  ) : (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
-                        <thead>
-                          <tr style={{ background: "rgba(0,0,0,0.15)", borderBottom: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-                            <th style={{ padding: "10px 16px" }}>Raised Date</th>
-                            <th style={{ padding: "10px 16px" }}>Employee</th>
-                            <th style={{ padding: "10px 16px" }}>Subject</th>
-                            <th style={{ padding: "10px 16px" }}>Status</th>
-                            <th style={{ padding: "10px 16px" }}>Resolved By / Note</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {historyQueries.map((q) => {
-                            const dateStr = q.raisedAtMs ? new Date(q.raisedAtMs).toLocaleDateString("en-IN") : "—";
-                            return (
-                              <tr key={q.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                                <td style={{ padding: "12px 16px", fontWeight: 700 }}>{dateStr}</td>
-                                <td style={{ padding: "12px 16px" }}>{q.staffName || q.staffId}</td>
-                                <td style={{ padding: "12px 16px" }}>
-                                  <div style={{ fontWeight: 600 }}>{q.subject}</div>
-                                  <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>{q.message}</div>
-                                </td>
-                                <td style={{ padding: "12px 16px" }}>
-                                  <span
-                                    style={{
-                                      padding: "3px 8px",
-                                      borderRadius: 6,
-                                      fontSize: 11,
-                                      fontWeight: 800,
-                                      background: q.status === "RESOLVED" ? "rgba(34,197,94,0.15)" : "rgba(168,85,247,0.15)",
-                                      color: q.status === "RESOLVED" ? "#22c55e" : "#a855f7",
-                                    }}
-                                  >
-                                    {q.status}
+                          <td style={{ padding: "14px 16px", verticalAlign: "top" }}>
+                            <span
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 800,
+                                background:
+                                  item.type === "LEAVE"
+                                    ? "rgba(59, 130, 246, 0.15)"
+                                    : item.type === "REGULARIZATION"
+                                    ? "rgba(234, 179, 8, 0.15)"
+                                    : "rgba(168, 85, 247, 0.15)",
+                                color:
+                                  item.type === "LEAVE"
+                                    ? "#3b82f6"
+                                    : item.type === "REGULARIZATION"
+                                    ? "#eab308"
+                                    : "#a855f7",
+                              }}
+                            >
+                              {item.type === "LEAVE"
+                                ? "🌴 Leave"
+                                : item.type === "REGULARIZATION"
+                                ? "⏱️ Regularization"
+                                : "💬 HR Query"}
+                            </span>
+                            {item.originalRequestDate && (
+                              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+                                Req: {item.originalRequestDate}
+                              </div>
+                            )}
+                          </td>
+
+                          <td style={{ padding: "14px 16px", verticalAlign: "top" }}>
+                            <span
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 800,
+                                background: isApproved
+                                  ? "rgba(34, 197, 94, 0.15)"
+                                  : isRejected
+                                  ? "rgba(239, 68, 68, 0.15)"
+                                  : "rgba(59, 130, 246, 0.15)",
+                                color: isApproved ? "#22c55e" : isRejected ? "#ef4444" : "#3b82f6",
+                                border: `1px solid ${
+                                  isApproved
+                                    ? "rgba(34, 197, 94, 0.3)"
+                                    : isRejected
+                                    ? "rgba(239, 68, 68, 0.3)"
+                                    : "rgba(59, 130, 246, 0.3)"
+                                }`,
+                              }}
+                            >
+                              {item.status}
+                            </span>
+                          </td>
+
+                          <td style={{ padding: "14px 16px", verticalAlign: "top" }}>
+                            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                              {item.decisionDate || "—"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                              By: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{item.decisionBy || "Manager"}</span>
+                            </div>
+                          </td>
+
+                          <td style={{ padding: "14px 16px", verticalAlign: "top", maxWidth: 420 }}>
+                            {item.type === "LEAVE" && (
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                                  {item.leaveType} Leave: {item.dates}
+                                </div>
+                                {item.reason && (
+                                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>
+                                    Reason: <span style={{ color: "var(--text-primary)" }}>{item.reason}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {item.type === "REGULARIZATION" && (
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                                  Date: {item.date} → Requested:{" "}
+                                  <span style={{ color: "#22c55e", fontWeight: 800 }}>{item.requestedStatus}</span>
+                                  {item.originalStatus && (
+                                    <span style={{ color: "var(--text-secondary)", fontWeight: 400 }}>
+                                      {" "}
+                                      (was {item.originalStatus})
+                                    </span>
+                                  )}
+                                </div>
+                                {item.reason && (
+                                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>
+                                    Reason: <span style={{ color: "var(--text-primary)" }}>{item.reason}</span>
+                                  </div>
+                                )}
+                                {item.rejectionReason && (
+                                  <div style={{ fontSize: 12, color: "#ef4444", marginTop: 2, fontWeight: 600 }}>
+                                    Rejection Note: {item.rejectionReason}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {item.type === "QUERY" && (
+                              <div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
+                                  {item.subject ? `${item.subject}: ` : ""}
+                                  <span style={{ fontWeight: 500 }}>"{item.queryText}"</span>
+                                </div>
+                                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>
+                                  Response:{" "}
+                                  <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                                    "{item.responseText}"
                                   </span>
-                                </td>
-                                <td style={{ padding: "12px 16px", color: "var(--text-secondary)", fontSize: 12 }}>
-                                  {q.resolvedBy || "—"} {q.resolutionNote && `("${q.resolutionNote}")`}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>

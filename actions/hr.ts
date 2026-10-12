@@ -1728,6 +1728,291 @@ export async function updateStaffShiftProfileAction(
   return { ok: true, success: true, message: "Staff shift profile updated successfully." };
 }
 
+// =========================================================================
+// 19. UNIFIED APPROVAL HISTORY (Leaves, Regularizations, HR Queries)
+// =========================================================================
+
+export async function getApprovalHistoryAction(month: string) {
+  const { session, role, tenantId, storeId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || "DEFAULT") : tenantId!;
+  if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+    await requireRoutePlan(effectiveTenantId, "hr");
+  }
+
+  const effectiveMonth = month || new Date().toISOString().slice(0, 7);
+  const [yearStr, monthNumStr] = effectiveMonth.split("-");
+  const year = parseInt(yearStr, 10);
+  const mNum = parseInt(monthNumStr, 10);
+  const startOfMonthMs = new Date(Date.UTC(year, mNum - 1, 1, 0, 0, 0)).getTime();
+  const endOfMonthMs = new Date(Date.UTC(year, mNum, 1, 0, 0, 0)).getTime();
+
+  const managerBranch = role === "manager" ? (storeId || (session.user as any)?.storeId || "").toUpperCase().trim() : null;
+
+  // Pre-fetch staff map for quick name & empId resolution
+  const staffMap = new Map<string, { name: string; empId: string; branchCode: string }>();
+  try {
+    let staffQuery: FirebaseFirestore.Query = adminDb.collection("staff");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      staffQuery = staffQuery.where("tenantId", "==", effectiveTenantId);
+    }
+    const staffSnap = await staffQuery.get();
+    for (const d of staffSnap.docs) {
+      const data = d.data();
+      staffMap.set(d.id, {
+        name: data.name || "",
+        empId: data.empId || "",
+        branchCode: data.branchCode || "HQ",
+      });
+    }
+  } catch (err) {
+    console.error("Failed to prefetch staff map for approvals history:", err);
+  }
+
+  const parseTs = (val: any): number | null => {
+    if (!val) return null;
+    if (typeof val === "number") return val;
+    if (typeof val.toMillis === "function") return val.toMillis();
+    if (typeof val.toDate === "function") return val.toDate().getTime();
+    if (typeof val._seconds === "number") return val._seconds * 1000 + Math.round((val._nanoseconds || 0) / 1e6);
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === "string") {
+      const parsed = new Date(val).getTime();
+      return isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+
+  const formatDate = (msOrDate: any): string => {
+    const ms = parseTs(msOrDate);
+    if (!ms) return "";
+    return new Date(ms).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  // 1. Leave Requests
+  const rawLeaves: any[] = [];
+  try {
+    let q: FirebaseFirestore.Query = adminDb.collectionGroup("leaves");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      q = q.where("tenantId", "==", effectiveTenantId);
+    }
+    const snap = await q.get();
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.status === "APPROVED" || data.status === "REJECTED") {
+        const staffId = d.ref.parent.parent?.id || data.staffId || "";
+        rawLeaves.push({ id: d.id, staffId, ...data });
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching leaves for history:", e);
+  }
+
+  // Also query root 'leave_requests' collection if present
+  try {
+    let rootQ: FirebaseFirestore.Query = adminDb.collection("leave_requests");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      rootQ = rootQ.where("tenantId", "==", effectiveTenantId);
+    }
+    const rootSnap = await rootQ.get();
+    for (const d of rootSnap.docs) {
+      const data = d.data();
+      if ((data.status === "APPROVED" || data.status === "REJECTED") && !rawLeaves.some((x) => x.id === d.id)) {
+        rawLeaves.push({ id: d.id, ...data });
+      }
+    }
+  } catch (e) {
+    // Ignore root leave_requests check if collection doesn't exist
+  }
+
+  // 2. Attendance Regularizations
+  const rawRegs: any[] = [];
+  try {
+    let q: FirebaseFirestore.Query = adminDb.collectionGroup("regularizations");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      q = q.where("tenantId", "==", effectiveTenantId);
+    }
+    const snap = await q.get();
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.status === "APPROVED" || data.status === "REJECTED") {
+        const staffId = d.ref.parent.parent?.id || data.staffId || "";
+        rawRegs.push({ id: d.id, staffId, ...data });
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching regularizations for history:", e);
+  }
+
+  // Also query root 'attendance_regularizations' collection if present
+  try {
+    let rootQ: FirebaseFirestore.Query = adminDb.collection("attendance_regularizations");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      rootQ = rootQ.where("tenantId", "==", effectiveTenantId);
+    }
+    const rootSnap = await rootQ.get();
+    for (const d of rootSnap.docs) {
+      const data = d.data();
+      if ((data.status === "APPROVED" || data.status === "REJECTED") && !rawRegs.some((x) => x.id === d.id)) {
+        rawRegs.push({ id: d.id, ...data });
+      }
+    }
+  } catch (e) {
+    // Ignore root collection check if doesn't exist
+  }
+
+  // 3. HR Queries
+  const rawQueries: any[] = [];
+  try {
+    let q: FirebaseFirestore.Query = adminDb.collectionGroup("hr_queries");
+    if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
+      q = q.where("tenantId", "==", effectiveTenantId);
+    }
+    const snap = await q.get();
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.status === "RESOLVED") {
+        const staffId = d.ref.parent.parent?.id || data.staffId || "";
+        rawQueries.push({ id: d.id, staffId, ...data });
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching hr_queries for history:", e);
+  }
+
+  // Filter & Format Leaves
+  const leavesHistory = rawLeaves
+    .filter((l) => {
+      const branch = (l.branchCode || staffMap.get(l.staffId)?.branchCode || "HQ").toUpperCase().trim();
+      if (managerBranch && branch !== managerBranch) return false;
+
+      const decisionMs = parseTs(l.updatedAt) || parseTs(l.approvedAt) || parseTs(l.rejectedAt);
+      if (decisionMs) {
+        return decisionMs >= startOfMonthMs && decisionMs < endOfMonthMs;
+      }
+      if (l.appliedAtMs && l.appliedAtMs >= startOfMonthMs && l.appliedAtMs < endOfMonthMs) return true;
+      if (l.fromDate && typeof l.fromDate === "string" && l.fromDate.startsWith(effectiveMonth)) return true;
+      return false;
+    })
+    .map((l) => {
+      const staffInfo = staffMap.get(l.staffId);
+      const decisionMs = parseTs(l.updatedAt) || parseTs(l.approvedAt) || parseTs(l.rejectedAt) || l.appliedAtMs;
+      return {
+        id: l.id,
+        type: "LEAVE" as const,
+        requestType: "Leave",
+        staffId: l.staffId,
+        staffName: staffInfo?.name || l.staffName || `Staff (${l.staffId})`,
+        staffEmpId: staffInfo?.empId || l.staffEmpId || "",
+        branchCode: l.branchCode || staffInfo?.branchCode || "HQ",
+        status: l.status,
+        decisionDate: formatDate(decisionMs),
+        decisionDateMs: decisionMs || 0,
+        decisionBy: l.approvedBy || l.rejectedBy || "Manager",
+        originalRequestDate: l.appliedAtMs ? formatDate(l.appliedAtMs) : l.fromDate || "",
+        leaveType: l.type || "Casual",
+        dates: `${l.fromDate} → ${l.toDate}`,
+        fromDate: l.fromDate,
+        toDate: l.toDate,
+        reason: l.reason || "",
+      };
+    });
+
+  // Filter & Format Regularizations
+  const regularizationsHistory = rawRegs
+    .filter((r) => {
+      const branch = (r.branchCode || staffMap.get(r.staffId)?.branchCode || "HQ").toUpperCase().trim();
+      if (managerBranch && branch !== managerBranch) return false;
+
+      const decisionMs = parseTs(r.updatedAt) || parseTs(r.resolvedAtMs) || parseTs(r.approvedAt);
+      if (decisionMs) {
+        return decisionMs >= startOfMonthMs && decisionMs < endOfMonthMs;
+      }
+      if (r.appliedAtMs && r.appliedAtMs >= startOfMonthMs && r.appliedAtMs < endOfMonthMs) return true;
+      if (r.date && typeof r.date === "string" && r.date.startsWith(effectiveMonth)) return true;
+      return false;
+    })
+    .map((r) => {
+      const staffInfo = staffMap.get(r.staffId);
+      const decisionMs = parseTs(r.updatedAt) || parseTs(r.resolvedAtMs) || parseTs(r.approvedAt) || r.appliedAtMs;
+      return {
+        id: r.id,
+        type: "REGULARIZATION" as const,
+        requestType: "Regularization",
+        staffId: r.staffId,
+        staffName: staffInfo?.name || r.staffName || `Staff (${r.staffId})`,
+        staffEmpId: staffInfo?.empId || r.staffEmpId || "",
+        branchCode: r.branchCode || staffInfo?.branchCode || "HQ",
+        status: r.status,
+        decisionDate: formatDate(decisionMs),
+        decisionDateMs: decisionMs || 0,
+        decisionBy: r.approvedBy || r.resolvedBy || "Manager",
+        originalRequestDate: r.appliedAtMs ? formatDate(r.appliedAtMs) : r.date || "",
+        date: r.date,
+        requestedStatus: r.requestedStatus || "PRESENT",
+        originalStatus: r.originalStatus || "ABSENT",
+        reason: r.reason || "",
+        rejectionReason: r.rejectionReason || "",
+      };
+    });
+
+  // Filter & Format HR Queries
+  const queriesHistory = rawQueries
+    .filter((q) => {
+      const branch = (q.branchCode || staffMap.get(q.staffId)?.branchCode || "HQ").toUpperCase().trim();
+      if (managerBranch && branch !== managerBranch) return false;
+
+      const decisionMs = parseTs(q.resolvedAt) || parseTs(q.resolvedAtMs);
+      if (decisionMs) {
+        return decisionMs >= startOfMonthMs && decisionMs < endOfMonthMs;
+      }
+      if (q.raisedAtMs && q.raisedAtMs >= startOfMonthMs && q.raisedAtMs < endOfMonthMs) return true;
+      return false;
+    })
+    .map((q) => {
+      const staffInfo = staffMap.get(q.staffId);
+      const decisionMs = parseTs(q.resolvedAt) || parseTs(q.resolvedAtMs) || q.raisedAtMs;
+      return {
+        id: q.id,
+        type: "QUERY" as const,
+        requestType: "Query",
+        staffId: q.staffId,
+        staffName: staffInfo?.name || q.staffName || `Staff (${q.staffId})`,
+        staffEmpId: staffInfo?.empId || q.staffEmpId || "",
+        branchCode: q.branchCode || staffInfo?.branchCode || "HQ",
+        status: "RESOLVED",
+        decisionDate: formatDate(decisionMs),
+        decisionDateMs: decisionMs || 0,
+        decisionBy: q.resolvedBy || "Manager",
+        originalRequestDate: q.raisedAtMs ? formatDate(q.raisedAtMs) : "",
+        queryText: q.message || q.subject || "",
+        responseText: q.resolutionNote || "Resolved",
+        subject: q.subject || "",
+      };
+    });
+
+  const allHistory = [...leavesHistory, ...regularizationsHistory, ...queriesHistory].sort(
+    (a, b) => b.decisionDateMs - a.decisionDateMs
+  );
+
+  return {
+    ok: true,
+    month: effectiveMonth,
+    history: serializeFirestoreDoc(allHistory),
+    leaves: serializeFirestoreDoc(leavesHistory),
+    regularizations: serializeFirestoreDoc(regularizationsHistory),
+    queries: serializeFirestoreDoc(queriesHistory),
+  };
+}
+
 
 
 

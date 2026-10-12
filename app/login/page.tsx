@@ -141,14 +141,18 @@ export default function LoginPage() {
     const accessibleTenants = ((session.user as any)?.accessibleTenants as any[]) || [];
     const userEmail = session.user.email || "Active User";
     const userName = session.user.name || userEmail.split("@")[0];
+    const sessionRedirectPath = (session.user as any)?.redirectPath;
     const destinationPath =
-      role === "TENANT_ADMIN"
+      sessionRedirectPath ||
+      (role === "CASHIER"
+        ? "/cashier"
+        : role === "TENANT_ADMIN"
         ? "/tenant-admin"
         : role === "AUDITOR"
         ? accessibleTenants.length > 1
           ? "/select-company"
           : "/auditor"
-        : "/dashboard";
+        : "/dashboard");
 
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scaffold-bg)", fontFamily: "system-ui, sans-serif", padding: 20 }}>
