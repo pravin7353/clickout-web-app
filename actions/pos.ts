@@ -273,6 +273,8 @@ export async function createPosOrder(params: {
   instantDiscountPercent?: number;
   targetBranchCode?: string;
   shiftId?: string;
+  counterId?: string;
+  counterName?: string;
 }) {
   let session, role, tenantId, storeId;
   try {
@@ -465,8 +467,12 @@ export async function createPosOrder(params: {
       id: orderRef.id,
       orderType: "DIRECT_POS",
       invoiceNo,
-      cashierId: session.user?.email,
-      cashierName: session.user?.name ?? "Manager",
+      cashierId: (session.user as any)?.staffId || (session.user as any)?.id || session.user?.email,
+      cashierStaffId: (session.user as any)?.staffId || (session.user as any)?.id || "",
+      cashierName: session.user?.name ?? "Cashier Staff",
+      cashierEmail: session.user?.email || "",
+      billedBy: session.user?.name ?? "Cashier Staff",
+      billedByName: session.user?.name ?? "Cashier Staff",
       customerPhone: params.customerPhone ? `+91${params.customerPhone.replace(/\D/g, "")}` : null,
       items: priced.lines.map((l) => {
         const cartItem = params.items.find((i) => i.barcode === l.barcode);
@@ -516,6 +522,9 @@ export async function createPosOrder(params: {
       companyLogoUrl,
       storeLogoUrl,
       shiftId: params.shiftId || null,
+      counterId: params.counterId || null,
+      counterName: params.counterName || "POS Terminal 1 - Ground Floor",
+      terminalName: params.counterName || "POS Terminal 1 - Ground Floor",
     });
 
     // Update active POS shift totals if checkout is tied to a counter shift
@@ -549,17 +558,24 @@ export async function createPosOrder(params: {
     }
 
     // Write audit log
+    const resolvedCounterName = params.counterName || "POS Terminal 1 - Ground Floor";
+    const cashierDisplayName = session.user?.name ?? "Cashier Staff";
+
     batch.set(adminDb.collection("admin_audit_logs").doc(), {
       action: "POS_ORDER_CREATED",
       actionType: "POS_ORDER_CREATED",
       actorId: session.user?.email,
+      actorName: cashierDisplayName,
       tenantId,
       branchCode,
       orderId: orderRef.id,
       invoiceNo,
       totalAmount,
+      cashierName: cashierDisplayName,
+      counterName: resolvedCounterName,
+      terminalName: resolvedCounterName,
       paymentMode: params.paymentMode,
-      details: `POS order ${invoiceNo} completed for ₹${totalAmount.toFixed(2)} via ${params.paymentMode}`,
+      details: `POS Order ${invoiceNo} (₹${totalAmount.toFixed(2)}) billed by ${cashierDisplayName} on ${resolvedCounterName} via ${params.paymentMode}`,
       severity: "INFO",
       timestamp: FieldValue.serverTimestamp(),
     });
@@ -594,6 +610,8 @@ export async function createPosOrder(params: {
       receipt: {
         invoiceNo,
         storeName: companyName,
+        cashierName: cashierDisplayName,
+        counterName: resolvedCounterName,
         address: storeAddress,
         phone: storePhone,
         gstin: storeGstin,

@@ -38,10 +38,14 @@ const ROWS_PER_PAGE = 10;
 export type OrderRow = {
   id: string;
   orderId: string;
+  invoiceNo?: string;
   amount: number;
   status: string;
   paymentMode: string;
   timestampMs: number;
+  cashierName?: string;
+  billedBy?: string;
+  counterName?: string;
 };
 
 function deriveStatus(o: FirebaseFirestore.DocumentData): string {
@@ -135,10 +139,14 @@ export async function fetchOrdersPage(params: {
     return {
       id: d.id,
       orderId: (data.orderId ?? d.id).toString(),
+      invoiceNo: (data.invoiceNo ?? "").toString(),
       amount: parseFloat(data.totalAmount ?? data.amount ?? "0") || 0,
       status: deriveStatus(data),
       paymentMode: (data.paymentMode ?? "UPI").toString().toUpperCase(),
       timestampMs: ts,
+      cashierName: data.cashierName || data.billedByName || data.billedBy || (data.orderType === "DIRECT_POS" ? "Cashier Staff" : "Self-Checkout"),
+      billedBy: data.billedByName || data.cashierName || data.billedBy || (data.orderType === "DIRECT_POS" ? "Cashier Staff" : "Self-Checkout"),
+      counterName: data.counterName || data.terminalName || (data.orderType === "DIRECT_POS" ? "POS Terminal 1 - Ground Floor" : "Customer App"),
     };
   });
 

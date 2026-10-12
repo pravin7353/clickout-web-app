@@ -57,12 +57,18 @@ export default async function CashierPage({
 
       <CashierTabsClient
         branchCode={effectiveStoreId}
-        canEdit={canEdit}
+        canEdit={canEdit || role === "cashier"}
         role={role}
         counters={counters}
         staffList={staffList}
         maxAllowedCounters={maxAllowedCounters}
         planName={planName}
+        currentUser={{
+          name: session.user?.name || "Cashier Staff",
+          email: session.user?.email || "",
+          staffId: staffIdentifier,
+          role,
+        }}
       />
     </div>
   );

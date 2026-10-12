@@ -286,6 +286,30 @@ export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
                   color: "var(--text-secondary)",
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
+                }}
+              >
+                BILLED BY
+              </th>
+              <th
+                style={{
+                  padding: "12px 18px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-secondary)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                }}
+              >
+                POS TERMINAL
+              </th>
+              <th
+                style={{
+                  padding: "12px 18px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-secondary)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
                   textAlign: "right",
                 }}
               >
@@ -322,7 +346,7 @@ export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
           <tbody>
             {isPending && orders.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ padding: "20px 18px" }}>
+                <td colSpan={7} style={{ padding: "20px 18px" }}>
                   {[1, 2, 3, 4, 5].map((i) => (
                     <SkeletonRow key={i} />
                   ))}
@@ -330,7 +354,7 @@ export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
               </tr>
             ) : error ? (
               <tr>
-                <td colSpan={5} style={{ padding: 48, textAlign: "center", color: "var(--danger)" }}>
+                <td colSpan={7} style={{ padding: 48, textAlign: "center", color: "var(--danger)" }}>
                   <div style={{ marginBottom: 12, fontSize: 14, fontWeight: 600 }}>{error}</div>
                   <button
                     type="button"
@@ -353,7 +377,7 @@ export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
             ) : orders.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={7}
                   style={{
                     padding: 48,
                     textAlign: "center",
@@ -406,6 +430,43 @@ export function ReconciliationTable({ storeParam }: { storeParam?: string }) {
                         minute: "2-digit",
                         hour12: true,
                       })}
+                    </td>
+
+                    {/* BILLED BY */}
+                    <td style={{ padding: "14px 18px", fontSize: 13, color: "var(--text-primary)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        <span style={{ fontSize: 14 }}>👤</span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                            {o.billedBy || o.cashierName || "Staff"}
+                          </div>
+                          <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 600 }}>
+                            {(o.billedBy || "").includes("Self") ? "Self Checkout" : "Cashier Staff"}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* POS TERMINAL */}
+                    <td style={{ padding: "14px 18px", fontSize: 13, color: "var(--text-primary)" }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          padding: "3px 10px",
+                          borderRadius: 8,
+                          background: "rgba(0, 210, 106, 0.1)",
+                          color: "var(--success)",
+                          border: "1px solid rgba(0, 210, 106, 0.25)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span>🖥️</span>
+                        <span>{o.counterName || "Main Counter"}</span>
+                      </span>
                     </td>
 
                     {/* AMOUNT */}

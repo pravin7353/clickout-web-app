@@ -5,6 +5,8 @@ type ReceiptItem = { name: string; quantity: number; price: number; originalPric
 export type ReceiptData = {
   invoiceNo: string;
   storeName: string;
+  cashierName?: string;
+  counterName?: string;
   address: string;
   phone: string;
   gstin: string;
@@ -41,6 +43,10 @@ export function PrintReceipt({ data }: { data: ReceiptData }) {
         <div style={{ display: "flex", justifyContent: "space-between" }}>
           <span style={{ fontWeight: 700 }}>Invoice: {data.invoiceNo}</span>
           <span style={{ fontSize: 9 }}>{data.timestamp}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, marginTop: 2 }}>
+          <span>Cashier: {data.cashierName || "Staff"}</span>
+          <span>{data.counterName || "POS Terminal"}</span>
         </div>
         <Dashed />
 

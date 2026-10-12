@@ -15,6 +15,12 @@ interface CashierTabsClientProps {
   staffList: StaffRow[];
   maxAllowedCounters: number;
   planName: string;
+  currentUser?: {
+    name: string;
+    email: string;
+    staffId: string;
+    role: string;
+  };
 }
 
 export function CashierTabsClient({
@@ -25,6 +31,7 @@ export function CashierTabsClient({
   staffList,
   maxAllowedCounters,
   planName,
+  currentUser,
 }: CashierTabsClientProps) {
   const [activeTab, setActiveTab] = useState<"TERMINAL" | "COUNTERS">("TERMINAL");
 
@@ -142,7 +149,12 @@ export function CashierTabsClient({
 
       {/* Tab Content */}
       {activeTab === "TERMINAL" ? (
-        <PosTerminal branchCode={branchCode} canEdit={canEdit} />
+        <PosTerminal
+          branchCode={branchCode}
+          canEdit={canEdit}
+          counters={counters}
+          currentUser={currentUser}
+        />
       ) : (
         <CounterManagement
           counters={counters}
