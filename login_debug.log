@@ -1,0 +1,4 @@
+[2026-10-12T20:21:21.024Z] authorize called. idToken: true
+[2026-10-12T20:21:21.202Z] decoded: pradeepjaiiswar@gmail.com, uid: uElhVaBVjORKwISQ17oO5dxDljv1, roleClaim: cashier
+[2026-10-12T20:21:21.515Z] staff doc found: JgHxotwsLrfaYzOcaAxe, raw role: CASHIER, normalized: cashier, allowed: true
+[2026-10-12T20:21:21.831Z] SUCCESS returning user object: role cashier, isCashier: true

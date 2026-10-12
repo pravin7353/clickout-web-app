@@ -120,10 +120,16 @@ export default function LoginPage() {
   const isOtpSession = status === "authenticated" && (session?.user as any)?.authMethod === "otp";
 
   useEffect(() => {
-    if (isOtpSession) {
-      router.replace("/employee");
+    if (status === "authenticated" && session?.user) {
+      if (isOtpSession) {
+        router.replace("/employee");
+      } else {
+        const role = ((session.user as any)?.role || "").toString().toLowerCase();
+        const dest = (session.user as any)?.redirectPath || (role === "cashier" ? "/cashier" : "/dashboard");
+        window.location.href = dest;
+      }
     }
-  }, [isOtpSession, router]);
+  }, [status, session, isOtpSession, router]);
 
   if (verifying) {
     return (

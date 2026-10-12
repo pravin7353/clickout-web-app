@@ -101,7 +101,7 @@ function mapDocToPosProduct(doc: FirebaseFirestore.DocumentSnapshot): PosProduct
 }
 
 export async function searchProductByBarcode(barcode: string, targetBranchCode?: string) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager", "cashier"]);
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode) ?? "HQ";
 
   const cleanInput = barcode.trim();
@@ -128,7 +128,7 @@ export async function searchProductByBarcode(barcode: string, targetBranchCode?:
 }
 
 export async function searchProductsCatalog(query: string, targetBranchCode?: string) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager", "cashier"]);
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode);
 
   const cleanInput = (query || "").trim();
@@ -205,7 +205,7 @@ export async function searchProductsCatalog(query: string, targetBranchCode?: st
 }
 
 export async function fetchActivePosOffers(targetBranchCode?: string) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager", "cashier"]);
   const branchCode = resolveStoreScope(role, storeId, targetBranchCode);
 
   let query: FirebaseFirestore.Query = adminDb.collection("products").where("clearanceActive", "==", true);
@@ -276,9 +276,9 @@ export async function createPosOrder(params: {
 }) {
   let session, role, tenantId, storeId;
   try {
-    ({ session, role, tenantId, storeId } = await requireEditAccess(["tenant_admin", "manager", "cashier"]));
+    ({ session, role, tenantId, storeId } = await requireRole(["tenant_admin", "manager", "cashier"]));
   } catch {
-    return { ok: false, error: "You have view-only access and cannot process checkout orders." };
+    return { ok: false, error: "You do not have access to process checkout orders." };
   }
 
   const branchCode = resolveStoreScope(role, storeId, params.targetBranchCode) ?? "HQ";

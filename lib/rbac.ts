@@ -8,7 +8,15 @@ type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "
 
 export async function requireRole(allowed: Role[]) {
   const session = await auth();
+  try {
+    const fs = await import("fs");
+    fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[requireRole] session: ${!!session}, user: ${!!session?.user}, role: ${(session?.user as any)?.role}, allowed: ${JSON.stringify(allowed)}\n`);
+  } catch {}
   if (!session?.user) {
+    try {
+      const fs = await import("fs");
+      fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[requireRole] REDIRECTING to /login because no session.user\n`);
+    } catch {}
     redirect("/login");
   }
 
@@ -19,6 +27,10 @@ export async function requireRole(allowed: Role[]) {
 
   const role = ((session.user as any).role as string)?.toLowerCase() as Role;
   if (!allowed.includes(role)) {
+    try {
+      const fs = await import("fs");
+      fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[requireRole] REDIRECTING to /login because role ${role} not in allowed: ${JSON.stringify(allowed)}\n`);
+    } catch {}
     redirect("/login");
   }
 

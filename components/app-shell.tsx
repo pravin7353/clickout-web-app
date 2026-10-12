@@ -178,8 +178,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (
     pathname === "/login" ||
     pathname?.startsWith("/employee") ||
+    pathname?.startsWith("/cashier") ||
+    pathname?.startsWith("/pos") ||
     status !== "authenticated" ||
-    (session?.user as any)?.authMethod === "otp"
+    (session?.user as any)?.authMethod === "otp" ||
+    (session?.user as any)?.posOnly ||
+    (session?.user as any)?.role === "cashier"
   ) {
     return <>{children}</>;
   }
