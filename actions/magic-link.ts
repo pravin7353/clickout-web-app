@@ -2,7 +2,7 @@
 
 import { adminDb, adminAuth } from "@/lib/firebase-admin";
 
-const ALLOWED_ROLES = ["super_admin", "tenant_admin", "manager", "auditor"];
+const ALLOWED_ROLES = ["super_admin", "tenant_admin", "manager", "auditor", "cashier"];
 
 export async function sendMagicLink(email: string, origin: string) {
   const cleanEmail = email.toLowerCase().trim();
