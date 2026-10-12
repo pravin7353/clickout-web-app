@@ -20,8 +20,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         let decoded: any;
         try {
-          decoded = await adminAuth.verifyIdToken(idToken, true);
-        } catch {
+          decoded = await adminAuth.verifyIdToken(idToken);
+        } catch (err: any) {
+          console.error("[AUTH_VERIFY_ERROR]", err?.message || err);
           return null;
         }
 
@@ -80,9 +81,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           };
         }
 
-        const email = decoded.email!;
+        const email = (decoded.email || "").toLowerCase().trim();
 
         let staffSnap = await adminDb.collection("staff").where("email", "==", email).where("isActive", "==", true).get();
+        if (staffSnap.empty && decoded.email && decoded.email !== email) {
+          staffSnap = await adminDb.collection("staff").where("email", "==", decoded.email).where("isActive", "==", true).get();
+        }
         let staffRef: FirebaseFirestore.DocumentReference;
         let data: FirebaseFirestore.DocumentData;
         const accessibleTenants: { tenantId: string; companyName: string; branchCode: string }[] = [];
@@ -175,45 +179,57 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // 🛡️ 30-Day Terminal Lock Check across tenants
         if (deviceFingerprint && effectiveTenantId) {
-          const lockResult = await checkDeviceLock(deviceFingerprint, effectiveTenantId);
-          if (lockResult.isLocked) {
-            // Log security event for cross-tenant quarantine
-            await adminDb.collection("admin_audit_logs").add({
-              tenantId: effectiveTenantId,
-              timestamp: FieldValue.serverTimestamp(),
-              actorId: email,
-              actorEmail: email,
-              action: "BLOCKED_LOCKED_DEVICE_LOGIN",
-              actionType: "BLOCKED_LOCKED_DEVICE_LOGIN",
-              details: lockResult.reason,
-              severity: "WARNING",
-              fingerprint: deviceFingerprint,
-            });
-            throw new Error(lockResult.reason || "Device terminal is locked for 30 days due to deactivation from another tenant.");
+          try {
+            const lockResult = await checkDeviceLock(deviceFingerprint, effectiveTenantId);
+            if (lockResult.isLocked) {
+              await adminDb.collection("admin_audit_logs").add({
+                tenantId: effectiveTenantId,
+                timestamp: FieldValue.serverTimestamp(),
+                actorId: email,
+                actorEmail: email,
+                action: "BLOCKED_LOCKED_DEVICE_LOGIN",
+                actionType: "BLOCKED_LOCKED_DEVICE_LOGIN",
+                details: lockResult.reason,
+                severity: "WARNING",
+                fingerprint: deviceFingerprint,
+              });
+              throw new Error(lockResult.reason || "Device terminal is locked for 30 days due to deactivation from another tenant.");
+            }
+          } catch (lockErr: any) {
+            if (lockErr?.message?.includes("Device terminal is locked")) throw lockErr;
+            console.error("[AUTH] checkDeviceLock error:", lockErr?.message || lockErr);
           }
         }
 
         // single-session enforcement + login audit trail
-        const updateData: any = {
-          activeSessionId: Date.now().toString(),
-          lastLoginAt: FieldValue.serverTimestamp(),
-          deviceInfo: "Web Browser",
-        };
-        if (!data.authUid) {
-          updateData.authUid = uid;
+        try {
+          const updateData: any = {
+            activeSessionId: Date.now().toString(),
+            lastLoginAt: FieldValue.serverTimestamp(),
+            deviceInfo: "Web Browser",
+          };
+          if (!data.authUid) {
+            updateData.authUid = uid;
+          }
+          await staffRef.update(updateData);
+        } catch (updateErr: any) {
+          console.error("[AUTH] staffRef.update error:", updateErr?.message || updateErr);
         }
-        await staffRef.update(updateData);
 
         // 🛡️ Handle Device Fingerprint Anomaly Warning & 7-Day IP event tracking
-        await handleLoginFingerprint({
-          staffRef,
-          staffData: data,
-          role,
-          email,
-          tenantId: effectiveTenantId,
-          deviceFingerprint,
-          ipAddress,
-        });
+        try {
+          await handleLoginFingerprint({
+            staffRef,
+            staffData: data,
+            role,
+            email,
+            tenantId: effectiveTenantId,
+            deviceFingerprint,
+            ipAddress,
+          });
+        } catch (fpErr: any) {
+          console.error("[AUTH] handleLoginFingerprint error:", fpErr?.message || fpErr);
+        }
 
         const isCashier = role === "cashier";
 

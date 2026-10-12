@@ -51,9 +51,14 @@ export default function LoginPage() {
           const idToken = await cred.user.getIdToken(true);
           const fingerprint = await getClientDeviceFingerprint();
           const res = await signIn("credentials", { idToken, fingerprint, redirect: false });
-          if (res?.error) setError("Access denied.");
-          else router.push("/");
-        } catch {
+          if (res?.error) {
+            console.error("[MAGIC_LINK_CREDENTIALS_ERROR]", res.error);
+            setError("Access denied: You do not have command center privileges.");
+          } else {
+            window.location.href = "/";
+          }
+        } catch (linkErr: any) {
+          console.error("[MAGIC_LINK_ERROR]", linkErr);
           setError("This link is invalid or expired. Please request a new one.");
         } finally {
           setVerifying(false);
@@ -84,13 +89,14 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
       const cred = await signInWithPopup(clientAuth, provider);
-      const idToken = await cred.user.getIdToken();
+      const idToken = await cred.user.getIdToken(true);
       const fingerprint = await getClientDeviceFingerprint();
       const res = await signIn("credentials", { idToken, fingerprint, redirect: false });
       if (res?.error) {
+        console.error("[GOOGLE_SIGNIN_ERROR]", res.error);
         setError("Access denied: You do not have command center privileges.");
       } else {
-        router.push("/");
+        window.location.href = "/";
       }
     } catch (err: any) {
       const code = err?.code || "";
