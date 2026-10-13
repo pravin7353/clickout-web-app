@@ -157,7 +157,7 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
 
     startTransition(async () => {
       const res = await createStore(payload);
-      if (!res.ok) setError(res.error ?? "Failed to create store.");
+      if (!res.ok) setError((res as any).message ?? res.error ?? "Failed to create store.");
       else { 
         setOpen(false); 
         setStep(1); 
