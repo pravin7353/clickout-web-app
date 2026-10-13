@@ -61,7 +61,7 @@ export async function createStore(raw: unknown) {
     let tData = tDoc.data() || {};
     tData = await checkAndAutoDowngradeExpiredTrial(effectiveTenantId, tData);
 
-    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toLowerCase();
+    const planKey = (tData.subscriptionPlan || tData.plan || "spark_lite").toLowerCase();
     const limits = PLAN_LIMITS[planKey] ?? PLAN_LIMITS["spark_lite"];
 
     const activeStores = existingStoresSnap.docs.filter((d) => d.data().isDeleted !== true);

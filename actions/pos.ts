@@ -306,7 +306,7 @@ export async function createPosOrder(params: {
     tData = await checkAndAutoDowngradeExpiredTrial(tenantId, tData);
     const uData = uDoc.data() || {};
 
-    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toLowerCase();
+    const planKey = (tData.subscriptionPlan || tData.plan || "spark_lite").toLowerCase();
     const extraStores = Number(tData.extraStoresPurchased ?? 0);
     effectiveLimit = getEffectiveTxnLimit(planKey, extraStores);
     currentMonthTxns = Number(uData.transactionCount ?? tData.currentTransactions ?? 0);

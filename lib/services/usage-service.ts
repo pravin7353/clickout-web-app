@@ -78,7 +78,7 @@ export async function getUsage(tenantId: string): Promise<{ usage: UsageData; li
   // Step 2: Auto-downgrade expired trial if needed
   t = await checkAndAutoDowngradeExpiredTrial(tenantId, t);
 
-  const rawPlanKey = (t.plan ?? t.subscriptionPlan ?? "spark_lite").toString().toLowerCase();
+  const rawPlanKey = (t.subscriptionPlan ?? t.plan ?? "spark_lite").toString().toLowerCase();
   const limitsDef = PLAN_LIMITS[rawPlanKey] ?? PLAN_LIMITS["spark_lite"];
 
   const activeStores = storesSnap.docs.filter((d) => d.data().isDeleted !== true);

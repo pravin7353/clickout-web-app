@@ -28,7 +28,7 @@ export default async function InventoryPage({
   if (tenantId) {
     const tDoc = await adminDb.collection("tenants").doc(tenantId).get();
     const tData = tDoc.data() || {};
-    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toString().toLowerCase();
+    const planKey = (tData.subscriptionPlan || tData.plan || "spark_lite").toString().toLowerCase();
     isGrowthPlan = planKey === "growth" || planKey === "enterprise" || planKey === "business" || planKey === "trial";
   }
 
