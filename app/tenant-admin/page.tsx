@@ -1,13 +1,19 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/rbac";
 import { getStores } from "@/lib/services/store-service";
-import { getTenantMetrics } from "@/lib/services/tenant-metrics-service";
+import {
+  getTenantMetrics,
+  getConsolidatedOwnerMetrics,
+  ConsolidatedOwnerMetrics,
+} from "@/lib/services/tenant-metrics-service";
 import { getTenantById } from "@/lib/services/tenant-service";
 import { getTenantOnboardingStatus } from "@/actions/tenant-onboarding";
 import { CreateStoreForm } from "@/components/create-store-form";
 import { TenantOnboardingForm } from "@/components/tenant-onboarding-form";
 import { StoreTable } from "@/components/store-table";
 import { Card, Badge, PageHeader } from "@/components/ui";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+import { ConsolidatedDashboardClient } from "@/components/consolidated-dashboard-client";
 
 export default async function TenantAdminPage({
   searchParams,
@@ -31,6 +37,21 @@ export default async function TenantAdminPage({
   const metrics = await getTenantMetrics(tenantId as string, totalStores);
   const companyName = tenantProfile?.companyName || "Organization HQ";
   const plan = tenantProfile?.subscriptionPlan || "PRO";
+
+  const rawPlan = (tenantProfile?.subscriptionPlan || (tenantProfile as any)?.plan || "PRO")
+    .toString()
+    .toLowerCase();
+  const isGrowthPlan =
+    rawPlan === "growth" || rawPlan === "enterprise" || rawPlan === "business" || rawPlan === "trial";
+
+  let consolidatedMetrics: ConsolidatedOwnerMetrics | null = null;
+  if (tenantId && totalStores > 1 && isGrowthPlan) {
+    const rawConsolidated = await getConsolidatedOwnerMetrics(
+      tenantId,
+      stores.map((s) => ({ branchCode: s.branchCode, name: s.storeName || s.branchCode }))
+    );
+    consolidatedMetrics = serializeFirestoreDoc(rawConsolidated);
+  }
 
   // Pagination (pageSize = 25)
   const pageSize = 25;
@@ -123,6 +144,9 @@ export default async function TenantAdminPage({
           color={metrics.pendingAlerts > 0 ? "var(--danger)" : "var(--text-secondary)"}
         />
       </div>
+
+      {/* Consolidated Chain Analytics (Growth Plan) */}
+      <ConsolidatedDashboardClient consolidatedMetrics={consolidatedMetrics} currentPlan={rawPlan} />
 
       {/* Stores Section */}
       <div style={{ display: "grid", gap: 14 }}>

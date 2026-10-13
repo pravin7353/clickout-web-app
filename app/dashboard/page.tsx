@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { calculateRevenueMetrics, getIndustryBenchmark } from "@/lib/services/revenue-service";
 import { getStaffingForecast } from "@/lib/services/manpower-service";
@@ -23,8 +24,84 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
   const atRiskRevenue = metrics.pendingRevenue + metrics.rejectedRevenue;
   const shrinkageRate = metrics.grossRevenue > 0 ? (atRiskRevenue / metrics.grossRevenue) * 100 : 0.0;
 
+  const isOwner = role === "tenant_admin" || role === "super_admin";
+
   return (
     <div style={{ padding: 24 }}>
+      {/* Chain Navigation for Tenant Admin */}
+      {isOwner && !effectiveStoreId && (
+        <div
+          style={{
+            padding: "12px 18px",
+            borderRadius: 10,
+            background: "color-mix(in srgb, var(--primary) 10%, var(--card-bg))",
+            border: "1px solid color-mix(in srgb, var(--primary) 30%, transparent)",
+            marginBottom: 20,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            fontSize: 13,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-primary)" }}>
+            <span style={{ fontSize: 16 }}>📊</span>
+            <span>
+              Viewing consolidated data across all branches. For branch-level comparison, visit:
+            </span>
+          </div>
+          <Link
+            href="/tenant-admin"
+            style={{
+              fontWeight: 700,
+              color: "var(--primary)",
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            Chain Analytics →
+          </Link>
+        </div>
+      )}
+
+      {isOwner && effectiveStoreId && (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderRadius: 8,
+            background: "var(--card-bg)",
+            border: "1px solid var(--border)",
+            marginBottom: 20,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            fontSize: 13,
+          }}
+        >
+          <Link
+            href="/tenant-admin"
+            style={{
+              fontWeight: 700,
+              color: "var(--primary)",
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ← Back to Chain Overview
+          </Link>
+          <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+            Currently viewing: <strong style={{ color: "var(--text-primary)" }}>{effectiveStoreId}</strong>
+          </span>
+        </div>
+      )}
+
       <PageHeader title="Dashboard" subtitle="Today's revenue and order overview" />
 
       <div style={{
