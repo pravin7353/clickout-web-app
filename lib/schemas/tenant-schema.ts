@@ -64,6 +64,7 @@ export interface TenantDocument {
   kycStatus?: KycStatus;
   billingStatus?: string;
   extraStoresPurchased?: number;
+  extraPosCountersPurchased?: number;
   maxStores?: number;
   maxUsers?: number;
   isActive?: boolean;

@@ -14,6 +14,7 @@ export type TenantSubscriptionInfo = {
   billingStatus: string;
   trialEndsAt: string | null;
   extraStoresPurchased: number;
+  extraPosCountersPurchased: number;
   currentTransactions: number;
   currentStaffCount: number;
   currentStoreCount: number;
@@ -28,6 +29,7 @@ export async function getTenantSubscriptionInfo(): Promise<TenantSubscriptionInf
     billingStatus: "active",
     trialEndsAt: null,
     extraStoresPurchased: 0,
+    extraPosCountersPurchased: 0,
     currentTransactions: 0,
     currentStaffCount: 0,
     currentStoreCount: 0,
@@ -58,6 +60,7 @@ export async function getTenantSubscriptionInfo(): Promise<TenantSubscriptionInf
       billingStatus: (data.billingStatus ?? "active").toString().toLowerCase(),
       trialEndsAt: trialEndsAtStr,
       extraStoresPurchased: Number(data.extraStoresPurchased ?? 0),
+      extraPosCountersPurchased: Number(data.extraPosCountersPurchased ?? 0),
       currentTransactions: Number(data.currentTransactions ?? 0),
       currentStaffCount: Number(data.activeStaff ?? data.staffCount ?? 0),
       currentStoreCount: Number(data.activeStores ?? 0),

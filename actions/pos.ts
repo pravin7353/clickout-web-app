@@ -8,6 +8,8 @@ import { applyOffers, ProductOffer, parseExpiryMs } from "@/lib/services/offer-e
 import { isTransactionLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
 import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-service";
 import { postSalesVoucher } from "@/lib/services/finance-service";
+import { getActivePosTerminalSessions } from "@/lib/services/pos-session-service";
+import { getMaxPosCounters } from "@/lib/plan-limits";
 
 export type PosProduct = {
   id?: string;
@@ -318,6 +320,28 @@ export async function createPosOrder(params: {
         reason: "transaction_limit_reached",
         error: "Monthly transaction limit reached for your plan. Upgrade to continue.",
         message: "Monthly transaction limit reached for your plan. Upgrade to continue.",
+      };
+    }
+
+    // Check Concurrent Active POS Terminal Limit Hard Block
+    const extraPosCounters = Number(tData.extraPosCountersPurchased ?? 0);
+    const maxAllowedCounters = getMaxPosCounters(rawPlan, extraPosCounters);
+    const activeSessions = await getActivePosTerminalSessions(tenantId);
+
+    const staffId = (session.user as any)?.staffId || (session.user as any)?.id || session.user?.email || "";
+    const staffEmail = session.user?.email || "";
+
+    const hasActiveSession = activeSessions.some(
+      (s) => (staffId && s.staffId === staffId) || (staffEmail && s.staffEmail === staffEmail)
+    );
+
+    if (!hasActiveSession && activeSessions.length >= maxAllowedCounters) {
+      return {
+        ok: false,
+        success: false,
+        reason: "pos_terminal_limit_reached",
+        error: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${rawPlan.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
+        message: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${rawPlan.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
       };
     }
   }

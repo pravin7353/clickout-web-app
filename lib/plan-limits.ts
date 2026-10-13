@@ -14,6 +14,8 @@ export const PLAN_LIMITS: Record<string, PlanLimits> = {
   business: { maxPosCounters: 99 },
 };
 
+export const EXTRA_POS_COUNTER_MONTHLY_PRICE = 199;
+
 /**
  * Get the maximum allowed simultaneous POS counters for a given subscription plan
  */

@@ -19,6 +19,13 @@ import { PrintReceipt, ReceiptData } from "@/components/print-receipt";
 import { Modal } from "@/components/profile-menu";
 import { Card, Button, Input, Badge, ErrorBanner } from "@/components/ui";
 import { FlashSaleCountdown } from "@/components/flash-sale-countdown";
+import {
+  acquirePosSessionAction,
+  heartbeatPosSessionAction,
+  releasePosSessionAction,
+  purchaseExtraPosCounterAction,
+} from "@/actions/pos-session";
+import type { PosSessionCheckResult } from "@/lib/services/pos-session-service";
 export function PosTerminal({
   branchCode,
   canEdit = true,
@@ -110,6 +117,100 @@ export function PosTerminal({
   const [success, setSuccess] = useState<string>("");
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [showClearModal, setShowClearModal] = useState(false);
+
+  // POS Terminal Session State (Plan limits: Spark: 1, Pro: 2, Growth: 5 counters, Add-on: ₹199/counter/mo)
+  const [sessionId, setSessionId] = useState<string>("");
+  const [posSessionAllowed, setPosSessionAllowed] = useState<boolean | null>(null);
+  const [posSessionInfo, setPosSessionInfo] = useState<PosSessionCheckResult | null>(null);
+  const [isPurchasingCounter, setIsPurchasingCounter] = useState(false);
+  const [counterPurchaseSuccess, setCounterPurchaseSuccess] = useState<string>("");
+
+  // Initialize unique POS device/tab session ID
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let sid = sessionStorage.getItem("clickout_pos_session_id");
+    if (!sid) {
+      sid = "pos_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now();
+      sessionStorage.setItem("clickout_pos_session_id", sid);
+    }
+    setSessionId(sid);
+  }, []);
+
+  // Manage terminal session lifecycle & heartbeat (25s interval, 60s timeout)
+  useEffect(() => {
+    if (!sessionId) return;
+    let isCancelled = false;
+
+    async function initSession() {
+      try {
+        const res = await acquirePosSessionAction({
+          sessionId,
+          branchCode: branchCode ?? undefined,
+        });
+        if (!isCancelled) {
+          setPosSessionAllowed(res.allowed);
+          setPosSessionInfo(res);
+        }
+      } catch (e) {
+        console.error("Failed to acquire POS terminal session:", e);
+      }
+    }
+
+    initSession();
+
+    const interval = setInterval(async () => {
+      try {
+        const hb = await heartbeatPosSessionAction({ sessionId });
+        if (!hb.ok && !isCancelled) {
+          const recheck = await acquirePosSessionAction({
+            sessionId,
+            branchCode: branchCode ?? undefined,
+          });
+          if (!isCancelled) {
+            setPosSessionAllowed(recheck.allowed);
+            setPosSessionInfo(recheck);
+          }
+        }
+      } catch {
+        // network hiccup
+      }
+    }, 25000);
+
+    const handleUnload = () => {
+      releasePosSessionAction({ sessionId }).catch(() => {});
+    };
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, [sessionId, branchCode]);
+
+  async function handlePurchaseExtraCounter() {
+    setIsPurchasingCounter(true);
+    setError("");
+    setCounterPurchaseSuccess("");
+    try {
+      const res = await purchaseExtraPosCounterAction();
+      if (!res.ok) {
+        setError(res.error || "Failed to purchase extra counter.");
+      } else {
+        setCounterPurchaseSuccess(res.message || "Successfully added 1 extra POS counter!");
+        const recheck = await acquirePosSessionAction({
+          sessionId,
+          branchCode: branchCode ?? undefined,
+        });
+        setPosSessionAllowed(recheck.allowed);
+        setPosSessionInfo(recheck);
+      }
+    } catch (e: any) {
+      setError(e?.message || "Error adding extra counter.");
+    } finally {
+      setIsPurchasingCounter(false);
+    }
+  }
 
   const [isPending, startTransition] = useTransition();
 
@@ -287,6 +388,12 @@ export function PosTerminal({
   const totalSavings = engineDiscount + instantDiscountAmount;
 
   function handleCheckout() {
+    if (posSessionAllowed === false) {
+      setError(
+        `Active POS Terminal limit reached (${posSessionInfo?.activeCount || 0}/${posSessionInfo?.maxAllowed || 1}). Your ${posSessionInfo?.planName || "SPARK"} plan allows maximum ${posSessionInfo?.maxAllowed || 1} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`
+      );
+      return;
+    }
     if (cart.length === 0) return;
     setError("");
     setSuccess("");
@@ -334,8 +441,12 @@ export function PosTerminal({
         style={{
           padding: "16px 20px",
           borderRadius: 16,
-          background: "linear-gradient(135deg, rgba(0, 210, 106, 0.12) 0%, rgba(0, 210, 106, 0.04) 100%)",
-          border: "1px solid rgba(0, 210, 106, 0.35)",
+          background: posSessionAllowed === false
+            ? "linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.04) 100%)"
+            : "linear-gradient(135deg, rgba(0, 210, 106, 0.12) 0%, rgba(0, 210, 106, 0.04) 100%)",
+          border: posSessionAllowed === false
+            ? "1px solid rgba(239, 68, 68, 0.4)"
+            : "1px solid rgba(0, 210, 106, 0.35)",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -349,14 +460,14 @@ export function PosTerminal({
               width: 44,
               height: 44,
               borderRadius: 12,
-              background: "rgba(0, 210, 106, 0.18)",
+              background: posSessionAllowed === false ? "rgba(239, 68, 68, 0.18)" : "rgba(0, 210, 106, 0.18)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: 22,
             }}
           >
-            🛒
+            {posSessionAllowed === false ? "⚠️" : "🛒"}
           </div>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -367,13 +478,13 @@ export function PosTerminal({
                 style={{
                   padding: "2px 8px",
                   borderRadius: 8,
-                  background: "rgba(0, 210, 106, 0.2)",
-                  color: "var(--success)",
+                  background: posSessionAllowed === false ? "rgba(239, 68, 68, 0.2)" : "rgba(0, 210, 106, 0.2)",
+                  color: posSessionAllowed === false ? "var(--danger)" : "var(--success)",
                   fontSize: 11,
                   fontWeight: 800,
                 }}
               >
-                🟢 ACTIVE CASHIER
+                {posSessionAllowed === false ? "🔴 LIMIT REACHED" : "🟢 ACTIVE CASHIER"}
               </span>
             </div>
             <div
@@ -396,7 +507,145 @@ export function PosTerminal({
             </div>
           </div>
         </div>
+
+        {/* Counter Slot Tracker Pill */}
+        {posSessionInfo && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 14px",
+              borderRadius: 10,
+              background: posSessionAllowed === false ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.12)",
+              border: posSessionAllowed === false ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid rgba(59, 130, 246, 0.25)",
+            }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 800, color: posSessionAllowed === false ? "#f87171" : "#60a5fa" }}>
+              Counters: {posSessionInfo.activeCount} / {posSessionInfo.maxAllowed} ({posSessionInfo.planName})
+            </span>
+            {posSessionInfo.extraCounters > 0 && (
+              <span
+                style={{
+                  fontSize: 11,
+                  background: "rgba(34, 197, 94, 0.2)",
+                  color: "var(--success)",
+                  padding: "1px 6px",
+                  borderRadius: 6,
+                  fontWeight: 700,
+                }}
+              >
+                +{posSessionInfo.extraCounters} Add-on
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* POS Terminal Limit Exceeded Alert Banner */}
+      {posSessionAllowed === false && (
+        <div
+          style={{
+            padding: "16px 20px",
+            borderRadius: 14,
+            background: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.45)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, maxWidth: 650 }}>
+              <span style={{ fontSize: 24, lineHeight: 1 }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: "#f87171" }}>
+                  Active POS Terminal Limit Reached ({posSessionInfo?.activeCount}/{posSessionInfo?.maxAllowed})
+                </div>
+                <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
+                  Your <strong>{posSessionInfo?.planName || "SPARK"}</strong> plan allows maximum{" "}
+                  <strong>{posSessionInfo?.maxAllowed}</strong> simultaneous POS billing counter(s). All counter slots are currently active.
+                  Additional counters are available for <strong>₹199/counter/month</strong>.
+                </div>
+              </div>
+            </div>
+
+            {/* Manager / Admin Quick Purchase Option */}
+            {["super_admin", "tenant_admin", "manager"].includes(currentUser?.role || "") ? (
+              <Button
+                onClick={handlePurchaseExtraCounter}
+                disabled={isPurchasingCounter}
+                style={{
+                  background: "#2563eb",
+                  color: "#fff",
+                  fontWeight: 800,
+                  fontSize: 13,
+                  padding: "10px 18px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isPurchasingCounter ? "Adding Counter..." : "+ Add Extra Counter (₹199/mo)"}
+              </Button>
+            ) : (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#fca5a5",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Please ask your manager to add an extra counter slot (₹199/mo) or wait for a cashier to log out.
+              </div>
+            )}
+          </div>
+
+          {posSessionInfo?.activeStaffList && posSessionInfo.activeStaffList.length > 0 && (
+            <div
+              style={{
+                fontSize: 12,
+                color: "var(--text-secondary)",
+                borderTop: "1px solid rgba(239, 68, 68, 0.2)",
+                paddingTop: 8,
+              }}
+            >
+              <strong>Currently Active Terminals:</strong>{" "}
+              {posSessionInfo.activeStaffList.map((s, idx) => (
+                <span key={idx} style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+                  {s.name} ({s.email})
+                  {idx < (posSessionInfo?.activeStaffList.length ?? 0) - 1 ? ", " : ""}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {counterPurchaseSuccess && (
+        <div
+          style={{
+            padding: "12px 16px",
+            borderRadius: 8,
+            background: "rgba(34, 197, 94, 0.15)",
+            border: "1px solid var(--success)",
+            color: "var(--success)",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          ✅ {counterPurchaseSuccess}
+        </div>
+      )}
 
       {error && <ErrorBanner message={error} />}
       {success && (
@@ -971,11 +1220,26 @@ export function PosTerminal({
               {/* Checkout CTA */}
               <Button
                 onClick={handleCheckout}
-                disabled={isPending || !canEdit}
-                style={{ width: "100%", padding: "14px 0", fontSize: 15, fontWeight: 800 }}
+                disabled={isPending || !canEdit || posSessionAllowed === false}
+                style={{
+                  width: "100%",
+                  padding: "14px 0",
+                  fontSize: 15,
+                  fontWeight: 800,
+                  ...(posSessionAllowed === false
+                    ? {
+                        background: "rgba(239, 68, 68, 0.2)",
+                        border: "1px solid rgba(239, 68, 68, 0.4)",
+                        color: "#f87171",
+                        cursor: "not-allowed",
+                      }
+                    : {}),
+                }}
               >
                 {!canEdit
                   ? "View-Only Mode (Checkouts Disabled)"
+                  : posSessionAllowed === false
+                  ? `Terminal Limit Reached (${posSessionInfo?.activeCount || 0}/${posSessionInfo?.maxAllowed || 1} Active)`
                   : isPending
                   ? "Processing Sale..."
                   : `Complete Sale (₹${netEstimatedTotal.toFixed(2)})`}
