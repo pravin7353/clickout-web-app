@@ -47,8 +47,8 @@ export default async function CashierPage({
   return (
     <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
       <PageHeader
-        title="Assisted Checkout — POS Terminal & Multi-Counter Hub"
-        subtitle="Staff-assisted checkout, multi-counter terminal PIN unlocks, shift drawer reconciliation, and cashier incentives."
+        title="Assisted Checkout — POS Terminal"
+        subtitle="Staff-assisted direct checkout for cashier billing."
       />
 
       {role === "cashier" && (

@@ -49,41 +49,10 @@ export async function getPosCountersWithStatus(
     const countersRef = adminDb.collection("tenants").doc(tenantId).collection("posCounters");
     const shiftsRef = adminDb.collection("tenants").doc(tenantId).collection("posShifts");
 
-    let countersSnap = await countersRef.orderBy("createdAt", "asc").get();
-
-    // Auto-seed default counters if none exist so cashiers and managers have instant access
-    if (countersSnap.empty) {
-      try {
-        const bcrypt = (await import("bcryptjs")).default;
-        const defaultPin = await bcrypt.hash("1234", 10);
-        const seedCounters = [
-          { name: "POS Terminal 1 - Ground Floor", branchCode: branchCode || "ANIMUS" },
-          { name: "POS Terminal 2 - Godown", branchCode: branchCode || "ANIMUS" },
-        ];
-        for (const sc of seedCounters) {
-          const docRef = countersRef.doc();
-          await docRef.set({
-            id: docRef.id,
-            name: sc.name,
-            pin: defaultPin,
-            assignedStaffId: null,
-            assignedStaffName: null,
-            isActive: true,
-            branchCode: sc.branchCode,
-            tenantId,
-            createdAt: new Date(),
-            createdBy: "SYSTEM_INITIALIZE",
-            failedAttempts: 0,
-            lockedUntil: null,
-          });
-        }
-        countersSnap = await countersRef.orderBy("createdAt", "asc").get();
-      } catch (seedErr) {
-        console.error("Auto-seed posCounters error:", seedErr);
-      }
-    }
-
-    const openShiftsSnap = await shiftsRef.where("status", "==", "OPEN").get();
+    const [countersSnap, openShiftsSnap] = await Promise.all([
+      countersRef.orderBy("createdAt", "asc").get(),
+      shiftsRef.where("status", "==", "OPEN").get(),
+    ]);
 
     const openShiftsMap: Record<string, PosShift> = {};
     openShiftsSnap.docs.forEach((doc) => {

@@ -45,8 +45,8 @@ export function PrintReceipt({ data }: { data: ReceiptData }) {
           <span style={{ fontSize: 9 }}>{data.timestamp}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, marginTop: 2 }}>
-          <span>Cashier: {data.cashierName || "Staff"}</span>
-          <span>{data.counterName || "POS Terminal"}</span>
+          <span>Billed By: {data.cashierName || "Cashier"}</span>
+          <span>Staff POS Checkout</span>
         </div>
         <Dashed />
 

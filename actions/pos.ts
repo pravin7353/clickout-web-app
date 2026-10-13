@@ -558,7 +558,6 @@ export async function createPosOrder(params: {
     }
 
     // Write audit log
-    const resolvedCounterName = params.counterName || "POS Terminal 1 - Ground Floor";
     const cashierDisplayName = session.user?.name ?? "Cashier Staff";
 
     batch.set(adminDb.collection("admin_audit_logs").doc(), {
@@ -572,10 +571,8 @@ export async function createPosOrder(params: {
       invoiceNo,
       totalAmount,
       cashierName: cashierDisplayName,
-      counterName: resolvedCounterName,
-      terminalName: resolvedCounterName,
       paymentMode: params.paymentMode,
-      details: `POS Order ${invoiceNo} (₹${totalAmount.toFixed(2)}) billed by ${cashierDisplayName} on ${resolvedCounterName} via ${params.paymentMode}`,
+      details: `POS Order ${invoiceNo} (₹${totalAmount.toFixed(2)}) billed by ${cashierDisplayName} via ${params.paymentMode}`,
       severity: "INFO",
       timestamp: FieldValue.serverTimestamp(),
     });
@@ -611,7 +608,6 @@ export async function createPosOrder(params: {
         invoiceNo,
         storeName: companyName,
         cashierName: cashierDisplayName,
-        counterName: resolvedCounterName,
         address: storeAddress,
         phone: storePhone,
         gstin: storeGstin,

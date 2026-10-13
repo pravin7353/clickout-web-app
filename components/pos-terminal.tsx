@@ -19,27 +19,13 @@ import { PrintReceipt, ReceiptData } from "@/components/print-receipt";
 import { Modal } from "@/components/profile-menu";
 import { Card, Button, Input, Badge, ErrorBanner } from "@/components/ui";
 import { FlashSaleCountdown } from "@/components/flash-sale-countdown";
-import { PosCounterWithShift } from "@/lib/services/pos-counter-service";
-
-export type ActivePosShiftInfo = {
-  shiftId: string;
-  counterName: string;
-  openedByName: string;
-  shiftTotalAmount: number;
-  transactionCount: number;
-};
-
 export function PosTerminal({
   branchCode,
-  canEdit = false,
-  shiftInfo,
-  counters = [],
+  canEdit = true,
   currentUser,
 }: {
   branchCode?: string | null;
   canEdit?: boolean;
-  shiftInfo?: ActivePosShiftInfo;
-  counters?: PosCounterWithShift[];
   currentUser?: {
     name?: string;
     email?: string;
@@ -47,31 +33,6 @@ export function PosTerminal({
     role?: string;
   };
 }) {
-  const [activeCounterId, setActiveCounterId] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem(`clickout_pos_counter_${branchCode || "default"}`);
-      if (saved && counters.some((c) => c.id === saved)) return saved;
-    }
-    const withShift = counters.find((c) => c.activeShift && c.activeShift.status === "OPEN");
-    if (withShift) return withShift.id;
-    return counters[0]?.id || "";
-  });
-
-  useEffect(() => {
-    if (!activeCounterId && counters.length > 0) {
-      const withShift = counters.find((c) => c.activeShift && c.activeShift.status === "OPEN");
-      setActiveCounterId(withShift?.id || counters[0].id);
-    }
-  }, [counters, activeCounterId]);
-
-  function handleCounterChange(newId: string) {
-    setActiveCounterId(newId);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(`clickout_pos_counter_${branchCode || "default"}`, newId);
-    }
-  }
-  const [currentShiftSales, setCurrentShiftSales] = useState(shiftInfo?.shiftTotalAmount || 0);
-  const [currentShiftTxns, setCurrentShiftTxns] = useState(shiftInfo?.transactionCount || 0);
 
   const [barcodeInput, setBarcodeInput] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -331,29 +292,17 @@ export function PosTerminal({
     setSuccess("");
 
     startTransition(async () => {
-      const activeCounter = counters.find((c) => c.id === activeCounterId) || counters[0];
-      const counterName = shiftInfo?.counterName || activeCounter?.name || "POS Terminal 1 - Ground Floor";
-      const counterId = activeCounter?.id;
-      const resolvedShiftId = shiftInfo?.shiftId || activeCounter?.activeShift?.id;
-
       const res = await createPosOrder({
         items: cart,
         paymentMode,
         customerPhone: customerPhone ? customerPhone.trim() : undefined,
         instantDiscountPercent: instantDiscount,
         targetBranchCode: branchCode ?? undefined,
-        shiftId: resolvedShiftId,
-        counterId,
-        counterName,
       });
 
       if (!res.ok) {
         setError(res.error ?? "Checkout failed.");
       } else {
-        if (shiftInfo) {
-          setCurrentShiftSales((prev) => prev + netEstimatedTotal);
-          setCurrentShiftTxns((prev) => prev + 1);
-        }
         const discountMsg = res.discountApplied && res.discountApplied > 0
           ? ` · Saved ₹${res.discountApplied.toFixed(0)}`
           : "";
@@ -361,7 +310,7 @@ export function PosTerminal({
           ? ` · ${res.freeItems} free bonus item(s)!`
           : "";
 
-        setSuccess(`✅ Sale complete! Invoice: ${res.invoiceNo} · Billed on ${counterName}${discountMsg}${freeMsg}`);
+        setSuccess(`✅ Sale complete! Invoice: ${res.invoiceNo}${discountMsg}${freeMsg}`);
         setCart([]);
         setInstantDiscount(0);
         setCustomerPhone("");
@@ -380,211 +329,74 @@ export function PosTerminal({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Active Multi-Counter POS Terminal Shift Banner */}
-      {shiftInfo ? (
-        <div
-          style={{
-            padding: "16px 20px",
-            borderRadius: 18,
-            background: "linear-gradient(135deg, rgba(0, 210, 106, 0.12) 0%, rgba(0, 210, 106, 0.04) 100%)",
-            border: "1px solid var(--success)",
-            boxShadow: "0 4px 18px rgba(0, 210, 106, 0.12)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 14,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: "rgba(0, 210, 106, 0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 22,
-              }}
-            >
-              🖥️
-            </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 17, fontWeight: 900, color: "var(--text-primary)" }}>
-                  {shiftInfo.counterName}
-                </span>
-                <span
-                  style={{
-                    padding: "2px 8px",
-                    borderRadius: 8,
-                    background: "rgba(0, 210, 106, 0.2)",
-                    color: "var(--success)",
-                    fontSize: 11,
-                    fontWeight: 800,
-                  }}
-                >
-                  🟢 ACTIVE SHIFT
-                </span>
-              </div>
-              <div
+      {/* Active Cashier POS Terminal Banner */}
+      <div
+        style={{
+          padding: "16px 20px",
+          borderRadius: 16,
+          background: "linear-gradient(135deg, rgba(0, 210, 106, 0.12) 0%, rgba(0, 210, 106, 0.04) 100%)",
+          border: "1px solid rgba(0, 210, 106, 0.35)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: "rgba(0, 210, 106, 0.18)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 22,
+            }}
+          >
+            🛒
+          </div>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 18, fontWeight: 900, color: "var(--text-primary)" }}>
+                ClickOut POS Terminal
+              </span>
+              <span
                 style={{
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                  marginTop: 3,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
+                  padding: "2px 8px",
+                  borderRadius: 8,
+                  background: "rgba(0, 210, 106, 0.2)",
+                  color: "var(--success)",
+                  fontSize: 11,
+                  fontWeight: 800,
                 }}
               >
-                <span>
-                  Cashier: <strong style={{ color: "var(--text-primary)" }}>{shiftInfo.openedByName}</strong>
-                </span>
-                <span>·</span>
-                <span>
-                  Shift: <strong style={{ color: "var(--success)" }}>₹{currentShiftSales.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</strong>
-                </span>
-                <span>({currentShiftTxns} txns)</span>
-              </div>
+                🟢 ACTIVE CASHIER
+              </span>
             </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  sessionStorage.removeItem("activeShift");
-                }
-                const bUrl = branchCode ? `/pos?store=${branchCode}` : "/pos";
-                window.location.href = bUrl;
-              }}
+            <div
               style={{
-                padding: "8px 16px",
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                background: "var(--card-bg)",
-                color: "var(--text-primary)",
                 fontSize: 13,
-                fontWeight: 700,
-                cursor: "pointer",
+                color: "var(--text-secondary)",
+                marginTop: 3,
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
-                boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                gap: 8,
+                flexWrap: "wrap",
               }}
             >
-              <span>🔒 Lock / Switch Counter</span>
-            </button>
-          </div>
-        </div>
-      ) : counters.length > 0 ? (
-        <div
-          style={{
-            padding: "16px 20px",
-            borderRadius: 18,
-            background: "linear-gradient(135deg, rgba(0, 210, 106, 0.10) 0%, rgba(0, 210, 106, 0.03) 100%)",
-            border: "1px solid rgba(0, 210, 106, 0.35)",
-            boxShadow: "0 4px 18px rgba(0, 210, 106, 0.08)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 14,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: "rgba(0, 210, 106, 0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 22,
-              }}
-            >
-              🖥️
-            </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-secondary)" }}>
-                  POS TERMINAL:
-                </span>
-                <select
-                  value={activeCounterId}
-                  onChange={(e) => handleCounterChange(e.target.value)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(0, 210, 106, 0.4)",
-                    background: "var(--card-bg)",
-                    color: "var(--text-primary)",
-                    fontSize: 14,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    outline: "none",
-                  }}
-                >
-                  {counters.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.activeShift ? "🟢 (Open Shift)" : ""}
-                    </option>
-                  ))}
-                </select>
-                <span
-                  style={{
-                    padding: "3px 10px",
-                    borderRadius: 8,
-                    background: "rgba(0, 210, 106, 0.2)",
-                    color: "var(--success)",
-                    fontSize: 11,
-                    fontWeight: 800,
-                  }}
-                >
-                  🟢 ACTIVE &amp; READY TO BILL
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--text-secondary)",
-                  marginTop: 4,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <span>
-                  Billed By: <strong style={{ color: "var(--text-primary)" }}>{currentUser?.name || "Cashier Staff"}</strong>
-                </span>
-                {currentUser?.staffId && (
-                  <span>
-                    · Staff ID: <strong style={{ color: "var(--text-secondary)" }}>{currentUser.staffId}</strong>
-                  </span>
-                )}
-                <span>
-                  · Store: <strong style={{ color: "var(--text-secondary)" }}>{branchCode || "ANIMUS"}</strong>
-                </span>
-              </div>
+              <span>
+                Billed By: <strong style={{ color: "var(--text-primary)" }}>{currentUser?.name || "Cashier Staff"}</strong>
+              </span>
+              {currentUser?.email && <span>· <span>{currentUser.email}</span></span>}
+              {currentUser?.staffId && <span>· Staff ID: <strong style={{ color: "var(--text-secondary)" }}>{currentUser.staffId}</strong></span>}
+              {branchCode && <span>· Store: <strong style={{ color: "var(--text-secondary)" }}>{branchCode}</strong></span>}
             </div>
           </div>
         </div>
-      ) : null}
-
-      {/* Scope banner if applicable (when not in multi-counter shift view) */}
-      {!shiftInfo && branchCode && (
-        <div style={{ fontSize: 13, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 6 }}>
-          <span>Active POS Location:</span>
-          <Badge color="var(--primary)">{branchCode}</Badge>
-        </div>
-      )}
+      </div>
 
       {error && <ErrorBanner message={error} />}
       {success && (
