@@ -1,5 +1,6 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
+import { CashierLogoutButton } from "@/components/pos/cashier-logout-button";
 import { MyIncentiveCard } from "@/components/my-incentive-card";
 import { CashierTabsClient } from "@/components/pos/cashier-tabs-client";
 import { getPosCountersWithStatus } from "@/lib/services/pos-counter-service";
@@ -49,6 +50,7 @@ export default async function CashierPage({
       <PageHeader
         title="Assisted Checkout — POS Terminal"
         subtitle="Staff-assisted direct checkout for cashier billing."
+        action={<CashierLogoutButton role={role} cashierName={session.user?.name || undefined} />}
       />
 
       {role === "cashier" && (

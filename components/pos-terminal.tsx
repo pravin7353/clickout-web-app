@@ -26,6 +26,8 @@ import {
   purchaseExtraPosCounterAction,
 } from "@/actions/pos-session";
 import type { PosSessionCheckResult } from "@/lib/services/pos-session-service";
+import { signOut } from "next-auth/react";
+import { clientAuth } from "@/lib/firebase-client";
 export function PosTerminal({
   branchCode,
   canEdit = true,
@@ -213,6 +215,31 @@ export function PosTerminal({
   }
 
   const [isPending, startTransition] = useTransition();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  async function handleTerminalLogout() {
+    if (isLoggingOut) return;
+    if (cart.length > 0) {
+      const confirmDiscard = window.confirm("You have active items in the cart. Are you sure you want to discard them and logout?");
+      if (!confirmDiscard) return;
+    } else {
+      const confirmLogout = window.confirm("Are you sure you want to end your cashier session and logout?");
+      if (!confirmLogout) return;
+    }
+
+    setIsLoggingOut(true);
+    try {
+      if (sessionId) {
+        await releasePosSessionAction({ sessionId }).catch(() => {});
+      }
+      try {
+        await clientAuth.signOut().catch(() => {});
+      } catch {}
+      await signOut({ callbackUrl: "/login" });
+    } catch {
+      window.location.href = "/login";
+    }
+  }
 
   // Load active promotion engine offers whenever branch changes
   useEffect(() => {
@@ -508,38 +535,65 @@ export function PosTerminal({
           </div>
         </div>
 
-        {/* Counter Slot Tracker Pill */}
-        {posSessionInfo && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "6px 14px",
-              borderRadius: 10,
-              background: posSessionAllowed === false ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.12)",
-              border: posSessionAllowed === false ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid rgba(59, 130, 246, 0.25)",
-            }}
-          >
-            <span style={{ fontSize: 13, fontWeight: 800, color: posSessionAllowed === false ? "#f87171" : "#60a5fa" }}>
-              Counters: {posSessionInfo.activeCount} / {posSessionInfo.maxAllowed} ({posSessionInfo.planName})
-            </span>
-            {posSessionInfo.extraCounters > 0 && (
-              <span
-                style={{
-                  fontSize: 11,
-                  background: "rgba(34, 197, 94, 0.2)",
-                  color: "var(--success)",
-                  padding: "1px 6px",
-                  borderRadius: 6,
-                  fontWeight: 700,
-                }}
-              >
-                +{posSessionInfo.extraCounters} Add-on
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Counter Slot Tracker Pill */}
+          {posSessionInfo && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 14px",
+                borderRadius: 10,
+                background: posSessionAllowed === false ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.12)",
+                border: posSessionAllowed === false ? "1px solid rgba(239, 68, 68, 0.35)" : "1px solid rgba(59, 130, 246, 0.25)",
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 800, color: posSessionAllowed === false ? "#f87171" : "#60a5fa" }}>
+                Counters: {posSessionInfo.activeCount} / {posSessionInfo.maxAllowed} ({posSessionInfo.planName})
               </span>
-            )}
-          </div>
-        )}
+              {posSessionInfo.extraCounters > 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    background: "rgba(34, 197, 94, 0.2)",
+                    color: "var(--success)",
+                    padding: "1px 6px",
+                    borderRadius: 6,
+                    fontWeight: 700,
+                  }}
+                >
+                  +{posSessionInfo.extraCounters} Add-on
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* End Shift / Logout Button */}
+          <button
+            type="button"
+            onClick={handleTerminalLogout}
+            disabled={isLoggingOut}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "7px 14px",
+              borderRadius: 10,
+              fontSize: 12,
+              fontWeight: 800,
+              background: "rgba(239, 68, 68, 0.12)",
+              color: "#ef4444",
+              border: "1px solid rgba(239, 68, 68, 0.35)",
+              cursor: isLoggingOut ? "not-allowed" : "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="End shift and Logout"
+          >
+            <span style={{ fontSize: 13 }}>⏻</span>
+            <span>{isLoggingOut ? "Signing out..." : "Logout"}</span>
+          </button>
+        </div>
       </div>
 
       {/* POS Terminal Limit Exceeded Alert Banner */}
