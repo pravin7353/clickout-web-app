@@ -39,3 +39,12 @@ export function effectiveMaxTx(plan: SubscriptionPlan, extraStoresPurchased: num
   if (cfg.baseTx === 'unlimited') return 'unlimited';
   return cfg.baseTx + (cfg.extraStoreTx * (extraStoresPurchased > 0 ? extraStoresPurchased : 0));
 }
+
+export const STAFF_BLOCK_PRICE = 199;
+export const STAFF_BLOCK_SIZE = 10;
+
+export function effectiveMaxStaff(plan: SubscriptionPlan, extraStaffPurchased: number): number | 'unlimited' {
+  const cfg = PLAN_CONFIG[plan];
+  if (cfg.maxStaff === 'unlimited') return 'unlimited';
+  return cfg.maxStaff + (extraStaffPurchased > 0 ? extraStaffPurchased : 0);
+}

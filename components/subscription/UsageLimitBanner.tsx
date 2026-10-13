@@ -12,8 +12,9 @@ import {
   PLAN_CONFIG,
   planFromString,
   effectiveMaxStores,
+  effectiveMaxStaff,
 } from "@/lib/subscription/plan";
-import { purchaseExtraStore } from "@/actions/subscription";
+import { purchaseExtraStore, purchaseStaffBlock } from "@/actions/subscription";
 import { UpgradePopup } from "./UpgradePopup";
 
 interface UsageLimitBannerProps {
@@ -63,8 +64,10 @@ export function UsageLimitBanner({
   );
 
   const cfg = PLAN_CONFIG[resolvedPlan];
+  const maxStaff = effectiveMaxStaff(resolvedPlan, sub.extraStaffPurchased);
+  const isStaffLimitHit = maxStaff !== "unlimited" && currentStaffCount >= maxStaff;
   const staffApproaching =
-    cfg.maxStaff !== "unlimited" && currentStaffCount >= cfg.maxStaff * 0.9;
+    maxStaff !== "unlimited" && currentStaffCount >= maxStaff * 0.9;
 
   const maxStores = effectiveMaxStores(resolvedPlan, extraStoresPurchased);
   const isStoreLimitHit = maxStores !== "unlimited" && currentStoreCount >= maxStores;
@@ -72,7 +75,7 @@ export function UsageLimitBanner({
     maxStores !== "unlimited" &&
     (currentStoreCount >= maxStores || (maxStores > 1 && currentStoreCount >= maxStores - 1));
 
-  if (!txWarning && !staffApproaching && !isStoreCloseToLimit) {
+  if (!txWarning && !staffApproaching && !isStaffLimitHit && !isStoreCloseToLimit && !isStoreLimitHit) {
     return null;
   }
 
@@ -89,8 +92,18 @@ export function UsageLimitBanner({
         ? `Buy an extra store slot (+₹${cfg.extraStorePrice}/mo) to add more stores seamlessly.`
         : "Upgrade your plan to add more locations."
     }`;
+  } else if (isStaffLimitHit) {
+    warningText = `You have reached your staff account limit (${currentStaffCount}/${maxStaff} used). ${
+      resolvedPlan === "pro" || resolvedPlan === "growth"
+        ? "Buy a Staff Block (+10 for ₹199/mo) or upgrade your plan."
+        : "Upgrade your plan to add more staff accounts."
+    }`;
   } else if (staffApproaching) {
-    warningText = "You are approaching your staff account limit. Upgrade to add more team members.";
+    warningText = `You are approaching your staff account limit (${currentStaffCount}/${maxStaff} used). ${
+      resolvedPlan === "pro" || resolvedPlan === "growth"
+        ? "Buy a Staff Block (+10 for ₹199/mo) or upgrade your plan."
+        : "Upgrade your plan to add more staff accounts."
+    }`;
   } else if (txWarning) {
     warningText = "You've used 90% of your monthly transactions. Upgrade to avoid disruption.";
   }
@@ -122,7 +135,36 @@ export function UsageLimitBanner({
     });
   };
 
+  const handleBuyStaffBlock = () => {
+    setActionMsg(null);
+    startTransition(async () => {
+      try {
+        const res = await purchaseStaffBlock(sub.tenantId || undefined);
+        if (res.ok) {
+          setActionMsg({
+            type: "success",
+            text: res.message || "Staff Block (+10) added successfully!",
+          });
+          sub.refresh();
+          setTimeout(() => setActionMsg(null), 5000);
+        } else {
+          setActionMsg({
+            type: "error",
+            text: res.error || "Failed to purchase staff block.",
+          });
+        }
+      } catch (err: any) {
+        setActionMsg({
+          type: "error",
+          text: err?.message || "Purchase failed. Please try again.",
+        });
+      }
+    });
+  };
+
   const canBuyExtraStore = (isStoreLimitHit || isStoreCloseToLimit) && cfg.extraStorePrice !== null;
+  const canBuyStaffBlock =
+    (resolvedPlan === "pro" || resolvedPlan === "growth") && (isStaffLimitHit || staffApproaching);
 
   return (
     <>
@@ -176,6 +218,33 @@ export function UsageLimitBanner({
               }}
             >
               {isPending ? "Processing..." : `+ Buy Extra Store (₹${cfg.extraStorePrice}/mo)`}
+            </button>
+          )}
+
+          {canBuyStaffBlock && (
+            <button
+              type="button"
+              onClick={handleBuyStaffBlock}
+              disabled={isPending}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "none",
+                background: "#a855f7",
+                color: "#ffffff",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: isPending ? "not-allowed" : "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+                boxShadow: "0 2px 8px rgba(168, 85, 247, 0.25)",
+                flexShrink: 0,
+                opacity: isPending ? 0.7 : 1,
+              }}
+            >
+              {isPending ? "Processing..." : "+ Buy Staff Block (+10 @ ₹199/mo)"}
             </button>
           )}
 

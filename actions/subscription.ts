@@ -3,7 +3,7 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { auth } from "@/lib/auth";
 import { requireRole } from "@/lib/rbac";
-import { planFromString, SubscriptionPlan, PLAN_CONFIG } from "@/lib/subscription/plan";
+import { planFromString, SubscriptionPlan, PLAN_CONFIG, STAFF_BLOCK_PRICE, STAFF_BLOCK_SIZE } from "@/lib/subscription/plan";
 import { upgradeTenantPlanSchema } from "@/lib/schemas/tenant-schema";
 import { scanResellerIpPatterns, getResellerFlags } from "@/lib/services/trust-service";
 import { FieldValue } from "firebase-admin/firestore";
@@ -16,6 +16,8 @@ export type TenantSubscriptionInfo = {
   trialEndsAt: string | null;
   extraStoresPurchased: number;
   extraPosCountersPurchased: number;
+  extraStaffPurchased: number;
+  extraStaffBlocksPurchased: number;
   currentTransactions: number;
   currentStaffCount: number;
   currentStoreCount: number;
@@ -31,6 +33,8 @@ export async function getTenantSubscriptionInfo(): Promise<TenantSubscriptionInf
     trialEndsAt: null,
     extraStoresPurchased: 0,
     extraPosCountersPurchased: 0,
+    extraStaffPurchased: 0,
+    extraStaffBlocksPurchased: 0,
     currentTransactions: 0,
     currentStaffCount: 0,
     currentStoreCount: 0,
@@ -57,12 +61,21 @@ export async function getTenantSubscriptionInfo(): Promise<TenantSubscriptionInf
       trialEndsAtStr = new Date(start.getTime() + 14 * 86400000).toISOString();
     }
 
+    const extraStaffPurchased = Number(
+      data.extraStaffPurchased ?? (data.extraStaffBlocksPurchased ? Number(data.extraStaffBlocksPurchased) * 10 : 0)
+    );
+    const extraStaffBlocksPurchased = Number(
+      data.extraStaffBlocksPurchased ?? (extraStaffPurchased > 0 ? Math.floor(extraStaffPurchased / 10) : 0)
+    );
+
     return {
       plan: planFromString(data.subscriptionPlan),
       billingStatus: (data.billingStatus ?? "active").toString().toLowerCase(),
       trialEndsAt: trialEndsAtStr,
       extraStoresPurchased: Number(data.extraStoresPurchased ?? 0),
       extraPosCountersPurchased: Number(data.extraPosCountersPurchased ?? 0),
+      extraStaffPurchased,
+      extraStaffBlocksPurchased,
       currentTransactions: Number(data.currentTransactions ?? 0),
       currentStaffCount: Number(data.activeStaff ?? data.staffCount ?? 0),
       currentStoreCount: Number(data.activeStores ?? 0),
@@ -153,6 +166,93 @@ export async function purchaseExtraStore(tenantId?: string) {
     return {
       ok: false,
       error: err?.message || "Failed to complete extra store slot purchase.",
+    };
+  }
+}
+
+/**
+ * Purchases a Staff Block (+10 accounts for ₹199/month).
+ * Increments extraStaffPurchased by 10 and extraStaffBlocksPurchased by 1 on tenant document.
+ * Restricted to tenant_admin and super_admin.
+ */
+export async function purchaseStaffBlock(tenantId?: string) {
+  const { session, role, tenantId: sessionTenantId } = await requireRole([
+    "super_admin",
+    "tenant_admin",
+  ]);
+
+  const effectiveTenantId = role === "super_admin" ? (tenantId || sessionTenantId) : sessionTenantId;
+  if (!effectiveTenantId) {
+    return { ok: false, error: "Tenant ID is required." };
+  }
+
+  if (role !== "super_admin" && tenantId && tenantId !== sessionTenantId) {
+    return { ok: false, error: "Unauthorized tenant access." };
+  }
+
+  const tenantRef = adminDb.collection("tenants").doc(effectiveTenantId);
+  const tenantDoc = await tenantRef.get();
+  if (!tenantDoc.exists) {
+    return { ok: false, error: "Tenant record not found." };
+  }
+
+  const tenantData = tenantDoc.data() || {};
+  const currentPlan = planFromString(tenantData.subscriptionPlan);
+  const planConfig = PLAN_CONFIG[currentPlan];
+
+  if (currentPlan === "spark_lite" || currentPlan === "spark" || currentPlan === "mini") {
+    return {
+      ok: false,
+      error: `Staff add-on blocks are available for Pro and Growth plans. Upgrade to Pro to add more staff accounts.`,
+    };
+  }
+
+  const currentExtraStaff = Number(
+    tenantData.extraStaffPurchased ?? (tenantData.extraStaffBlocksPurchased ? Number(tenantData.extraStaffBlocksPurchased) * 10 : 0)
+  );
+  const newExtraStaff = currentExtraStaff + STAFF_BLOCK_SIZE;
+  const newBlocks = Number(tenantData.extraStaffBlocksPurchased ?? (currentExtraStaff > 0 ? Math.floor(currentExtraStaff / 10) : 0)) + 1;
+
+  try {
+    await tenantRef.update({
+      extraStaffPurchased: FieldValue.increment(STAFF_BLOCK_SIZE),
+      extraStaffBlocksPurchased: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    const actorEmail = session.user?.email || (session.user as any)?.uid || "Admin";
+    await adminDb.collection("admin_audit_logs").add({
+      action: "STAFF_BLOCK_ADDON_PURCHASED",
+      actionType: "STAFF_BLOCK_ADDON_PURCHASED",
+      tenantId: effectiveTenantId,
+      actor: actorEmail,
+      actorId: actorEmail,
+      plan: currentPlan,
+      amountPaid: STAFF_BLOCK_PRICE,
+      currency: "INR",
+      previousExtraStaff: currentExtraStaff,
+      newExtraStaff,
+      details: `Purchased 1 Staff Block (+10 accounts) for ₹${STAFF_BLOCK_PRICE}/mo under ${planConfig.displayName} plan. Total extra staff: ${newExtraStaff}.`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/usage");
+    revalidatePath("/manager");
+    revalidatePath("/tenant-admin");
+    revalidatePath("/staff");
+
+    return {
+      ok: true,
+      extraStaffPurchased: newExtraStaff,
+      extraStaffBlocksPurchased: newBlocks,
+      price: STAFF_BLOCK_PRICE,
+      message: `Successfully purchased 1 Staff Block (+10 accounts) for ₹${STAFF_BLOCK_PRICE}/month!`,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message || "Failed to complete staff block purchase.",
     };
   }
 }

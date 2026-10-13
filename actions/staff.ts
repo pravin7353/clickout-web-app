@@ -62,13 +62,17 @@ export async function onboardStaff(raw: unknown) {
       trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
     }
 
-    if (!trialActive && isStaffLimitReached(rawPlan, staffCount)) {
+    const extraStaffPurchased = Number(
+      tData.extraStaffPurchased ?? (tData.extraStaffBlocksPurchased ? Number(tData.extraStaffBlocksPurchased) * 10 : 0)
+    );
+
+    if (!trialActive && isStaffLimitReached(rawPlan, staffCount, extraStaffPurchased)) {
       return {
         ok: false,
         success: false,
         reason: "staff_limit_reached",
-        error: "Staff account limit reached for your plan. Upgrade to add more staff.",
-        message: "Staff account limit reached for your plan. Upgrade to add more staff.",
+        error: "Staff account limit reached for your plan. Purchase a Staff Block (+10) for ₹199/month or upgrade to add more staff.",
+        message: "Staff account limit reached for your plan. Purchase a Staff Block (+10) for ₹199/month or upgrade to add more staff.",
       };
     }
   }

@@ -55,6 +55,8 @@ export function useTenantSubscription() {
     trialEndsAt: trialEndsAtDate,
     isTrialActive: trialActive,
     extraStoresPurchased: info?.extraStoresPurchased ?? 0,
+    extraStaffPurchased: info?.extraStaffPurchased ?? 0,
+    extraStaffBlocksPurchased: info?.extraStaffBlocksPurchased ?? 0,
     currentTransactions: info?.currentTransactions ?? 0,
     currentStaffCount: info?.currentStaffCount ?? 0,
     currentStoreCount: info?.currentStoreCount ?? 0,

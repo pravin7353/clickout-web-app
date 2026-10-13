@@ -192,3 +192,12 @@ export function getEffectiveTxnLimit(plan: string, extraStoreCount: number): num
   return limits.baseTxnsPerMonth + (Math.min(Math.max(0, extraStoreCount), limits.maxExtraStores) * limits.extraStoreTxns);
 }
 
+export const STAFF_BLOCK_PRICE = 199;
+export const STAFF_BLOCK_SIZE = 10;
+
+export function getEffectiveStaffLimit(plan: string, extraStaffPurchased: number): number {
+  const normalized = (plan || "spark_lite").toLowerCase();
+  const limits = PLAN_LIMITS[normalized] ?? PLAN_LIMITS["spark_lite"];
+  return limits.maxStaff + Math.max(0, extraStaffPurchased);
+}
+

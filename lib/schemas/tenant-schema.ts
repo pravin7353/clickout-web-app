@@ -65,6 +65,8 @@ export interface TenantDocument {
   billingStatus?: string;
   extraStoresPurchased?: number;
   extraPosCountersPurchased?: number;
+  extraStaffPurchased?: number;
+  extraStaffBlocksPurchased?: number;
   maxStores?: number;
   maxUsers?: number;
   isActive?: boolean;

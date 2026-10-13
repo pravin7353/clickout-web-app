@@ -223,7 +223,7 @@ export default async function UsagePage() {
           percent={staffPercent}
           color="#a855f7"
           unit="staff"
-          subDetail="Role-based team accounts"
+          subDetail={limits.extraStaffPurchased > 0 ? `base: ${limits.baseStaff}, +${limits.extraStaffPurchased} add-on (${limits.extraStaffBlocksPurchased} blocks)` : "Role-based team accounts (Add-on: ₹199/mo for +10 staff)"}
           forceRed={staffPercent > 80}
         />
 

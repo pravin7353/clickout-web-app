@@ -44,6 +44,9 @@ export type UsageData = {
 
 export type TenantLimits = {
   maxUsers: number;
+  baseStaff: number;
+  extraStaffPurchased: number;
+  extraStaffBlocksPurchased: number;
   maxStores: number;
   baseStores: number;
   maxExtraStores: number;
@@ -95,7 +98,14 @@ export async function getUsage(tenantId: string): Promise<{ usage: UsageData; li
   const maxStores = baseStores + extraStoresPurchased;
 
   const maxTransactions = getEffectiveTxnLimit(rawPlanKey, extraStoresPurchased);
-  const maxUsers = limitsDef.maxStaff;
+  const extraStaffPurchased = Number(
+    t.extraStaffPurchased ?? (t.extraStaffBlocksPurchased ? Number(t.extraStaffBlocksPurchased) * 10 : 0)
+  );
+  const extraStaffBlocksPurchased = Number(
+    t.extraStaffBlocksPurchased ?? (extraStaffPurchased > 0 ? Math.floor(extraStaffPurchased / 10) : 0)
+  );
+  const baseStaff = limitsDef.maxStaff;
+  const maxUsers = limitsDef.maxStaff + extraStaffPurchased;
   const extraPosCounters = Number(t.extraPosCountersPurchased ?? 0);
   const maxPosCounters = limitsDef.maxPosCounters + extraPosCounters;
 
@@ -176,6 +186,9 @@ export async function getUsage(tenantId: string): Promise<{ usage: UsageData; li
     },
     limits: {
       maxUsers: t.maxUsers ?? maxUsers,
+      baseStaff,
+      extraStaffPurchased,
+      extraStaffBlocksPurchased,
       maxStores: t.maxStores ?? maxStores,
       baseStores,
       maxExtraStores,

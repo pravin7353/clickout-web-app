@@ -5,6 +5,7 @@ import {
   planFromString,
   effectiveMaxStores,
   effectiveMaxTx,
+  effectiveMaxStaff,
 } from './plan';
 import {
   ROUTE_MIN_PLAN,
@@ -83,12 +84,13 @@ export function isTransactionWarning(
 
 export function isStaffLimitReached(
   plan: SubscriptionPlan | string,
-  currentCount: number
+  currentCount: number,
+  extraStaffPurchased: number = 0
 ): boolean {
   const resolvedPlan = planFromString(plan);
-  const cfg = PLAN_CONFIG[resolvedPlan];
-  if (cfg.maxStaff === 'unlimited') return false;
-  return currentCount >= cfg.maxStaff;
+  const max = effectiveMaxStaff(resolvedPlan, extraStaffPurchased);
+  if (max === 'unlimited') return false;
+  return currentCount >= max;
 }
 
 export function isStoreLimitReached(
