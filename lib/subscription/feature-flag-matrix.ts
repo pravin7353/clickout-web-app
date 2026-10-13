@@ -18,6 +18,7 @@ export const ROUTE_MIN_PLAN: Record<string, SubscriptionPlan> = {
   'hr': 'growth',
   'finance': 'growth',
   'employee': 'growth',
+  'inventory_transfer': 'growth',
 };
 
 export const ROUTE_UPGRADE_MESSAGE: Record<string, string> = {
@@ -38,6 +39,7 @@ export const ROUTE_UPGRADE_MESSAGE: Record<string, string> = {
   'hr': 'Upgrade to Growth for HR, Workforce & Incentive Operations',
   'finance': 'Upgrade to Growth for CA-Suitable Finance & Ledger Suite',
   'employee': 'Upgrade to Growth for Employee Self-Service Portal',
+  'inventory_transfer': 'Upgrade to Growth for Inter-Branch Stock Transfers',
 };
 
 export const ROUTE_FEATURE_BULLETS: Record<string, string[]> = {
@@ -125,6 +127,11 @@ export const ROUTE_FEATURE_BULLETS: Record<string, string[]> = {
     'One-touch GPS attendance check-in & ping',
     'Leave quota tracker & regularization requests',
     'Digital profile & employment milestones',
+  ],
+  'inventory_transfer': [
+    'Cross-store inventory transfers',
+    'Inter-branch delivery challans & gate pass',
+    'Live in-transit stock reconciliation',
   ],
 };
 

@@ -1,9 +1,10 @@
-﻿import { requireRole, resolveStoreScope } from "@/lib/rbac";
+import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getLedger } from "@/lib/services/inventory-service";
 import { AddProductForm } from "@/components/add-product-form";
 import { CsvImport } from "@/components/csv-import";
 import { InventoryTableClient } from "@/components/inventory-table-client";
 import { PageHeader, Card, EmptyState, InfoTooltip } from "@/components/ui";
+import { adminDb } from "@/lib/firebase-admin";
 import Link from "next/link";
 
 const INVENTORY_FILTERS = [
@@ -22,6 +23,14 @@ export default async function InventoryPage({
   const { store: queryStore, q: searchQuery, filter: filterParam, page: pageParam } = await searchParams;
   const effectiveStoreId = resolveStoreScope(role, storeId, queryStore);
   const activeFilter = (filterParam ?? "ALL").toUpperCase();
+
+  let isGrowthPlan = false;
+  if (tenantId) {
+    const tDoc = await adminDb.collection("tenants").doc(tenantId).get();
+    const tData = tDoc.data() || {};
+    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toString().toLowerCase();
+    isGrowthPlan = planKey === "growth" || planKey === "enterprise" || planKey === "business" || planKey === "trial";
+  }
 
   const ledger = await getLedger(role, tenantId, effectiveStoreId, searchQuery, activeFilter);
 
@@ -54,7 +63,27 @@ export default async function InventoryPage({
         title="Product Control & Godown Ledger"
         subtitle={!canEdit ? "View-only — contact your store manager to modify stock or add products" : "Enterprise master product catalog, barcode tracking, and godown reconciliation."}
         action={
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <Link
+              href={`/inventory/transfers${effectiveStoreId ? `?store=${effectiveStoreId}` : ""}`}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 12,
+                border: isGrowthPlan ? "1px solid var(--primary)" : "1px solid var(--border)",
+                background: isGrowthPlan
+                  ? "color-mix(in srgb, var(--primary) 12%, var(--card-bg))"
+                  : "var(--card-bg)",
+                color: isGrowthPlan ? "var(--primary)" : "var(--text-secondary)",
+                textDecoration: "none",
+                fontSize: 13,
+                fontWeight: 700,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {isGrowthPlan ? "📦 Stock Transfers →" : "🔒 Stock Transfers (Growth)"}
+            </Link>
             <Link
               href={`/inventory/aging${effectiveStoreId ? `?store=${effectiveStoreId}` : ""}`}
               style={{

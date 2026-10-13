@@ -1,11 +1,12 @@
 "use server";
 
 import { adminDb } from "@/lib/firebase-admin";
-import { requireEditAccess } from "@/lib/rbac";
-import { addProductSchema } from "@/lib/schemas/product-schema";
+import { requireEditAccess, requireRole, requireRoutePlan } from "@/lib/rbac";
+import { addProductSchema, stockTransferRequestSchema } from "@/lib/schemas/product-schema";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
+import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 
 export async function addProduct(raw: unknown) {
   let session, role, tenantId, storeId;
@@ -679,4 +680,438 @@ export async function bulkBlockBatches(productIds: string[]) {
 
   revalidatePath("/inventory");
   return { ok: failCount === 0, successCount, failCount, errors };
+}
+
+// ==========================================
+// INTER-BRANCH STOCK TRANSFER ACTIONS (Growth Plan)
+// ==========================================
+
+export async function requestStockTransfer(raw: unknown) {
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "Unauthorized access" };
+  }
+  if (!tenantId) return { ok: false, error: "Tenant required" };
+
+  try {
+    await requireRoutePlan(tenantId, "inventory_transfer");
+  } catch {
+    return { ok: false, error: "Inter-branch stock transfer is a Growth plan feature. Please upgrade your plan." };
+  }
+
+  const parsed = stockTransferRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid transfer request" };
+  }
+  const data = parsed.data;
+
+  // Security: both fromBranchCode and toBranchCode must belong to same tenantId
+  const [fromStoreSnap, toStoreSnap] = await Promise.all([
+    adminDb
+      .collection("stores")
+      .where("tenantId", "==", tenantId)
+      .where("branchCode", "==", data.fromBranchCode)
+      .limit(1)
+      .get(),
+    adminDb
+      .collection("stores")
+      .where("tenantId", "==", tenantId)
+      .where("branchCode", "==", data.toBranchCode)
+      .limit(1)
+      .get(),
+  ]);
+
+  const fromStoreDoc = fromStoreSnap.docs.find((d) => d.data().isDeleted !== true);
+  const toStoreDoc = toStoreSnap.docs.find((d) => d.data().isDeleted !== true);
+
+  if (!fromStoreDoc || !toStoreDoc) {
+    return { ok: false, error: "Branch not found or access denied" };
+  }
+
+  // Check source branch has enough physicalStock
+  const sourceDocId = `${tenantId}_${data.fromBranchCode}_${data.barcode.trim()}`;
+  const sourceProdSnap = await adminDb.collection("products").doc(sourceDocId).get();
+  if (!sourceProdSnap.exists) {
+    return { ok: false, error: `Product with barcode ${data.barcode} not found at source branch (${data.fromBranchCode})` };
+  }
+  const sourceProd = sourceProdSnap.data()!;
+  const availableStock = Number(sourceProd.physicalStock ?? 0);
+  if (availableStock < data.quantityRequested) {
+    return { ok: false, error: `Insufficient stock at source branch (available: ${availableStock})` };
+  }
+
+  // Generate challanNumber: "TRF-{YYYYMMDD}-{random 4-digit}"
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const randomSeq = Math.floor(1000 + Math.random() * 9000);
+  const challanNumber = `TRF-${dateStr}-${randomSeq}`;
+
+  const transferRef = adminDb.collection("stock_transfers").doc();
+  const transferDoc = {
+    transferId: transferRef.id,
+    tenantId,
+    fromBranchCode: data.fromBranchCode,
+    toBranchCode: data.toBranchCode,
+    barcode: data.barcode.trim(),
+    productName: sourceProd.name ?? data.barcode.trim(),
+    quantityRequested: data.quantityRequested,
+    quantityDispatched: 0,
+    quantityReceived: 0,
+    status: "PENDING",
+    requestedBy: session.user?.email ?? "Store Manager",
+    requestedAt: FieldValue.serverTimestamp(),
+    notes: data.notes?.trim() || null,
+    challanNumber,
+  };
+
+  await transferRef.set(transferDoc);
+
+  await adminDb.collection("admin_audit_logs").add({
+    action: "STOCK_TRANSFER_REQUESTED",
+    actionType: "STOCK_TRANSFER_REQUESTED",
+    tenantId,
+    actorId: session.user?.email,
+    actorEmail: session.user?.email,
+    details: `Stock transfer ${challanNumber} requested: ${data.quantityRequested}x ${sourceProd.name} from ${data.fromBranchCode} to ${data.toBranchCode}`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/inventory");
+  revalidatePath("/inventory/transfers");
+  return { ok: true, transferId: transferRef.id, challanNumber };
+}
+
+export async function dispatchStockTransfer(transferId: string, quantityDispatched: number) {
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "Unauthorized access" };
+  }
+  if (!tenantId) return { ok: false, error: "Tenant required" };
+
+  const qty = Number(quantityDispatched);
+  if (isNaN(qty) || qty <= 0) {
+    return { ok: false, error: "Dispatched quantity must be at least 1" };
+  }
+
+  const transferRef = adminDb.collection("stock_transfers").doc(transferId);
+  const transferSnap = await transferRef.get();
+  if (!transferSnap.exists) {
+    return { ok: false, error: "Transfer request not found" };
+  }
+  const transfer = transferSnap.data()!;
+  if (transfer.tenantId !== tenantId) {
+    return { ok: false, error: "Access denied" };
+  }
+  if (transfer.status !== "PENDING") {
+    return { ok: false, error: `Cannot dispatch transfer in ${transfer.status} status` };
+  }
+
+  // Security: manager must belong to fromBranchCode
+  if (role === "manager" && storeId && storeId !== transfer.fromBranchCode) {
+    return { ok: false, error: "Only managers of the source branch can dispatch this transfer" };
+  }
+
+  const sourceDocId = `${tenantId}_${transfer.fromBranchCode}_${transfer.barcode}`;
+  const sourceProdRef = adminDb.collection("products").doc(sourceDocId);
+
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const sSnap = await tx.get(sourceProdRef);
+      if (!sSnap.exists) throw new Error("Source product not found in inventory");
+      const sData = sSnap.data()!;
+      const available = Number(sData.physicalStock ?? 0);
+      if (available < qty) {
+        throw new Error(`Insufficient stock at source branch (available: ${available}, requested to dispatch: ${qty})`);
+      }
+
+      // a. Deduct physicalStock
+      // b. Increment inTransitStock
+      tx.update(sourceProdRef, {
+        physicalStock: FieldValue.increment(-qty),
+        inTransitStock: FieldValue.increment(qty),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // c. Update transfer doc
+      tx.update(transferRef, {
+        status: "DISPATCHED",
+        quantityDispatched: qty,
+        dispatchedBy: session.user?.email ?? session.user?.name ?? "Store Manager",
+        dispatchedAt: FieldValue.serverTimestamp(),
+      });
+    });
+
+    await adminDb.collection("admin_audit_logs").add({
+      action: "STOCK_TRANSFER_DISPATCHED",
+      actionType: "STOCK_TRANSFER_DISPATCHED",
+      tenantId,
+      actorId: session.user?.email,
+      actorEmail: session.user?.email,
+      details: `Dispatched ${qty} units for transfer ${transfer.challanNumber || transferId} from ${transfer.fromBranchCode}`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/inventory");
+    revalidatePath("/inventory/transfers");
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Dispatch transaction failed" };
+  }
+}
+
+export async function receiveStockTransfer(transferId: string, quantityReceived: number) {
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "Unauthorized access" };
+  }
+  if (!tenantId) return { ok: false, error: "Tenant required" };
+
+  const qty = Number(quantityReceived);
+  if (isNaN(qty) || qty <= 0) {
+    return { ok: false, error: "Received quantity must be at least 1" };
+  }
+
+  const transferRef = adminDb.collection("stock_transfers").doc(transferId);
+  const transferSnap = await transferRef.get();
+  if (!transferSnap.exists) {
+    return { ok: false, error: "Transfer request not found" };
+  }
+  const transfer = transferSnap.data()!;
+  if (transfer.tenantId !== tenantId) {
+    return { ok: false, error: "Access denied" };
+  }
+  if (transfer.status !== "DISPATCHED") {
+    return { ok: false, error: `Cannot receive transfer in ${transfer.status} status` };
+  }
+
+  // Security: manager must belong to toBranchCode
+  if (role === "manager" && storeId && storeId !== transfer.toBranchCode) {
+    return { ok: false, error: "Only managers of the destination branch can receive this transfer" };
+  }
+
+  const sourceDocId = `${tenantId}_${transfer.fromBranchCode}_${transfer.barcode}`;
+  const destDocId = `${tenantId}_${transfer.toBranchCode}_${transfer.barcode}`;
+  const sourceProdRef = adminDb.collection("products").doc(sourceDocId);
+  const destProdRef = adminDb.collection("products").doc(destDocId);
+
+  try {
+    await adminDb.runTransaction(async (tx) => {
+      const [sourceSnap, destSnap] = await Promise.all([
+        tx.get(sourceProdRef),
+        tx.get(destProdRef),
+      ]);
+
+      const sData = sourceSnap.data() || {};
+
+      if (!destSnap.exists) {
+        tx.set(destProdRef, {
+          barcode: transfer.barcode,
+          name: sData.name ?? transfer.productName,
+          category: sData.category ?? "General",
+          itemType: "PRODUCT",
+          price: Number(sData.price ?? 0),
+          unitCost: Number(sData.unitCost ?? 0),
+          gst: sData.gst ?? "0",
+          physicalStock: qty,
+          openingStock: qty,
+          purchasedStock: 0,
+          soldStock: 0,
+          damagedStock: 0,
+          expiredStock: 0,
+          reservedStock: 0,
+          inTransitStock: 0,
+          weight: sData.weight ?? "",
+          expiryDate: sData.expiryDate ?? null,
+          tenantId,
+          branchCode: transfer.toBranchCode,
+          isBlocked: false,
+          addedBy: `Transferred from ${transfer.fromBranchCode}`,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        tx.update(destProdRef, {
+          physicalStock: FieldValue.increment(qty),
+          purchasedStock: FieldValue.increment(qty),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (sourceSnap.exists) {
+        tx.update(sourceProdRef, {
+          inTransitStock: FieldValue.increment(-Number(transfer.quantityDispatched || qty)),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      tx.update(transferRef, {
+        status: "RECEIVED",
+        quantityReceived: qty,
+        receivedBy: session.user?.email ?? session.user?.name ?? "Store Manager",
+        receivedAt: FieldValue.serverTimestamp(),
+      });
+    });
+
+    await adminDb.collection("admin_audit_logs").add({
+      action: "STOCK_TRANSFER_RECEIVED",
+      actionType: "STOCK_TRANSFER_RECEIVED",
+      tenantId,
+      actorId: session.user?.email,
+      actorEmail: session.user?.email,
+      details: `Received ${qty} units for transfer ${transfer.challanNumber || transferId} at branch ${transfer.toBranchCode}`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/inventory");
+    revalidatePath("/inventory/transfers");
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Receive transaction failed" };
+  }
+}
+
+export async function cancelStockTransfer(transferId: string, reason?: string) {
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "Unauthorized access" };
+  }
+  if (!tenantId) return { ok: false, error: "Tenant required" };
+
+  const transferRef = adminDb.collection("stock_transfers").doc(transferId);
+  const transferSnap = await transferRef.get();
+  if (!transferSnap.exists) {
+    return { ok: false, error: "Transfer request not found" };
+  }
+  const transfer = transferSnap.data()!;
+  if (transfer.tenantId !== tenantId) {
+    return { ok: false, error: "Access denied" };
+  }
+
+  if (transfer.status === "DISPATCHED") {
+    return { ok: false, error: "Cannot cancel a dispatched transfer. Contact the receiving branch." };
+  }
+  if (transfer.status !== "PENDING") {
+    return { ok: false, error: `Cannot cancel a transfer with status ${transfer.status}` };
+  }
+
+  if (role === "manager" && storeId && (storeId !== transfer.fromBranchCode && storeId !== transfer.toBranchCode)) {
+    return { ok: false, error: "Access denied" };
+  }
+
+  const updatedNotes = reason?.trim()
+    ? transfer.notes
+      ? `${transfer.notes} | Cancel reason: ${reason.trim()}`
+      : reason.trim()
+    : transfer.notes || null;
+
+  await transferRef.update({
+    status: "CANCELLED",
+    cancelledBy: session.user?.email ?? "Store Admin",
+    cancelledAt: FieldValue.serverTimestamp(),
+    notes: updatedNotes,
+  });
+
+  await adminDb.collection("admin_audit_logs").add({
+    action: "STOCK_TRANSFER_CANCELLED",
+    actionType: "STOCK_TRANSFER_CANCELLED",
+    tenantId,
+    actorId: session.user?.email,
+    actorEmail: session.user?.email,
+    details: `Cancelled stock transfer ${transfer.challanNumber || transferId}. Reason: ${reason || "N/A"}`,
+    severity: "INFO",
+    timestamp: FieldValue.serverTimestamp(),
+  });
+
+  revalidatePath("/inventory");
+  revalidatePath("/inventory/transfers");
+  return { ok: true };
+}
+
+export async function getStockTransfers(branchCode?: string, status?: string) {
+  let session, role, tenantId, storeId;
+  try {
+    ({ session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]));
+  } catch {
+    return { ok: false, error: "Unauthorized access", transfers: [] };
+  }
+  if (!tenantId) return { ok: true, transfers: [] };
+
+  try {
+    const snap = await adminDb
+      .collection("stock_transfers")
+      .where("tenantId", "==", tenantId)
+      .limit(150)
+      .get();
+
+    let transfers = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    // Scope filter for manager or branchCode
+    if (role === "manager" && storeId) {
+      transfers = transfers.filter(
+        (t: any) => t.fromBranchCode === storeId || t.toBranchCode === storeId
+      );
+    } else if (branchCode && branchCode !== "ALL") {
+      transfers = transfers.filter(
+        (t: any) => t.fromBranchCode === branchCode || t.toBranchCode === branchCode
+      );
+    }
+
+    if (status && status !== "ALL") {
+      transfers = transfers.filter((t: any) => t.status === status.toUpperCase());
+    }
+
+    // Sort by requestedAt descending
+    transfers.sort((a: any, b: any) => {
+      const aTime = a.requestedAt?.toMillis ? a.requestedAt.toMillis() : (a.requestedAt?._seconds ? a.requestedAt._seconds * 1000 : 0);
+      const bTime = b.requestedAt?.toMillis ? b.requestedAt.toMillis() : (b.requestedAt?._seconds ? b.requestedAt._seconds * 1000 : 0);
+      return bTime - aTime;
+    });
+
+    return {
+      ok: true,
+      transfers: serializeFirestoreDoc(transfers),
+    };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Failed to fetch transfers", transfers: [] };
+  }
+}
+
+export async function getProductStockAtBranch(barcode: string, branchCode: string) {
+  const { tenantId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+  if (!tenantId || !barcode || !branchCode) {
+    return { ok: false, error: "Missing barcode or branch" };
+  }
+
+  const cleanBarcode = barcode.trim();
+  const cleanBranch = branchCode.trim().toUpperCase();
+  const docId = `${tenantId}_${cleanBranch}_${cleanBarcode}`;
+
+  const doc = await adminDb.collection("products").doc(docId).get();
+  if (!doc.exists) {
+    return { ok: false, error: `Product not found at branch ${cleanBranch}` };
+  }
+  const data = doc.data()!;
+  return {
+    ok: true,
+    product: {
+      barcode: cleanBarcode,
+      name: data.name ?? cleanBarcode,
+      physicalStock: Number(data.physicalStock ?? 0),
+      price: Number(data.price ?? 0),
+    },
+  };
 }
