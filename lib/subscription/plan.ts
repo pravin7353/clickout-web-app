@@ -1,27 +1,30 @@
-export type SubscriptionPlan = 'trial' | 'mini' | 'pro' | 'growth' | 'business';
+export type SubscriptionPlan = 'trial' | 'spark_lite' | 'spark' | 'mini' | 'pro' | 'growth' | 'enterprise' | 'business';
 
-export const PLAN_HIERARCHY: SubscriptionPlan[] = ['trial', 'mini', 'pro', 'growth', 'business'];
+export const PLAN_HIERARCHY: SubscriptionPlan[] = ['trial', 'spark_lite', 'spark', 'mini', 'pro', 'growth', 'enterprise', 'business'];
 
 export const PLAN_CONFIG: Record<SubscriptionPlan, {
   displayName: string;
   monthlyPrice: number;
   baseStores: number | 'unlimited';
-  extraStorePrice: number | null;   // null = no add-on allowed (mini) or not applicable (business = unlimited)
+  extraStorePrice: number | null;   // null = no add-on allowed (mini/spark/spark_lite) or not applicable (business/enterprise = unlimited)
   baseTx: number | 'unlimited';
   extraStoreTx: number;             // tx bundled per extra store purchased
   maxStaff: number | 'unlimited';
 }> = {
-  trial:    { displayName: 'Free Trial', monthlyPrice: 0,   baseStores: 'unlimited', extraStorePrice: null, baseTx: 'unlimited', extraStoreTx: 0,    maxStaff: 'unlimited' },
-  mini:     { displayName: 'Mini',       monthlyPrice: 299, baseStores: 1,           extraStorePrice: null, baseTx: 500,         extraStoreTx: 0,    maxStaff: 2 },
-  pro:      { displayName: 'Pro',        monthlyPrice: 599, baseStores: 1,           extraStorePrice: 399,  baseTx: 2500,        extraStoreTx: 1500, maxStaff: 10 },
-  growth:   { displayName: 'Growth',     monthlyPrice: 999, baseStores: 1,           extraStorePrice: 299,  baseTx: 5000,        extraStoreTx: 2000, maxStaff: 'unlimited' },
-  business: { displayName: 'Business',   monthlyPrice: 0,   baseStores: 'unlimited', extraStorePrice: null, baseTx: 'unlimited', extraStoreTx: 0,    maxStaff: 'unlimited' },
+  trial:      { displayName: 'Free Trial',  monthlyPrice: 0,   baseStores: 'unlimited', extraStorePrice: null, baseTx: 'unlimited', extraStoreTx: 0,    maxStaff: 'unlimited' },
+  spark_lite: { displayName: 'Spark Lite',  monthlyPrice: 0,   baseStores: 1,           extraStorePrice: null, baseTx: 100,         extraStoreTx: 0,    maxStaff: 3 },
+  spark:      { displayName: 'Spark',       monthlyPrice: 399, baseStores: 1,           extraStorePrice: null, baseTx: 500,         extraStoreTx: 0,    maxStaff: 5 },
+  mini:       { displayName: 'Spark',       monthlyPrice: 399, baseStores: 1,           extraStorePrice: null, baseTx: 500,         extraStoreTx: 0,    maxStaff: 5 },
+  pro:        { displayName: 'Pro',         monthlyPrice: 799, baseStores: 1,           extraStorePrice: 299,  baseTx: 2500,        extraStoreTx: 2500, maxStaff: 15 },
+  growth:     { displayName: 'Growth',      monthlyPrice: 1499, baseStores: 1,          extraStorePrice: 399,  baseTx: 6000,        extraStoreTx: 6000, maxStaff: 50 },
+  enterprise: { displayName: 'Enterprise',  monthlyPrice: 0,   baseStores: 'unlimited', extraStorePrice: null, baseTx: 'unlimited', extraStoreTx: 0,    maxStaff: 'unlimited' },
+  business:   { displayName: 'Business',    monthlyPrice: 0,   baseStores: 'unlimited', extraStorePrice: null, baseTx: 'unlimited', extraStoreTx: 0,    maxStaff: 'unlimited' },
 };
 
 export function planFromString(value?: string | null): SubscriptionPlan {
   const v = (value ?? '').toLowerCase();
-  if (['trial', 'mini', 'pro', 'growth', 'business'].includes(v)) return v as SubscriptionPlan;
-  return 'mini';
+  if (['trial', 'spark_lite', 'spark', 'mini', 'pro', 'growth', 'enterprise', 'business'].includes(v)) return v as SubscriptionPlan;
+  return 'spark_lite';
 }
 
 // Effective store/tx limits accounting for purchased add-ons (extraStoresPurchased comes from the tenant doc)

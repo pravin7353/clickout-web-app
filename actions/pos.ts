@@ -5,7 +5,8 @@ import { requireRole, requireEditAccess, resolveStoreScope } from "@/lib/rbac";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { applyOffers, ProductOffer, parseExpiryMs } from "@/lib/services/offer-engine";
-import { isTransactionLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
+import { getEffectiveTxnLimit } from "@/lib/subscription/feature-flag-matrix";
+import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-service";
 import { postSalesVoucher } from "@/lib/services/finance-service";
 import { getActivePosTerminalSessions } from "@/lib/services/pos-session-service";
@@ -282,50 +283,43 @@ export async function createPosOrder(params: {
   try {
     ({ session, role, tenantId, storeId } = await requireRole(["tenant_admin", "manager", "cashier"]));
   } catch {
-    return { ok: false, error: "You do not have access to process checkout orders." };
+    return { ok: false as const, error: "You do not have access to process checkout orders." };
   }
 
   const branchCode = resolveStoreScope(role, storeId, params.targetBranchCode) ?? "HQ";
   if (!params.items || params.items.length === 0) {
-    return { ok: false, error: "Cart is empty" };
+    return { ok: false as const, error: "Cart is empty" };
   }
 
-  // Check Subscription Transaction Quota Hard Block
+  let isTxnLimitExceeded = false;
+  let txnWarningMessage = "";
+  let effectiveLimit = 0;
+  let currentMonthTxns = 0;
+
+  // Check Subscription Transaction Quota (Soft-cap) & POS Terminal Limits
   if (tenantId) {
     const [tDoc, uDoc] = await Promise.all([
       adminDb.collection("tenants").doc(tenantId).get(),
       usageRef(tenantId).get(),
     ]);
-    const tData = tDoc.data() || {};
+    let tData = tDoc.data() || {};
+    tData = await checkAndAutoDowngradeExpiredTrial(tenantId, tData);
     const uData = uDoc.data() || {};
 
-    const rawPlan = tData.subscriptionPlan ?? "mini";
+    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toLowerCase();
     const extraStores = Number(tData.extraStoresPurchased ?? 0);
-    const currentTx = Number(uData.transactionCount ?? tData.currentTransactions ?? 0);
+    effectiveLimit = getEffectiveTxnLimit(planKey, extraStores);
+    currentMonthTxns = Number(uData.transactionCount ?? tData.currentTransactions ?? 0);
 
-    let trialActive = false;
-    if (tData.trialEndsAt?.toDate) {
-      trialActive = isTrialActive(tData.trialEndsAt.toDate());
-    } else if (tData.trialEndsAt) {
-      trialActive = isTrialActive(new Date(tData.trialEndsAt));
-    } else if (tData.trialStartAt) {
-      const start = tData.trialStartAt.toDate ? tData.trialStartAt.toDate() : new Date();
-      trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
-    }
-
-    if (!trialActive && isTransactionLimitReached(rawPlan, extraStores, currentTx)) {
-      return {
-        ok: false,
-        success: false,
-        reason: "transaction_limit_reached",
-        error: "Monthly transaction limit reached for your plan. Upgrade to continue.",
-        message: "Monthly transaction limit reached for your plan. Upgrade to continue.",
-      };
+    // Soft Check: warn and flag tenant, do NOT hard block live POS checkout
+    if (currentMonthTxns >= effectiveLimit) {
+      isTxnLimitExceeded = true;
+      txnWarningMessage = "Monthly transaction limit reached. Additional transactions may be charged or your account upgraded.";
     }
 
     // Check Concurrent Active POS Terminal Limit Hard Block
     const extraPosCounters = Number(tData.extraPosCountersPurchased ?? 0);
-    const maxAllowedCounters = getMaxPosCounters(rawPlan, extraPosCounters);
+    const maxAllowedCounters = getMaxPosCounters(planKey, extraPosCounters);
     const activeSessions = await getActivePosTerminalSessions(tenantId);
 
     const staffId = (session.user as any)?.staffId || (session.user as any)?.id || session.user?.email || "";
@@ -337,11 +331,11 @@ export async function createPosOrder(params: {
 
     if (!hasActiveSession && activeSessions.length >= maxAllowedCounters) {
       return {
-        ok: false,
-        success: false,
+        ok: false as const,
+        success: false as const,
         reason: "pos_terminal_limit_reached",
-        error: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${rawPlan.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
-        message: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${rawPlan.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
+        error: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${planKey.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
+        message: `Active POS Terminal limit reached (${activeSessions.length}/${maxAllowedCounters}). Your ${planKey.toUpperCase()} plan allows maximum ${maxAllowedCounters} simultaneous billing counter(s). Extra counters can be added for ₹199/counter/month.`,
       };
     }
   }
@@ -601,6 +595,27 @@ export async function createPosOrder(params: {
       timestamp: FieldValue.serverTimestamp(),
     });
 
+    if (isTxnLimitExceeded && tenantId) {
+      batch.set(
+        adminDb.collection("tenants").doc(tenantId),
+        {
+          txnLimitExceeded: true,
+          txnLimitExceededAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      batch.set(adminDb.collection("admin_audit_logs").doc(), {
+        action: "TXN_LIMIT_EXCEEDED",
+        actionType: "TXN_LIMIT_EXCEEDED",
+        tenantId,
+        branchCode,
+        details: `Monthly transaction limit reached (${currentMonthTxns + 1}/${effectiveLimit}). Logged soft-warning.`,
+        timestamp: FieldValue.serverTimestamp(),
+        severity: "WARNING",
+      });
+    }
+
     await batch.commit();
     if (tenantId) {
       await incrementTransactionUsage(tenantId);
@@ -623,9 +638,15 @@ export async function createPosOrder(params: {
     }
 
     return {
-      ok: true,
+      ok: true as const,
       invoiceNo,
       orderId: orderRef.id,
+      ...(isTxnLimitExceeded
+        ? {
+            warning: "TXN_LIMIT_WARNING",
+            message: txnWarningMessage,
+          }
+        : {}),
       discountApplied: totalDiscount,
       freeItems: priced.totalFreeItems,
       receipt: {
@@ -657,6 +678,6 @@ export async function createPosOrder(params: {
       },
     };
   } catch (e: any) {
-    return { ok: false, error: e.message ?? "Checkout failed" };
+    return { ok: false as const, error: e.message ?? "Checkout failed" };
   }
 }

@@ -127,3 +127,61 @@ export const ROUTE_FEATURE_BULLETS: Record<string, string[]> = {
     'Digital profile & employment milestones',
   ],
 };
+
+export const PLAN_LIMITS: Record<string, {
+  maxStores: number;           // base included stores
+  maxExtraStores: number;      // how many add-on stores allowed
+  baseTxnsPerMonth: number;    // transactions included in base
+  extraStoreTxns: number;      // additional txns per extra store
+  extraStorePrice: number;     // ₹ per extra store per month
+  maxStaff: number;
+  maxPosCounters: number;
+}> = {
+  spark_lite: {
+    maxStores: 1, maxExtraStores: 0,
+    baseTxnsPerMonth: 100, extraStoreTxns: 0, extraStorePrice: 0,
+    maxStaff: 3, maxPosCounters: 1,
+  },
+  spark: {
+    maxStores: 1, maxExtraStores: 0,
+    baseTxnsPerMonth: 500, extraStoreTxns: 0, extraStorePrice: 0,
+    maxStaff: 5, maxPosCounters: 1,
+  },
+  mini: {
+    maxStores: 1, maxExtraStores: 0,
+    baseTxnsPerMonth: 500, extraStoreTxns: 0, extraStorePrice: 0,
+    maxStaff: 5, maxPosCounters: 1,
+  },
+  pro: {
+    maxStores: 1, maxExtraStores: 2,
+    baseTxnsPerMonth: 2500, extraStoreTxns: 2500, extraStorePrice: 299,
+    maxStaff: 15, maxPosCounters: 2,
+  },
+  growth: {
+    maxStores: 1, maxExtraStores: 4,
+    baseTxnsPerMonth: 6000, extraStoreTxns: 6000, extraStorePrice: 399,
+    maxStaff: 50, maxPosCounters: 5,
+  },
+  trial: {
+    maxStores: 1, maxExtraStores: 4,
+    baseTxnsPerMonth: 6000, extraStoreTxns: 6000, extraStorePrice: 399,
+    maxStaff: 50, maxPosCounters: 5,
+  },
+  enterprise: {
+    maxStores: 999, maxExtraStores: 999,
+    baseTxnsPerMonth: 999999, extraStoreTxns: 999999, extraStorePrice: 0,
+    maxStaff: 9999, maxPosCounters: 999,
+  },
+  business: {
+    maxStores: 999, maxExtraStores: 999,
+    baseTxnsPerMonth: 999999, extraStoreTxns: 999999, extraStorePrice: 0,
+    maxStaff: 9999, maxPosCounters: 999,
+  },
+};
+
+export function getEffectiveTxnLimit(plan: string, extraStoreCount: number): number {
+  const normalized = (plan || "spark_lite").toLowerCase();
+  const limits = PLAN_LIMITS[normalized] ?? PLAN_LIMITS["spark_lite"];
+  return limits.baseTxnsPerMonth + (Math.min(Math.max(0, extraStoreCount), limits.maxExtraStores) * limits.extraStoreTxns);
+}
+

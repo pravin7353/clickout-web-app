@@ -3,20 +3,13 @@ import { auth } from "./auth";
 import { adminDb } from "./firebase-admin";
 import { isRouteAllowed, isTrialActive } from "./subscription/access-engine";
 import { planFromString } from "./subscription/plan";
+import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 
 type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor";
 
 export async function requireRole(allowed: Role[]) {
   const session = await auth();
-  try {
-    const fs = await import("fs");
-    fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[requireRole] session: ${!!session}, user: ${!!session?.user}, role: ${(session?.user as any)?.role}, allowed: ${JSON.stringify(allowed)}\n`);
-  } catch {}
   if (!session?.user) {
-    try {
-      const fs = await import("fs");
-      fs.appendFileSync("d:\\clickout-admin-web\\login_debug.log", `[requireRole] REDIRECTING to /login because no session.user\n`);
-    } catch {}
     redirect("/login");
   }
 
@@ -144,8 +137,11 @@ export async function requireRoutePlan(tenantId: string | null, route: string) {
   if (!tenantDoc.exists) {
     throw new Error("TENANT_NOT_FOUND");
   }
-  const tenantData = tenantDoc.data() || {};
-  const plan = planFromString(tenantData.subscriptionPlan);
+  let tenantData = tenantDoc.data() || {};
+  // Check trial expiry and auto-downgrade to spark_lite if no active paid plan
+  tenantData = await checkAndAutoDowngradeExpiredTrial(tenantId, tenantData);
+
+  const plan = planFromString(tenantData.subscriptionPlan ?? tenantData.plan);
 
   let trialActive = false;
   if (tenantData.trialEndsAt?.toDate) {

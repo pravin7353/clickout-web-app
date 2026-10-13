@@ -37,6 +37,25 @@ const PLAN_FEATURES: Record<SubscriptionPlan, string[]> = {
     "Automated GST Reports (CA-grade)",
     "Dedicated Account Manager",
   ],
+  spark_lite: [
+    "Single Store",
+    "100 Monthly Transactions",
+    "3 Staff Accounts",
+    "1 POS Billing Counter",
+  ],
+  spark: [
+    "Single Store",
+    "500 Monthly Transactions",
+    "5 Staff Accounts",
+    "1 POS Billing Counter",
+    "Email Support",
+  ],
+  enterprise: [
+    "Unlimited Stores & Transactions",
+    "Custom Staff Limits & POS Counters",
+    "Dedicated Infrastructure & SLA",
+    "24/7 Priority Support",
+  ],
   business: [
     "Everything in Growth, across all businesses",
     "Multiple Tenants (multi-business login)",

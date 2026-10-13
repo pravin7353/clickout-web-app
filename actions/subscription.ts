@@ -8,6 +8,7 @@ import { upgradeTenantPlanSchema } from "@/lib/schemas/tenant-schema";
 import { scanResellerIpPatterns, getResellerFlags } from "@/lib/services/trust-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 
 export type TenantSubscriptionInfo = {
   plan: SubscriptionPlan;
@@ -41,7 +42,8 @@ export async function getTenantSubscriptionInfo(): Promise<TenantSubscriptionInf
     const doc = await adminDb.collection("tenants").doc(tenantId).get();
     if (!doc.exists) return fallback;
 
-    const data = doc.data()!;
+    let data = doc.data()!;
+    data = await checkAndAutoDowngradeExpiredTrial(tenantId, data);
     let trialEndsAtStr: string | null = null;
 
     if (data.trialEndsAt?.toDate) {

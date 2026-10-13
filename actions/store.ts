@@ -3,7 +3,8 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { requireRole } from "@/lib/rbac";
 import { createStoreSchema } from "@/lib/schemas/store-schema";
-import { isStoreLimitReached, isTrialActive } from "@/lib/subscription/access-engine";
+import { PLAN_LIMITS } from "@/lib/subscription/feature-flag-matrix";
+import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 
@@ -47,41 +48,59 @@ export async function createStore(raw: unknown) {
   const hasManager = !!data.managerEmail;
   const managerEmail = hasManager ? data.managerEmail!.toLowerCase() : "";
 
-  // Check Store Limit Hard Block
+  let currentStoreCount = 0;
+  let isExtraStore = false;
+
+  // Step 3: Subscription store creation validation
   if (effectiveTenantId) {
     const [tDoc, existingStoresSnap] = await Promise.all([
       adminDb.collection("tenants").doc(effectiveTenantId).get(),
-      adminDb
-        .collection("stores")
-        .where("tenantId", "==", effectiveTenantId)
-        .where("isDeleted", "==", false)
-        .get(),
+      adminDb.collection("stores").where("tenantId", "==", effectiveTenantId).get(),
     ]);
 
-    const tData = tDoc.data() || {};
-    const rawPlan = tData.subscriptionPlan ?? "mini";
-    const extraStores = Number(tData.extraStoresPurchased ?? 0);
-    const storeCount = existingStoresSnap.size;
+    let tData = tDoc.data() || {};
+    tData = await checkAndAutoDowngradeExpiredTrial(effectiveTenantId, tData);
 
-    let trialActive = false;
-    if (tData.trialEndsAt?.toDate) {
-      trialActive = isTrialActive(tData.trialEndsAt.toDate());
-    } else if (tData.trialEndsAt) {
-      trialActive = isTrialActive(new Date(tData.trialEndsAt));
-    } else if (tData.trialStartAt) {
-      const start = tData.trialStartAt.toDate ? tData.trialStartAt.toDate() : new Date();
-      trialActive = isTrialActive(new Date(start.getTime() + 14 * 86400000));
-    }
+    const planKey = (tData.plan || tData.subscriptionPlan || "spark_lite").toLowerCase();
+    const limits = PLAN_LIMITS[planKey] ?? PLAN_LIMITS["spark_lite"];
 
-    if (!trialActive && isStoreLimitReached(rawPlan, extraStores, storeCount)) {
+    const activeStores = existingStoresSnap.docs.filter((d) => d.data().isDeleted !== true);
+    currentStoreCount = activeStores.length;
+
+    // Count extra stores already purchased (stores where isExtraStore === true OR storeIndex > 0)
+    const extraStoresOnDocs = activeStores.filter((d) => {
+      const sData = d.data();
+      return sData.isExtraStore === true || (sData.storeIndex ?? 0) > 0 || sData.isExtraPaid === true;
+    }).length;
+    const extraStoresPurchased = Math.max(
+      Number(tData.extraStoresPurchased ?? 0),
+      extraStoresOnDocs
+    );
+
+    const maxStores = limits.maxStores;
+    const maxExtraStores = limits.maxExtraStores;
+    const totalStoresAllowed = maxStores + extraStoresPurchased;
+
+    if (currentStoreCount >= maxStores + maxExtraStores) {
       return {
         ok: false,
-        success: false,
-        reason: "store_limit_reached",
-        error: "Add an extra store to your plan to add more locations.",
-        message: "Add an extra store to your plan to add more locations.",
+        error: "STORE_LIMIT_REACHED",
+        message: "You've reached the maximum stores for your plan. Please upgrade to add more stores.",
+        upgradeRequired: true,
       };
     }
+
+    if (currentStoreCount >= totalStoresAllowed) {
+      return {
+        ok: false,
+        error: "EXTRA_STORE_PAYMENT_REQUIRED",
+        message: `Adding an extra store requires ₹${limits.extraStorePrice}/month. Please complete payment to add this store.`,
+        extraStorePrice: limits.extraStorePrice,
+        paymentRequired: true,
+      };
+    }
+
+    isExtraStore = currentStoreCount >= maxStores;
   }
 
   try {
@@ -147,6 +166,10 @@ export async function createStore(raw: unknown) {
       bankDetailsPending: !data.bankAccounts?.length,
       status: "ACTIVE",
       isActive: true,
+      isDeleted: false,
+      isExtraStore,
+      storeIndex: currentStoreCount,
+      isExtraPaid: isExtraStore,
       createdAt: FieldValue.serverTimestamp(),
     });
 
