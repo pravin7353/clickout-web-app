@@ -1,7 +1,8 @@
 import { CalculationType } from "@/lib/schemas/incentive-schema";
+import { INCENTIVE_COMBINED_CAP_PERCENT } from "@/lib/constants";
 
 export type RuleEvaluationInput = {
-  calculationType?: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
+  calculationType?: CalculationType;
   percentValue?: number;
   fixedAmount?: number;
   tiers?: { minSaleAmount: number; percent: number }[];
@@ -198,63 +199,73 @@ export function evaluateGuardIncentiveRule(
 }
 
 /**
- * Generates a human-friendly plain Hindi-English summary of an incentive rule
+ * Generates a human-friendly plain English summary of an incentive rule
  */
 export function generateRulePlainSummary(rule: any): string {
-  if (!rule) return "Standard incentive rule.";
+  if (!rule) return "Standard baseline incentive rule.";
 
   const role = (rule.role || rule.targetRole || "cashier").toLowerCase();
 
   if (role === "guard") {
     const parts: string[] = [];
     if (rule.fraudCatchReward && Number(rule.fraudCatchReward) > 0) {
-      parts.push(`Har verified fraud catch pe ₹${Number(rule.fraudCatchReward).toLocaleString("en-IN")} fixed reward milega`);
+      parts.push(`₹${Number(rule.fraudCatchReward).toLocaleString("en-IN")} per verified fraud interception`);
     }
     if (rule.catchValueThreshold && rule.catchValueReward) {
-      parts.push(`₹${Number(rule.catchValueThreshold).toLocaleString("en-IN")} se badi fraud catch pe extra ₹${Number(rule.catchValueReward).toLocaleString("en-IN")} reward milega`);
+      parts.push(`extra reward of ₹${Number(rule.catchValueReward).toLocaleString("en-IN")} for fraud intercepts exceeding ₹${Number(rule.catchValueThreshold).toLocaleString("en-IN")}`);
     }
     if (rule.monthlyTargetValue && rule.monthlyTargetBonus) {
-      parts.push(`₹${Number(rule.monthlyTargetValue).toLocaleString("en-IN")} monthly prevention target achieve karne pe ₹${Number(rule.monthlyTargetBonus).toLocaleString("en-IN")} flat bonus milega`);
+      parts.push(`monthly bonus of ₹${Number(rule.monthlyTargetBonus).toLocaleString("en-IN")} on reaching ₹${Number(rule.monthlyTargetValue).toLocaleString("en-IN")} theft prevention target`);
     }
-    const freq = rule.payoutFrequency ? rule.payoutFrequency.toLowerCase() : "monthly";
+    const freq = rule.payoutFrequency ? rule.payoutFrequency.toUpperCase() : "MONTHLY";
     const autoApprove = rule.autoApproveThreshold ?? 500;
-    const approvalText = `₹${autoApprove} se kam amount auto-approve hoga. ₹${autoApprove} se zyada ke liye manager approval chahiye.`;
+    const approvalText = `Auto-approved below ₹${autoApprove}; manager approval required above ₹${autoApprove}.`;
     return parts.length > 0
-      ? `Guard: ${parts.join(". ")}. ${approvalText} ${freq.toUpperCase()} payout hoga.`
-      : `Guard fraud catches pe standard incentive reward. ${approvalText}`;
+      ? `Security Guard: ${parts.join("; ")}. ${approvalText} Payout is ${freq}.`
+      : `Security Guard: Standard fraud prevention rewards. ${approvalText}`;
+  }
+
+  if (role === "sales_executive") {
+    const autoApprove = rule.autoApproveThreshold ?? 500;
+    const freq = (rule.payoutFrequency || "MONTHLY").toUpperCase();
+    const rateText =
+      rule.calculationType === "FLAT_PER_LAKH"
+        ? `₹${rule.flatPerLakh || 500} per Lakh assisted sales volume`
+        : `${rule.percentValue ?? 1}% commission on assisted checkout volume`;
+    return `Sales Executive earns ${rateText}. Auto-approved below ₹${autoApprove}. Payout is ${freq}.`;
   }
 
   if (role === "all") {
     const fixed = Number(rule.fixedAmount || 0);
     const autoApprove = rule.autoApproveThreshold ?? 500;
-    return `Sabhi staff ko har qualifying month/order pe ₹${fixed} flat bonus milega. ₹${autoApprove} se kam auto-approve hoga.`;
+    return `All staff members receive a flat bonus of ₹${fixed} per qualifying period/order. Auto-approved below ₹${autoApprove}.`;
   }
 
   // Cashier
-  const categoryText = !rule.category || rule.category === "ALL" ? "Sabhi products" : `${rule.category} category`;
+  const categoryText = !rule.category || rule.category === "ALL" ? "all product categories" : `${rule.category} category`;
   let rewardText = "";
 
-  if (rule.calculationType === "PERCENT_OF_SALE") {
+  if (rule.calculationType === "PERCENT_OF_SALE" || rule.calculationType === "PERCENTAGE") {
     rewardText = `${rule.percentValue ?? 0}% commission`;
-  } else if (rule.calculationType === "FIXED_PER_SALE") {
+  } else if (rule.calculationType === "FIXED_PER_SALE" || rule.calculationType === "FIXED") {
     rewardText = `₹${rule.fixedAmount ?? 0} fixed reward`;
   } else if (rule.calculationType === "TIERED" && Array.isArray(rule.tiers)) {
     const tierSummaries = rule.tiers
-      .map((t: any) => `₹${Number(t.minSaleAmount).toLocaleString("en-IN")}+ pe ${t.percent}%`)
+      .map((t: any) => `₹${Number(t.minSaleAmount).toLocaleString("en-IN")}+ at ${t.percent}%`)
       .join(", ");
-    rewardText = `Tiered commission (${tierSummaries})`;
+    rewardText = `tiered commission (${tierSummaries})`;
   } else {
     rewardText = `${rule.percentValue ?? 1}% commission`;
   }
 
   const minSaleText = rule.minSaleAmount && Number(rule.minSaleAmount) > 0
-    ? ` (Minimum sale: ₹${Number(rule.minSaleAmount).toLocaleString("en-IN")})`
+    ? ` with minimum sale of ₹${Number(rule.minSaleAmount).toLocaleString("en-IN")}`
     : "";
 
   const autoApprove = rule.autoApproveThreshold ?? 500;
-  const freq = (rule.payoutFrequency || "MONTHLY").toLowerCase();
+  const freq = (rule.payoutFrequency || "MONTHLY").toUpperCase();
 
-  return `Cashier ko ${categoryText} ki qualifying sales pe ${rewardText} milega${minSaleText}. ₹${autoApprove} se kam amount auto-approve hoga. ₹${autoApprove} se zyada ke liye manager approval chahiye. ${freq.toUpperCase()} payout hoga.`;
+  return `Cashier earns ${rewardText} on ${categoryText}${minSaleText}. Auto-approved below ₹${autoApprove}; manager approval required above ₹${autoApprove}. Payout is ${freq}.`;
 }
 
 /**
@@ -290,9 +301,9 @@ export function simulateCalculation(rule: any, sampleSaleAmount: number = 10000)
 
   const catName = !rule?.category || rule?.category === "ALL" ? "All Products" : rule.category;
   const calcDesc =
-    rule?.calculationType === "PERCENT_OF_SALE"
+    rule?.calculationType === "PERCENT_OF_SALE" || rule?.calculationType === "PERCENTAGE"
       ? `${rule.percentValue || 0}%`
-      : rule?.calculationType === "FIXED_PER_SALE"
+      : rule?.calculationType === "FIXED_PER_SALE" || rule?.calculationType === "FIXED"
       ? `₹${rule.fixedAmount || 0} fixed`
       : "Tiered";
 
@@ -304,5 +315,168 @@ export function simulateCalculation(rule: any, sampleSaleAmount: number = 10000)
     estimatedIncentive: inc,
     approvalFlow: inc <= autoApproveLimit ? `AUTO APPROVE (₹${inc} ≤ ₹${autoApproveLimit})` : `NEEDS MANAGER APPROVAL (₹${inc} > ₹${autoApproveLimit})`,
     summaryText: generateRulePlainSummary(rule),
+  };
+}
+
+/**
+ * STEP 2: Pure function to estimate the effective percentage rate of a rule on an order.
+ * Input: one IncentiveRule, avgOrderValue: number
+ * Output: number (estimated % of order value this rule costs)
+ */
+export function estimateRuleEffectiveRate(rule: any, avgOrderValue: number): number {
+  if (!rule) return 0;
+  const role = (rule.role || rule.targetRole || "cashier").toLowerCase().trim();
+
+  // GUARD role (any type) -> return 0 (excluded from cap by design)
+  if (role === "guard") {
+    return 0;
+  }
+
+  const effectiveAvgOrder = avgOrderValue > 0 ? avgOrderValue : 500;
+  const calcType = (rule.calculationType || "").toUpperCase().trim();
+
+  // PERCENTAGE / PERCENT_OF_SALE / PERCENTAGE_OF_ELIGIBLE_SALES
+  if (
+    calcType === "PERCENTAGE" ||
+    calcType === "PERCENT_OF_SALE" ||
+    calcType === "PERCENTAGE_OF_ELIGIBLE_SALES"
+  ) {
+    return Number(rule.percentValue ?? (rule.rewardAmount ?? 0));
+  }
+
+  // FIXED_PER_SALE / FIXED
+  if (calcType === "FIXED_PER_SALE" || calcType === "FIXED") {
+    const fixed = Number(rule.fixedAmount ?? (rule.rewardAmount ?? 0));
+    return (fixed / effectiveAvgOrder) * 100;
+  }
+
+  // FLAT_PER_LAKH
+  if (calcType === "FLAT_PER_LAKH") {
+    const flat = Number(rule.flatPerLakh ?? (rule.fixedAmount ?? 0));
+    return (flat / 100000) * 100;
+  }
+
+  // TIERED -> use lowest tier rate (conservative estimate)
+  if (calcType === "TIERED") {
+    if (Array.isArray(rule.tiers) && rule.tiers.length > 0) {
+      const tierPercents = rule.tiers
+        .map((t: any) => Number(t.percent || 0))
+        .filter((p: number) => !isNaN(p) && p >= 0);
+      if (tierPercents.length > 0) {
+        return Math.min(...tierPercents);
+      }
+    }
+    return Number(rule.percentValue ?? 0);
+  }
+
+  // FIXED_PER_SERVICE
+  if (calcType === "FIXED_PER_SERVICE") {
+    const fixed = Number(rule.fixedAmount ?? (rule.rewardAmount ?? 0));
+    return (fixed / effectiveAvgOrder) * 100;
+  }
+
+  // Fallback for percentValue if specified
+  if (rule.percentValue !== undefined && Number(rule.percentValue) > 0) {
+    return Number(rule.percentValue);
+  }
+
+  console.warn("Unknown incentive calculation type:", rule.calculationType);
+  return 0;
+}
+
+/**
+ * STEP 3: Pure function to calculate combined incentive rate across all active rules.
+ * Input: activeRules: IncentiveRule[], avgOrderValue: number
+ * Output: {
+ *   combinedRatePercent: number,
+ *   exceedsCap: boolean,
+ *   capPercent: number,
+ *   breakdown: Array<{ ruleId, role, category, estimatedRate, label }>
+ * }
+ */
+export interface CombinedIncentiveRateResult {
+  combinedRatePercent: number;
+  exceedsCap: boolean;
+  capPercent: number;
+  breakdown: Array<{
+    ruleId: string;
+    role: string;
+    category?: string;
+    estimatedRate: number;
+    label: string;
+  }>;
+}
+
+export function calculateCombinedIncentiveRate(
+  activeRules: any[],
+  avgOrderValue: number
+): CombinedIncentiveRateResult {
+  const breakdown: Array<{
+    ruleId: string;
+    role: string;
+    category?: string;
+    estimatedRate: number;
+    label: string;
+  }> = [];
+
+  let totalRate = 0;
+
+  for (const rule of activeRules || []) {
+    // Filter out DRAFT rules — only ACTIVE rules count
+    if (rule.status && rule.status !== "ACTIVE") {
+      continue;
+    }
+
+    const role = (rule.role || rule.targetRole || "cashier").toLowerCase().trim();
+    // Filter out GUARD role rules entirely
+    if (role === "guard") {
+      continue;
+    }
+
+    const estimatedRate = Math.round(estimateRuleEffectiveRate(rule, avgOrderValue) * 100) / 100;
+    totalRate += estimatedRate;
+
+    const roleTitle =
+      role === "sales_executive"
+        ? "Sales Executive"
+        : role === "cashier"
+        ? "Cashier"
+        : role === "all"
+        ? "All Staff"
+        : role.charAt(0).toUpperCase() + role.slice(1);
+
+    const category = rule.category && rule.category !== "ALL" ? rule.category : "General Sales";
+
+    let ruleDescription = "";
+    const calcType = (rule.calculationType || "").toUpperCase();
+    if (calcType === "FLAT_PER_LAKH") {
+      ruleDescription = `₹${rule.flatPerLakh || rule.fixedAmount || 500}/Lakh`;
+    } else if (calcType === "FIXED_PER_SALE" || calcType === "FIXED") {
+      ruleDescription = `₹${rule.fixedAmount || 0}/sale`;
+    } else if (calcType === "TIERED") {
+      ruleDescription = `Tiered (${estimatedRate}% base)`;
+    } else {
+      ruleDescription = `${rule.percentValue ?? estimatedRate}%`;
+    }
+
+    const label = `${roleTitle} — ${category} (${ruleDescription}): ~${estimatedRate.toFixed(1)}%`;
+
+    breakdown.push({
+      ruleId: rule.id || rule._id || "",
+      role,
+      category: rule.category,
+      estimatedRate,
+      label,
+    });
+  }
+
+  const combinedRatePercent = Math.round(totalRate * 100) / 100;
+  const exceedsCap = combinedRatePercent > INCENTIVE_COMBINED_CAP_PERCENT;
+
+  return {
+    combinedRatePercent,
+    exceedsCap,
+    capPercent: INCENTIVE_COMBINED_CAP_PERCENT,
+    breakdown,
   };
 }

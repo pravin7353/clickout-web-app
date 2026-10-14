@@ -24,11 +24,18 @@ import {
   getPendingIncentivePayouts as getPendingIncentivePayoutsService,
 } from "@/lib/services/incentive-service";
 import { getStaffDoc } from "@/lib/services/hr-service";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 import { serializeTimestamps } from "@/lib/firestore-helpers";
-import { generateRulePlainSummary } from "@/lib/utils/incentive-calc";
+import {
+  generateRulePlainSummary,
+  calculateCombinedIncentiveRate,
+} from "@/lib/utils/incentive-calc";
+import {
+  INCENTIVE_COMBINED_CAP_PERCENT,
+  INCENTIVE_AVG_ORDER_FALLBACK_VALUE,
+} from "@/lib/constants";
 
 // =========================================================================
 // 1. GET MONTHLY INCENTIVE REPORT (Managers / Admins only)
@@ -188,6 +195,9 @@ export async function setIncentiveRule(raw: unknown) {
   if (data.fixedAmount !== undefined) {
     rulePayload.fixedAmount = data.fixedAmount;
   }
+  if (data.flatPerLakh !== undefined) {
+    rulePayload.flatPerLakh = data.flatPerLakh;
+  }
   if (data.tiers && data.tiers.length > 0) {
     rulePayload.tiers = data.tiers;
   }
@@ -218,6 +228,170 @@ export async function setIncentiveRule(raw: unknown) {
 
   const plainSummary = generateRulePlainSummary(rulePayload);
 
+  // If status is ACTIVE, perform combined cap evaluation
+  if ((data.status || "ACTIVE") === "ACTIVE") {
+    // If request came with overrideCap: true (admin confirmed override)
+    if (data.overrideCap === true) {
+      const allRules = await getTenantIncentiveRules(data.tenantId);
+      const activeRules = allRules.filter((r) => r.status === "ACTIVE" || r.id === ruleId);
+
+      // Fetch 30-day average order value
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const orderSnap = await adminDb
+        .collection("orders")
+        .where("tenantId", "==", data.tenantId)
+        .where("timestamp", ">=", Timestamp.fromDate(thirtyDaysAgo))
+        .get()
+        .catch(() => null);
+
+      let avgOrderValue = INCENTIVE_AVG_ORDER_FALLBACK_VALUE;
+      if (orderSnap && !orderSnap.empty) {
+        let totalRev = 0;
+        let count = 0;
+        orderSnap.docs.forEach((d) => {
+          const val = parseFloat(d.data().totalAmount ?? d.data().amount ?? "0");
+          if (!isNaN(val) && val > 0) {
+            totalRev += val;
+            count++;
+          }
+        });
+        if (count > 0) {
+          avgOrderValue = totalRev / count;
+        }
+      }
+
+      const capResult = calculateCombinedIncentiveRate(activeRules, avgOrderValue);
+      const actorUid = (session.user as any)?.id || (session.user as any)?.uid || actorEmail;
+
+      await adminDb.collection("admin_audit_logs").add({
+        action: "INCENTIVE_CAP_OVERRIDE",
+        actionType: "INCENTIVE_CAP_OVERRIDE",
+        actor: actorEmail,
+        actorId: actorUid,
+        overriddenBy: actorUid,
+        tenantId: data.tenantId,
+        ruleId,
+        combinedRate: capResult.combinedRatePercent,
+        capPercent: INCENTIVE_COMBINED_CAP_PERCENT,
+        details: `Admin confirmed override for rule ${ruleId} exceeding recommended ${INCENTIVE_COMBINED_CAP_PERCENT}% cap (Combined: ~${capResult.combinedRatePercent}%).`,
+        severity: "WARNING",
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+      revalidatePath("/hr");
+      revalidatePath("/manager");
+
+      return {
+        ok: true,
+        saved: true,
+        activated: true,
+        ruleId,
+        combinedRate: capResult.combinedRatePercent,
+        message: "Incentive rule activated with cap override.",
+      };
+    }
+
+    // 1. Fetch all currently ACTIVE rules for this tenant (include the newly saved one)
+    const existingRules = await getTenantIncentiveRules(data.tenantId);
+    const activeRules = existingRules.filter((r) => r.status === "ACTIVE");
+    const ruleIndex = activeRules.findIndex((r) => r.id === ruleId);
+    if (ruleIndex >= 0) {
+      activeRules[ruleIndex] = { ...activeRules[ruleIndex], ...rulePayload, id: ruleId, status: "ACTIVE" };
+    } else {
+      activeRules.push({ ...rulePayload, id: ruleId, status: "ACTIVE" });
+    }
+
+    // 2. Fetch tenant's 30-day average order value
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const orderSnap = await adminDb
+      .collection("orders")
+      .where("tenantId", "==", data.tenantId)
+      .where("timestamp", ">=", Timestamp.fromDate(thirtyDaysAgo))
+      .get()
+      .catch(() => null);
+
+    let avgOrderValue = INCENTIVE_AVG_ORDER_FALLBACK_VALUE;
+    if (orderSnap && !orderSnap.empty) {
+      let totalRev = 0;
+      let count = 0;
+      orderSnap.docs.forEach((d) => {
+        const val = parseFloat(d.data().totalAmount ?? d.data().amount ?? "0");
+        if (!isNaN(val) && val > 0) {
+          totalRev += val;
+          count++;
+        }
+      });
+      if (count > 0) {
+        avgOrderValue = totalRev / count;
+      }
+    }
+
+    // 3. Call calculateCombinedIncentiveRate(activeRules, avgOrderValue)
+    const capResult = calculateCombinedIncentiveRate(activeRules, avgOrderValue);
+
+    // 4. If result.exceedsCap:
+    if (capResult.exceedsCap) {
+      // Revert the just-saved rule to DRAFT status
+      await adminDb.collection("incentive_rules").doc(ruleId).update({
+        status: "DRAFT",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      await adminDb.collection("admin_audit_logs").add({
+        action: "INCENTIVE_RULE_CONFIGURED",
+        actionType: "INCENTIVE_RULE_CONFIGURED",
+        actor: actorEmail,
+        actorId: actorEmail,
+        tenantId: data.tenantId,
+        target: `incentive_rules/${ruleId}`,
+        details: `Rule ${ruleId} saved as DRAFT because combined incentive rate (~${capResult.combinedRatePercent}%) exceeds ${INCENTIVE_COMBINED_CAP_PERCENT}% recommended cap.`,
+        severity: "INFO",
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+      revalidatePath("/hr");
+      revalidatePath("/manager");
+
+      return {
+        ok: true,
+        saved: true,
+        activated: false,
+        warning: "CAP_EXCEEDED" as const,
+        combinedRate: capResult.combinedRatePercent,
+        breakdown: capResult.breakdown,
+        capPercent: INCENTIVE_COMBINED_CAP_PERCENT,
+        ruleId,
+        message: `Combined incentive rate (~${capResult.combinedRatePercent}%) exceeds the recommended ${INCENTIVE_COMBINED_CAP_PERCENT}% cap. Saved as DRAFT.`,
+      };
+    }
+
+    // 5. If not exceedsCap:
+    await adminDb.collection("admin_audit_logs").add({
+      action: "INCENTIVE_RULE_CONFIGURED",
+      actionType: "INCENTIVE_RULE_CONFIGURED",
+      actor: actorEmail,
+      actorId: actorEmail,
+      tenantId: data.tenantId,
+      target: `incentive_rules/${ruleId}`,
+      details: `Configured ${data.role.toUpperCase()} rule: "${plainSummary}" (Combined rate: ~${capResult.combinedRatePercent}%)`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/hr");
+    revalidatePath("/manager");
+
+    return {
+      ok: true,
+      saved: true,
+      activated: true,
+      ruleId,
+      combinedRate: capResult.combinedRatePercent,
+      message: "Incentive rule saved and activated successfully.",
+    };
+  }
+
+  // If saved as DRAFT directly
   await adminDb.collection("admin_audit_logs").add({
     action: "INCENTIVE_RULE_CONFIGURED",
     actionType: "INCENTIVE_RULE_CONFIGURED",
@@ -225,7 +399,7 @@ export async function setIncentiveRule(raw: unknown) {
     actorId: actorEmail,
     tenantId: data.tenantId,
     target: `incentive_rules/${ruleId}`,
-    details: `Configured ${data.role.toUpperCase()} rule: "${plainSummary}"`,
+    details: `Configured ${data.role.toUpperCase()} rule as DRAFT: "${plainSummary}"`,
     severity: "INFO",
     timestamp: FieldValue.serverTimestamp(),
   });
@@ -233,7 +407,7 @@ export async function setIncentiveRule(raw: unknown) {
   revalidatePath("/hr");
   revalidatePath("/manager");
 
-  return { ok: true, ruleId, message: "Incentive rule saved successfully." };
+  return { ok: true, saved: true, activated: false, ruleId, message: "Incentive rule saved as DRAFT." };
 }
 
 export async function deleteIncentiveRuleAction(ruleId: string, targetTenantId: string) {

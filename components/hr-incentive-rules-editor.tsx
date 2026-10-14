@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect, useTransition, useMemo } from "react";
-import { getIncentiveRulesAction, setIncentiveRule, deleteIncentiveRuleAction } from "@/actions/incentive";
+import {
+  getIncentiveRulesAction,
+  setIncentiveRule,
+  deleteIncentiveRuleAction,
+} from "@/actions/incentive";
 import {
   IncentiveRuleDocument,
   CalculationType,
@@ -48,7 +52,19 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [roleFilter, setRoleFilter] = useState<"ALL" | "CASHIER" | "GUARD">("ALL");
+  const [roleFilter, setRoleFilter] = useState<"ALL" | "CASHIER" | "GUARD" | "SALES_EXECUTIVE">("ALL");
+
+  // Step 5 Cap Exceeded Warning Banner State
+  const [capWarning, setCapWarning] = useState<{
+    combinedRate: number;
+    capPercent: number;
+    breakdown: Array<{ ruleId: string; role: string; category?: string; estimatedRate: number; label: string }>;
+    savedRuleId: string;
+    draftPayload: any;
+  } | null>(null);
+
+  // Override Confirmation Dialog State
+  const [showOverrideConfirm, setShowOverrideConfirm] = useState<boolean>(false);
 
   // Wizard Modal State
   const [showWizard, setShowWizard] = useState<boolean>(false);
@@ -56,7 +72,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
   // Step 1: Target Role
-  const [selectedRole, setSelectedRole] = useState<"cashier" | "guard" | "all">("cashier");
+  const [selectedRole, setSelectedRole] = useState<"cashier" | "guard" | "sales_executive" | "all">("cashier");
 
   // Step 2A: Cashier Scope
   const [cashierCategoryType, setCashierCategoryType] = useState<"ALL" | "SPECIFIC">("SPECIFIC");
@@ -72,7 +88,11 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
   const [monthlyTargetValue, setMonthlyTargetValue] = useState<string>("25000");
   const [monthlyTargetBonus, setMonthlyTargetBonus] = useState<string>("2500");
 
-  // Step 2C / Step 3: Calculation & Amounts
+  // Step 2D: Sales Executive Scope
+  const [salesExecCalcType, setSalesExecCalcType] = useState<"PERCENTAGE" | "FLAT_PER_LAKH">("PERCENTAGE");
+  const [flatPerLakh, setFlatPerLakh] = useState<string>("500");
+
+  // Step 3: Calculation & Amounts (Cashier & Sales Executive)
   const [rewardType, setRewardType] = useState<"PERCENTAGE" | "FIXED" | "TIERED">("PERCENTAGE");
   const [percentValue, setPercentValue] = useState<string>("1.5");
   const [fixedAmount, setFixedAmount] = useState<string>("50");
@@ -124,6 +144,8 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
     setCatchValueReward("1000");
     setMonthlyTargetValue("25000");
     setMonthlyTargetBonus("2500");
+    setSalesExecCalcType("PERCENTAGE");
+    setFlatPerLakh("500");
     setRewardType("PERCENTAGE");
     setPercentValue("1.5");
     setFixedAmount("50");
@@ -140,7 +162,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
 
   const openEditWizard = (r: IncentiveRuleDocument) => {
     setEditingRuleId(r.id);
-    const role = (r.role || r.targetRole || "cashier") as "cashier" | "guard" | "all";
+    const role = (r.role || r.targetRole || "cashier") as "cashier" | "guard" | "sales_executive" | "all";
     setSelectedRole(role);
     setWizardStep(1);
 
@@ -152,6 +174,14 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
       setCatchValueReward(r.catchValueReward ? String(r.catchValueReward) : "1000");
       setMonthlyTargetValue(r.monthlyTargetValue ? String(r.monthlyTargetValue) : "25000");
       setMonthlyTargetBonus(r.monthlyTargetBonus ? String(r.monthlyTargetBonus) : "2500");
+    } else if (role === "sales_executive") {
+      if (r.calculationType === "FIXED_PER_SALE") {
+        setSalesExecCalcType("FLAT_PER_LAKH");
+        setFlatPerLakh(String(r.fixedAmount ?? 500));
+      } else {
+        setSalesExecCalcType("PERCENTAGE");
+        setPercentValue(String(r.percentValue ?? 1));
+      }
     } else {
       if (!r.category || r.category === "ALL") {
         setCashierCategoryType("ALL");
@@ -200,15 +230,22 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
 
   // Compile current rule configuration
   const currentRuleDraft = useMemo(() => {
-    const category = selectedRole === "cashier"
-      ? (cashierCategoryType === "ALL" ? "ALL" : specificCategory)
-      : "Security";
+    let category = "ALL";
+    if (selectedRole === "cashier") {
+      category = cashierCategoryType === "ALL" ? "ALL" : specificCategory;
+    } else if (selectedRole === "guard") {
+      category = "Security";
+    } else if (selectedRole === "sales_executive") {
+      category = "Sales Assist";
+    }
 
     let calcType: CalculationType = "PERCENT_OF_SALE";
     if (selectedRole === "cashier") {
       calcType = rewardType === "PERCENTAGE" ? "PERCENT_OF_SALE" : rewardType === "FIXED" ? "FIXED_PER_SALE" : "TIERED";
     } else if (selectedRole === "guard") {
       calcType = "FIXED_PER_SALE";
+    } else if (selectedRole === "sales_executive") {
+      calcType = salesExecCalcType === "FLAT_PER_LAKH" ? "FIXED_PER_SALE" : "PERCENT_OF_SALE";
     }
 
     const autoApprove = parseFloat(autoApproveThreshold) || 500;
@@ -221,18 +258,47 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
       targetRole: selectedRole,
       category,
       calculationType: calcType,
-      percentValue: rewardType === "PERCENTAGE" ? (parseFloat(percentValue) || 0) : undefined,
-      fixedAmount: rewardType === "FIXED" ? (parseFloat(fixedAmount) || 0) : undefined,
+      percentValue:
+        selectedRole === "sales_executive"
+          ? salesExecCalcType === "PERCENTAGE"
+            ? parseFloat(percentValue) || 1
+            : undefined
+          : rewardType === "PERCENTAGE"
+          ? parseFloat(percentValue) || 0
+          : undefined,
+      fixedAmount:
+        selectedRole === "sales_executive"
+          ? salesExecCalcType === "FLAT_PER_LAKH"
+            ? parseFloat(flatPerLakh) || 500
+            : undefined
+          : rewardType === "FIXED"
+          ? parseFloat(fixedAmount) || 0
+          : undefined,
       tiers: rewardType === "TIERED" ? tiers : undefined,
       minSaleAmount: minSale,
       payoutFrequency: payoutFreq,
       autoApproveThreshold: autoApprove,
       // Guard fields
-      fraudCatchReward: selectedRole === "guard" && guardTriggerType === "PER_CATCH" ? (parseFloat(fraudCatchReward) || 0) : undefined,
-      catchValueThreshold: selectedRole === "guard" && enableHighCatchReward ? (parseFloat(catchValueThreshold) || 0) : undefined,
-      catchValueReward: selectedRole === "guard" && enableHighCatchReward ? (parseFloat(catchValueReward) || 0) : undefined,
-      monthlyTargetValue: selectedRole === "guard" && guardTriggerType === "MONTHLY_TARGET" ? (parseFloat(monthlyTargetValue) || 0) : undefined,
-      monthlyTargetBonus: selectedRole === "guard" && guardTriggerType === "MONTHLY_TARGET" ? (parseFloat(monthlyTargetBonus) || 0) : undefined,
+      fraudCatchReward:
+        selectedRole === "guard" && guardTriggerType === "PER_CATCH"
+          ? parseFloat(fraudCatchReward) || 0
+          : undefined,
+      catchValueThreshold:
+        selectedRole === "guard" && enableHighCatchReward
+          ? parseFloat(catchValueThreshold) || 0
+          : undefined,
+      catchValueReward:
+        selectedRole === "guard" && enableHighCatchReward
+          ? parseFloat(catchValueReward) || 0
+          : undefined,
+      monthlyTargetValue:
+        selectedRole === "guard" && guardTriggerType === "MONTHLY_TARGET"
+          ? parseFloat(monthlyTargetValue) || 0
+          : undefined,
+      monthlyTargetBonus:
+        selectedRole === "guard" && guardTriggerType === "MONTHLY_TARGET"
+          ? parseFloat(monthlyTargetBonus) || 0
+          : undefined,
       guardRuleType: selectedRole === "guard" ? guardTriggerType : undefined,
     };
   }, [
@@ -255,9 +321,11 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
     catchValueReward,
     monthlyTargetValue,
     monthlyTargetBonus,
+    salesExecCalcType,
+    flatPerLakh,
   ]);
 
-  // Plain summary text and live calculation
+  // Plain summary text and live calculation preview
   const ruleSummaryText = useMemo(() => {
     return generateRulePlainSummary(currentRuleDraft);
   }, [currentRuleDraft]);
@@ -267,7 +335,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
     return simulateCalculation(currentRuleDraft, sample);
   }, [currentRuleDraft, previewSampleAmount]);
 
-  // Save Rule
+  // Save Rule Handler
   const handleSaveRule = (status: "ACTIVE" | "DRAFT") => {
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -279,9 +347,24 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
           status,
         };
 
-        const res = await setIncentiveRule(payload);
+        const res = (await setIncentiveRule(payload)) as any;
         if (res.ok) {
+          if (res.warning === "CAP_EXCEEDED") {
+            setShowWizard(false);
+            setCapWarning({
+              combinedRate: res.combinedRate ?? 0,
+              capPercent: res.capPercent ?? 15,
+              breakdown: res.breakdown || [],
+              savedRuleId: res.ruleId,
+              draftPayload: payload,
+            });
+            await loadRules();
+            router.refresh();
+            return;
+          }
+
           setShowWizard(false);
+          setCapWarning(null);
           setSuccessMsg(
             status === "ACTIVE"
               ? "Rule activated successfully! New payouts will now follow this rule."
@@ -299,8 +382,38 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
     });
   };
 
+  // Confirm Override Handler (Step 5)
+  const handleConfirmOverride = () => {
+    if (!capWarning) return;
+    setErrorMsg(null);
+    setShowOverrideConfirm(false);
+
+    startTransition(async () => {
+      try {
+        const payload = {
+          ...capWarning.draftPayload,
+          id: capWarning.savedRuleId,
+          status: "ACTIVE",
+          overrideCap: true,
+        };
+        const res = (await setIncentiveRule(payload)) as any;
+        if (res.ok) {
+          setCapWarning(null);
+          setSuccessMsg("Incentive rule activated with cap override. Logged in audit records.");
+          setTimeout(() => setSuccessMsg(null), 4000);
+          await loadRules();
+          router.refresh();
+        } else {
+          setErrorMsg(res.error || "Failed to activate rule with override.");
+        }
+      } catch (err: any) {
+        setErrorMsg(err.message || "Unexpected error activating rule override.");
+      }
+    });
+  };
+
   const handleDeleteRule = (ruleId: string) => {
-    if (!confirm("Are you sure you want to delete this incentive rule? Past approved payouts will remain safe.")) {
+    if (!confirm("Are you sure you want to delete this incentive rule? Past approved payouts will remain preserved.")) {
       return;
     }
     startTransition(async () => {
@@ -347,11 +460,11 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 24 }}>🎯</span>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: "var(--text-primary)", margin: 0 }}>
-              Performance Incentive Rules (कमीशन व रिवार्ड)
+              Performance Incentive Rules
             </h2>
           </div>
           <p style={{ color: "var(--text-secondary)", fontSize: 13, margin: "6px 0 0 0" }}>
-            Set automatic commission for Cashiers and theft prevention rewards for Guards without complicated math.
+            Set automated performance commission for cashiers, theft prevention rewards for guards, and customer assist incentives for sales executives.
           </p>
         </div>
 
@@ -373,9 +486,206 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
             boxShadow: "0 2px 10px rgba(34, 197, 94, 0.3)",
           }}
         >
-          <span>✨</span> + Naya Incentive Rule Banayein
+          <span>✨</span> + Create Incentive Rule
         </button>
       </div>
+
+      {/* Step 5 Warning Banner: Incentive Cap Exceeded */}
+      {capWarning && (
+        <div
+          style={{
+            background: "rgba(245, 158, 11, 0.12)",
+            border: "2px solid #f59e0b",
+            borderRadius: 16,
+            padding: 20,
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            boxShadow: "0 4px 20px rgba(245, 158, 11, 0.15)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 24 }}>⚠️</span>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: "#f59e0b" }}>
+                Incentive Cap Warning
+              </h3>
+              <p style={{ margin: "2px 0 0 0", fontSize: 13, color: "var(--text-primary)" }}>
+                Combined active rules are estimated at <strong>~{capWarning.combinedRate.toFixed(1)}%</strong> incentive per order.
+                (Recommended cap: <strong>{capWarning.capPercent}%</strong>)
+              </p>
+            </div>
+          </div>
+
+          {/* Breakdown Table */}
+          <div
+            style={{
+              background: "var(--card-bg)",
+              borderRadius: 12,
+              border: "1px solid var(--border)",
+              overflow: "hidden",
+            }}
+          >
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,0.03)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                  <th style={{ padding: "8px 14px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>ROLE</th>
+                  <th style={{ padding: "8px 14px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>RULE / SCOPE</th>
+                  <th style={{ padding: "8px 14px", fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, textAlign: "right" }}>ESTIMATED %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {capWarning.breakdown.map((item, idx) => (
+                  <tr key={idx} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 700, color: "var(--text-primary)" }}>
+                      {item.role.replace("_", " ").toUpperCase()}
+                    </td>
+                    <td style={{ padding: "10px 14px", color: "var(--text-secondary)" }}>
+                      {item.label}
+                    </td>
+                    <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 800, color: "var(--text-primary)" }}>
+                      ~{item.estimatedRate.toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ background: "rgba(255,255,255,0.02)", fontWeight: 900 }}>
+                  <td colSpan={2} style={{ padding: "10px 14px", color: "var(--text-primary)" }}>
+                    Combined Estimated Rate:
+                  </td>
+                  <td
+                    style={{
+                      padding: "10px 14px",
+                      textAlign: "right",
+                      fontSize: 14,
+                      color: capWarning.combinedRate <= capWarning.capPercent ? "#22c55e" : "#ef4444",
+                    }}
+                  >
+                    ~{capWarning.combinedRate.toFixed(1)}%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-primary)", fontWeight: 600 }}>
+            This rule was saved as <strong>DRAFT</strong>. Please review your structure before activating to protect store margins.
+          </p>
+
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setCapWarning(null)}
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid var(--border)",
+                color: "var(--text-primary)",
+                borderRadius: 10,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Review All Rules
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowOverrideConfirm(true)}
+              style={{
+                background: "#f59e0b",
+                color: "#000",
+                border: "none",
+                borderRadius: 10,
+                padding: "8px 18px",
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Activate Anyway
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Override */}
+      {showOverrideConfirm && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setShowOverrideConfirm(false)}
+        >
+          <div
+            style={{
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 18,
+              maxWidth: 460,
+              width: "100%",
+              padding: 24,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 28 }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: "var(--text-primary)" }}>
+                Confirm Incentive Cap Override
+              </h3>
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              You are activating an incentive structure that exceeds the recommended 15% cap per order. An entry will be permanently recorded in the admin audit log. Do you want to proceed?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowOverrideConfirm(false)}
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-primary)",
+                  borderRadius: 10,
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={handleConfirmOverride}
+                style={{
+                  background: "#f59e0b",
+                  color: "#000",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "8px 18px",
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                {isPending ? "Activating..." : "Yes, Activate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {errorMsg && (
         <div style={{ padding: "12px 18px", borderRadius: 12, background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)", color: "#ef4444", fontSize: 13, fontWeight: 700 }}>
@@ -390,7 +700,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
       )}
 
       {/* Filter Tabs */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button
           type="button"
           onClick={() => setRoleFilter("ALL")}
@@ -439,6 +749,22 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
         >
           🛡️ Security Guard Rules
         </button>
+        <button
+          type="button"
+          onClick={() => setRoleFilter("SALES_EXECUTIVE")}
+          style={{
+            padding: "7px 16px",
+            borderRadius: 10,
+            fontSize: 12,
+            fontWeight: 800,
+            cursor: "pointer",
+            border: roleFilter === "SALES_EXECUTIVE" ? "1px solid #10b981" : "1px solid var(--border)",
+            background: roleFilter === "SALES_EXECUTIVE" ? "rgba(16, 185, 129, 0.15)" : "var(--card-bg)",
+            color: roleFilter === "SALES_EXECUTIVE" ? "#34d399" : "var(--text-secondary)",
+          }}
+        >
+          🤝 Sales Executive Rules
+        </button>
       </div>
 
       {/* Existing Rules List */}
@@ -458,10 +784,10 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
         >
           <div style={{ fontSize: 32, marginBottom: 8 }}>📝</div>
           <h3 style={{ margin: "0 0 6px 0", fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>
-            Koi Rule Configured Nahi Hai
+            No Incentive Rules Configured
           </h3>
           <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-            Naya rule banane ke liye upar "+ Naya Incentive Rule Banayein" par click karein. Default baseline (1% volume) abhi active hai.
+            Click &apos;+ Create Incentive Rule&apos; above to configure custom commissions. The default baseline (1% volume) is currently active.
           </p>
         </div>
       ) : (
@@ -496,11 +822,31 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                           borderRadius: 20,
                           fontSize: 11,
                           fontWeight: 800,
-                          background: role === "cashier" ? "rgba(59, 130, 246, 0.15)" : role === "guard" ? "rgba(245, 158, 11, 0.15)" : "rgba(168, 85, 247, 0.15)",
-                          color: role === "cashier" ? "#60a5fa" : role === "guard" ? "#fbbf24" : "#c084fc",
+                          background:
+                            role === "cashier"
+                              ? "rgba(59, 130, 246, 0.15)"
+                              : role === "guard"
+                              ? "rgba(245, 158, 11, 0.15)"
+                              : role === "sales_executive"
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : "rgba(168, 85, 247, 0.15)",
+                          color:
+                            role === "cashier"
+                              ? "#60a5fa"
+                              : role === "guard"
+                              ? "#fbbf24"
+                              : role === "sales_executive"
+                              ? "#34d399"
+                              : "#c084fc",
                         }}
                       >
-                        {role === "cashier" ? "🧑‍💼 Cashier" : role === "guard" ? "🛡️ Guard" : "📦 All Staff"}
+                        {role === "cashier"
+                          ? "🧑‍💼 Cashier"
+                          : role === "guard"
+                          ? "🛡️ Security Guard"
+                          : role === "sales_executive"
+                          ? "🤝 Sales Executive"
+                          : "📦 All Staff"}
                       </span>
                       {r.category && r.category !== "ALL" && (
                         <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", background: "rgba(255,255,255,0.05)", padding: "3px 8px", borderRadius: 6 }}>
@@ -522,7 +868,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                   </div>
 
                   <p style={{ margin: "0 0 12px 0", fontSize: 13, lineHeight: 1.5, color: "var(--text-primary)", fontWeight: 600 }}>
-                    "{summary}"
+                    &quot;{summary}&quot;
                   </p>
 
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: "var(--text-secondary)" }}>
@@ -611,7 +957,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "var(--text-primary)" }}>
-                    {editingRuleId ? "Edit Incentive Rule" : "Naya Incentive Rule Banayein"}
+                    {editingRuleId ? "Edit Incentive Rule" : "Create Incentive Rule"}
                   </h3>
                   <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                     Step {wizardStep} of 5 • {
@@ -649,11 +995,14 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                   <div
                     key={step}
                     style={{
+                      height: 5,
                       flex: 1,
-                      height: 4,
                       borderRadius: 4,
-                      background: wizardStep >= step ? "var(--cta-bg, #22c55e)" : "var(--border)",
-                      transition: "all 0.2s ease",
+                      background:
+                        wizardStep >= step
+                          ? "var(--cta-bg, #22c55e)"
+                          : "rgba(255,255,255,0.1)",
+                      transition: "background 0.25s ease",
                     }}
                   />
                 ))}
@@ -662,17 +1011,17 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
 
             {/* Wizard Body (Scrollable) */}
             <div style={{ padding: 24, overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
-              {/* STEP 1: Yeh rule kiske liye hai? */}
+              {/* STEP 1: Target Role Selection */}
               {wizardStep === 1 && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
-                    Yeh incentive rule kiske liye banana chahte ho?
+                    Select Staff Role
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Kripya select karein jisko incentive ya reward milna chahiye:
+                    Choose the employee role eligible for this performance incentive:
                   </p>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
                     {/* Card 1: Cashier */}
                     <div
                       onClick={() => setSelectedRole("cashier")}
@@ -688,11 +1037,11 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       <div style={{ fontSize: 26, marginBottom: 8 }}>🧑‍💼</div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>Cashier</div>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
-                        POS checkout sales, item categories aur order volume par commission.
+                        POS counter checkout sales, product categories, and order volume commissions.
                       </div>
                     </div>
 
-                    {/* Card 2: Guard */}
+                    {/* Card 2: Security Guard */}
                     <div
                       onClick={() => setSelectedRole("guard")}
                       style={{
@@ -707,11 +1056,30 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       <div style={{ fontSize: 26, marginBottom: 8 }}>🛡️</div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>Security Guard</div>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
-                        Theft prevention, unpaid item intercepts aur fraud catch par fixed reward.
+                        Theft prevention, gate exit verification, and verified fraud interception rewards.
                       </div>
                     </div>
 
-                    {/* Card 3: All Staff */}
+                    {/* Card 3: Sales Executive */}
+                    <div
+                      onClick={() => setSelectedRole("sales_executive")}
+                      style={{
+                        padding: 16,
+                        borderRadius: 14,
+                        border: selectedRole === "sales_executive" ? "2px solid #10b981" : "1px solid var(--border)",
+                        background: selectedRole === "sales_executive" ? "rgba(16, 185, 129, 0.12)" : "rgba(255,255,255,0.02)",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div style={{ fontSize: 26, marginBottom: 8 }}>🤝</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>Sales Executive</div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
+                        Customer assist referrals recorded at customer self-checkout.
+                      </div>
+                    </div>
+
+                    {/* Card 4: All Staff */}
                     <div
                       onClick={() => setSelectedRole("all")}
                       style={{
@@ -726,21 +1094,21 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       <div style={{ fontSize: 26, marginBottom: 8 }}>📦</div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>All Staff</div>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}>
-                        Store ke sabhi employees ke liye flat monthly performance bonus.
+                        Store-wide flat monthly performance bonus distributed across all staff members.
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* STEP 2: Rule Scope */}
+              {/* STEP 2: Rule Scope - Cashier */}
               {wizardStep === 2 && selectedRole === "cashier" && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
-                    Cashier ko commission kis sales pe milegi?
+                    Cashier Sales Scope
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Select karein ki sabhi items pe commission dena hai ya specific category pe:
+                    Choose whether this commission applies across all store items or to a specific product category:
                   </p>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
@@ -764,10 +1132,10 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       />
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
-                          Sab products pe (Koi bhi category)
+                          All Products (Store-wide)
                         </div>
                         <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                          Cashier ki scan ki hui har product sale count hogi.
+                          Applies to all products scanned and billed by the cashier.
                         </div>
                       </div>
                     </label>
@@ -793,10 +1161,10 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                         />
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>
-                            Sirf specific category pe (e.g. Electronics, Clothing)
+                            Specific Product Category (e.g. Electronics, Clothing)
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                            Sirf chuni hui category ke items pe hi commission apply hoga.
+                            Applies exclusively to items matching the selected product category.
                           </div>
                         </div>
                       </div>
@@ -833,7 +1201,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
 
                   <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
                     <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", display: "block", marginBottom: 4 }}>
-                      Minimum sale amount chahiye qualify karne ke liye?
+                      Minimum qualifying sale amount per order (Optional):
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
                       <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-secondary)" }}>₹</span>
@@ -855,25 +1223,24 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                         }}
                       />
                       <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        (Agar koi minimum condition nahi hai to 0 likhein)
+                        (Enter 0 if there is no minimum threshold requirement)
                       </span>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* STEP 2: Guard Scope */}
+              {/* STEP 2: Rule Scope - Security Guard */}
               {wizardStep === 2 && selectedRole === "guard" && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
-                    Guard ko reward kab milega?
+                    Security Guard Theft Prevention Trigger
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Fraud pakadne par reward dene ka tareeqa chunein:
+                    Choose the incentive model for verified fraud interceptions:
                   </p>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    {/* Option A: Har verified catch pe */}
                     <div
                       style={{
                         padding: 14,
@@ -890,14 +1257,14 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                           onChange={() => setGuardTriggerType("PER_CATCH")}
                         />
                         <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-                          Har verified fraud catch pe
+                          Per Verified Fraud Interception
                         </span>
                       </label>
 
                       {guardTriggerType === "PER_CATCH" && (
                         <div style={{ paddingLeft: 26, marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Har 1 fraud catch pe:</span>
+                            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Reward per catch:</span>
                             <span style={{ fontWeight: 700 }}>₹</span>
                             <input
                               type="number"
@@ -916,13 +1283,13 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                               onChange={(e) => setEnableHighCatchReward(e.target.checked)}
                             />
                             <span style={{ fontSize: 12, color: "var(--text-primary)" }}>
-                              Badi theft pakadne par extra bonus dein
+                              Add bonus for intercepting high-value theft
                             </span>
                           </label>
 
                           {enableHighCatchReward && (
                             <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 20 }}>
-                              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>Agar catch value ₹</span>
+                              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>If catch value exceeds ₹</span>
                               <input
                                 type="number"
                                 min="0"
@@ -930,7 +1297,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                                 onChange={(e) => setCatchValueThreshold(e.target.value)}
                                 style={{ width: 90, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)" }}
                               />
-                              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>se zyada ho, to reward: ₹</span>
+                              <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>give extra reward: ₹</span>
                               <input
                                 type="number"
                                 min="0"
@@ -944,7 +1311,6 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       )}
                     </div>
 
-                    {/* Option B: Monthly target pe */}
                     <div
                       style={{
                         padding: 14,
@@ -961,7 +1327,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                           onChange={() => setGuardTriggerType("MONTHLY_TARGET")}
                         />
                         <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-                          Monthly fraud prevention target pe
+                          Monthly Theft Prevention Target
                         </span>
                       </label>
 
@@ -979,7 +1345,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                           </div>
 
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Target achieve karne pe: ₹</span>
+                            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>On achieving target: ₹</span>
                             <input
                               type="number"
                               min="0"
@@ -996,6 +1362,91 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                 </div>
               )}
 
+              {/* STEP 2: Sales Executive Scope */}
+              {wizardStep === 2 && selectedRole === "sales_executive" && (
+                <div>
+                  <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
+                    Sales Executive Incentive Calculation
+                  </h4>
+                  <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
+                    Configure the commission rate for orders assisted by sales executives at checkout:
+                  </p>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 12,
+                        border: salesExecCalcType === "PERCENTAGE" ? "1px solid #10b981" : "1px solid var(--border)",
+                        background: salesExecCalcType === "PERCENTAGE" ? "rgba(16, 185, 129, 0.08)" : "transparent",
+                      }}
+                    >
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="execCalc"
+                          checked={salesExecCalcType === "PERCENTAGE"}
+                          onChange={() => setSalesExecCalcType("PERCENTAGE")}
+                        />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
+                          Percentage Commission on Assisted Sales (e.g. 1%)
+                        </span>
+                      </label>
+
+                      {salesExecCalcType === "PERCENTAGE" && (
+                        <div style={{ paddingLeft: 26, marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={percentValue}
+                            onChange={(e) => setPercentValue(e.target.value)}
+                            style={{ width: 90, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)", fontWeight: 700 }}
+                          />
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>%</span>
+                          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>of assisted checkout order amount</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 14,
+                        borderRadius: 12,
+                        border: salesExecCalcType === "FLAT_PER_LAKH" ? "1px solid #10b981" : "1px solid var(--border)",
+                        background: salesExecCalcType === "FLAT_PER_LAKH" ? "rgba(16, 185, 129, 0.08)" : "transparent",
+                      }}
+                    >
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="execCalc"
+                          checked={salesExecCalcType === "FLAT_PER_LAKH"}
+                          onChange={() => setSalesExecCalcType("FLAT_PER_LAKH")}
+                        />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
+                          Flat Rate per Lakh Assisted Sales (e.g. ₹500 / Lakh)
+                        </span>
+                      </label>
+
+                      {salesExecCalcType === "FLAT_PER_LAKH" && (
+                        <div style={{ paddingLeft: 26, marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontWeight: 700 }}>₹</span>
+                          <input
+                            type="number"
+                            min="0"
+                            value={flatPerLakh}
+                            onChange={(e) => setFlatPerLakh(e.target.value)}
+                            style={{ width: 100, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)", fontWeight: 700 }}
+                          />
+                          <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>per ₹1,00,000 in assisted sales volume</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* STEP 2: All Staff Scope */}
               {wizardStep === 2 && selectedRole === "all" && (
                 <div>
@@ -1003,7 +1454,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                     All Staff Bonus Amount
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Sabhi active staff ke liye monthly fixed performance reward set karein:
+                    Set a monthly fixed performance reward for all active staff members:
                   </p>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 14, fontWeight: 700 }}>₹</span>
@@ -1019,19 +1470,18 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                 </div>
               )}
 
-              {/* STEP 3: Kitna milega? (For Cashier) */}
+              {/* STEP 3: Reward Amount (Cashier) */}
               {wizardStep === 3 && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
-                    Kitna commission ya reward milega?
+                    Reward Structure
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Reward calculate karne ka tareeqa chunein:
+                    Choose how the commission amount is computed:
                   </p>
 
                   {selectedRole === "cashier" ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                      {/* Option 1: Percentage */}
                       <div
                         style={{
                           padding: 14,
@@ -1064,13 +1514,12 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                             />
                             <span style={{ fontSize: 13, fontWeight: 700 }}>%</span>
                             <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                              eligible sale amount ka (e.g. 1.5%)
+                              of eligible sale amount (e.g. 1.5%)
                             </span>
                           </div>
                         )}
                       </div>
 
-                      {/* Option 2: Fixed amount */}
                       <div
                         style={{
                           padding: 14,
@@ -1102,13 +1551,12 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                               style={{ width: 90, padding: "6px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-bg)", color: "var(--text-primary)", fontWeight: 700 }}
                             />
                             <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                              har qualifying order / bill pe
+                              per qualifying order or bill
                             </span>
                           </div>
                         )}
                       </div>
 
-                      {/* Option 3: Tiered */}
                       <div
                         style={{
                           padding: 14,
@@ -1125,7 +1573,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                             onChange={() => setRewardType("TIERED")}
                           />
                           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-                            Tiered (Zyada beche, zyada milega)
+                            Tiered (Higher sales earn higher percentage)
                           </span>
                         </label>
 
@@ -1194,6 +1642,8 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)" }}>
                         {selectedRole === "guard"
                           ? `Security Guard reward config: ₹${fraudCatchReward} per catch.`
+                          : selectedRole === "sales_executive"
+                          ? `Sales Executive config: ${salesExecCalcType === "FLAT_PER_LAKH" ? `₹${flatPerLakh}/Lakh` : `${percentValue}% commission`}.`
                           : `All Staff bonus config: ₹${fixedAmount} flat bonus.`}
                       </p>
                     </div>
@@ -1201,20 +1651,20 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                 </div>
               )}
 
-              {/* STEP 4: Kab milega aur kaun approve karega? */}
+              {/* STEP 4: Schedule & Approval Threshold */}
               {wizardStep === 4 && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
-                    Kab milega aur kaun approve karega?
+                    Payout Frequency & Manager Approval Limit
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Payout cycle aur manager approval limit configure karein:
+                    Configure the accounting payout cycle and the auto-approval threshold:
                   </p>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                     <div>
                       <label style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", display: "block", marginBottom: 8 }}>
-                        Payout Frequency (Kab hisaab hoga):
+                        Payout Frequency:
                       </label>
                       <div style={{ display: "flex", gap: 14 }}>
                         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
@@ -1224,7 +1674,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                             checked={payoutFreq === "MONTHLY"}
                             onChange={() => setPayoutFreq("MONTHLY")}
                           />
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>Monthly (Har mahine ke end pe)</span>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>Monthly (Calculated at month-end)</span>
                         </label>
                         <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                           <input
@@ -1233,7 +1683,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                             checked={payoutFreq === "WEEKLY"}
                             onChange={() => setPayoutFreq("WEEKLY")}
                           />
-                          <span style={{ fontSize: 13, fontWeight: 700 }}>Weekly (Har hafte)</span>
+                          <span style={{ fontSize: 13, fontWeight: 700 }}>Weekly (Every week)</span>
                         </label>
                       </div>
                     </div>
@@ -1244,7 +1694,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       </label>
                       <div style={{ background: "rgba(255,255,255,0.03)", padding: 14, borderRadius: 12, border: "1px solid var(--border)" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>₹</span>
+                          <span style={{ fontSize: 13, color: "var(--text-primary)" }}>Amounts below ₹</span>
                           <input
                             type="number"
                             min="0"
@@ -1262,11 +1712,11 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                             }}
                           />
                           <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
-                            se kam amount — <strong>Auto Approve</strong> (koi approval nahi chahiye)
+                            are <strong>Auto-Approved</strong> without manager intervention.
                           </span>
                         </div>
                         <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)" }}>
-                          Agar incentive amount ₹{autoApproveThreshold || 500} se zyada banta hai, to Branch Manager ko manually approve karna padega taaki store owner ka budget safe rahe.
+                          If the calculated incentive exceeds ₹{autoApproveThreshold || 500}, the Branch Manager must manually review and approve the voucher to ensure store budget protection.
                         </p>
                       </div>
                     </div>
@@ -1274,14 +1724,14 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                 </div>
               )}
 
-              {/* STEP 5: Live Preview & Plain Summary */}
+              {/* STEP 5: Live Preview & Activation */}
               {wizardStep === 5 && (
                 <div>
                   <h4 style={{ margin: "0 0 6px 0", fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
                     Rule Summary & Live Calculation Preview
                   </h4>
                   <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                    Review karein ki yeh rule real sales par kaise operate karega:
+                    Review how this incentive rule calculates against sample transaction amounts:
                   </p>
 
                   {/* Plain Language Summary Card */}
@@ -1298,7 +1748,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       📋 PLAIN LANGUAGE RULE SUMMARY
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.5 }}>
-                      "{ruleSummaryText}"
+                      &quot;{ruleSummaryText}&quot;
                     </div>
                   </div>
 
@@ -1360,7 +1810,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                     </div>
 
                     <div style={{ fontSize: 11, color: "var(--text-secondary)", fontStyle: "italic", marginTop: 4 }}>
-                      ⚠️ Yeh ek live estimate hai. Final payout month-end calculation ke baad confirm hota hai.
+                      ℹ️ This is a real-time calculation preview. Official payouts are generated at month-end based on verified sales.
                     </div>
                   </div>
                 </div>
@@ -1416,7 +1866,7 @@ export function HrIncentiveRulesEditor({ tenantId, userRole }: HrIncentiveRulesE
                       cursor: "pointer",
                     }}
                   >
-                    Aage Badhein ➡️
+                    Continue ➡️
                   </button>
                 ) : (
                   <>

@@ -1,10 +1,11 @@
 import { adminDb } from "@/lib/firebase-admin";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getStaffDoc, getCurrentSalaryStructure } from "@/lib/services/hr-service";
-import { IncentiveRuleDocument } from "@/lib/schemas/incentive-schema";
+import { IncentiveRuleDocument, CalculationType } from "@/lib/schemas/incentive-schema";
 import { evaluateCategoryIncentive, evaluateGuardIncentiveRule } from "@/lib/utils/incentive-calc";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
 import { serializeTimestamps } from "@/lib/firestore-helpers";
+import { INCENTIVE_COMBINED_CAP_PERCENT } from "@/lib/constants";
 
 export type CategoryIncentiveDetail = {
   category: string;
@@ -12,7 +13,7 @@ export type CategoryIncentiveDetail = {
   eligibleSales: number;
   qualifyingOrdersCount: number;
   incentive: number;
-  calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
+  calculationType: CalculationType;
   ruleDetails: string;
 };
 
@@ -32,6 +33,8 @@ export type CashierIncentiveResult = {
   resolvedAtMs?: number | null;
   categoryBreakdown: CategoryIncentiveDetail[];
   appliedRules: string[];
+  capExceeded?: boolean;
+  actualCombinedRate?: number;
 };
 
 export type GuardIncentiveResult = {
@@ -66,6 +69,8 @@ export type MonthlyIncentiveStaffSummary = {
   status?: string;
   totalPayout: number;
   appliedRules: string[];
+  capExceeded?: boolean;
+  actualCombinedRate?: number;
 };
 
 export type MonthlyIncentiveReport = {
@@ -365,7 +370,7 @@ export async function calculateCashierIncentive(
     const rule = categoryRulesMap.get(cat.toUpperCase()) || defaultRule;
     const evalResult = evaluateCategoryIncentive(rule, agg.eligibleSales, agg.qualifyingOrdersCount);
     const catIncentive = evalResult.incentiveAmount;
-    const calcType = (rule?.calculationType || "PERCENT_OF_SALE") as "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
+    const calcType = (rule?.calculationType || "PERCENT_OF_SALE") as CalculationType;
 
     incentiveAmount += catIncentive;
     appliedRules.push(
@@ -656,6 +661,43 @@ export async function getMonthlyIncentiveReport(
       } catch (err) {
         console.error(`Error calculating guard incentive for ${staffId}:`, err);
       }
+    } else if (role === "sales_executive") {
+      try {
+        const statDocId = `${data.empId || staffId}_${month}`;
+        const statSnap = await adminDb
+          .collection("tenants")
+          .doc(tenantId)
+          .collection("salesExecStats")
+          .doc(statDocId)
+          .get();
+        if (statSnap.exists) {
+          const sData = statSnap.data()!;
+          ordersProcessed = sData.totalAssistedOrders || 0;
+          totalValue = sData.totalAssistedRevenue || 0;
+          const execRules = await getTenantIncentiveRules(tenantId);
+          const activeExecRule = execRules.find(
+            (r) => (r.role || r.targetRole) === "sales_executive" && r.status === "ACTIVE"
+          );
+          if (activeExecRule) {
+            if (activeExecRule.calculationType === "FLAT_PER_LAKH") {
+              const perLakh = activeExecRule.flatPerLakh || activeExecRule.fixedAmount || 500;
+              incentiveAmount = (totalValue / 100000) * perLakh;
+              appliedRules.push(`Sales Assist: ₹${perLakh}/Lakh on ₹${totalValue.toLocaleString("en-IN")} assisted volume`);
+            } else {
+              const pct = activeExecRule.percentValue ?? 1;
+              incentiveAmount = (totalValue * pct) / 100;
+              appliedRules.push(`Sales Assist: ${pct}% on ₹${totalValue.toLocaleString("en-IN")} assisted volume`);
+            }
+          } else {
+            incentiveAmount = (totalValue * 1) / 100;
+            appliedRules.push(`Sales Assist: 1% baseline on ₹${totalValue.toLocaleString("en-IN")} assisted volume`);
+          }
+          incentiveAmount = Math.round(incentiveAmount * 100) / 100;
+          totalOrdersProcessed += ordersProcessed;
+        }
+      } catch (err) {
+        console.error(`Error calculating sales executive incentive for ${staffId}:`, err);
+      }
     }
 
     totalIncentivePayout += incentiveAmount;
@@ -667,8 +709,8 @@ export async function getMonthlyIncentiveReport(
       role: data.role || "",
       branchCode: data.branchCode || branchCode,
       baseSalary,
-      ordersProcessed: role === "cashier" ? ordersProcessed : undefined,
-      totalValue: role === "cashier" ? totalValue : undefined,
+      ordersProcessed: (role === "cashier" || role === "sales_executive") ? ordersProcessed : undefined,
+      totalValue: (role === "cashier" || role === "sales_executive") ? totalValue : undefined,
       fraudCatches: role === "guard" ? fraudCatches : undefined,
       fraudValuePrevented: role === "guard" ? fraudValuePrevented : undefined,
       incentiveAmount,
@@ -676,6 +718,106 @@ export async function getMonthlyIncentiveReport(
       totalPayout: baseSalary + incentiveAmount,
       appliedRules,
     });
+  }
+
+  // STEP 6: Multi-role order combined cap evaluation (Cashier + Sales Executive)
+  try {
+    const { startTs, endTs } = getMonthDateRange(month);
+    let orderQuery: FirebaseFirestore.Query = adminDb
+      .collection("orders")
+      .where("timestamp", ">=", startTs)
+      .where("timestamp", "<=", endTs);
+
+    if (tenantId) {
+      orderQuery = orderQuery.where("tenantId", "==", tenantId);
+    }
+
+    const orderSnap = await orderQuery.get().catch(() => null);
+
+    if (orderSnap && !orderSnap.empty) {
+      const activeRules = await getTenantIncentiveRules(tenantId);
+      const cashierRules = activeRules.filter(
+        (r) => (r.role || r.targetRole || "cashier").toLowerCase() === "cashier" && r.status === "ACTIVE"
+      );
+      const salesExecRules = activeRules.filter(
+        (r) => (r.role || r.targetRole) === "sales_executive" && r.status === "ACTIVE"
+      );
+
+      const defaultCashierRate = cashierRules[0]?.percentValue ?? 1;
+      const defaultExecRate =
+        salesExecRules[0]?.percentValue ??
+        (salesExecRules[0]?.flatPerLakh ? salesExecRules[0].flatPerLakh / 1000 : 1);
+
+      // Track empIds / staffIds that exceed cap on dual-assisted orders
+      const capExceededIdentities = new Map<string, number>();
+
+      for (const oDoc of orderSnap.docs) {
+        const oData = oDoc.data();
+        const hasCashier = !!(oData.cashierId || oData.cashierEmail);
+        const hasAssist = !!oData.assistedByEmpId;
+        const totalAmount = parseFloat(oData.totalAmount ?? oData.amount ?? "0") || 0;
+
+        if (hasCashier && hasAssist && totalAmount > 0) {
+          const cashierIncentiveAmt = (totalAmount * defaultCashierRate) / 100;
+          const execIncentiveAmt = (totalAmount * defaultExecRate) / 100;
+          const totalIncentiveOnOrder = cashierIncentiveAmt + execIncentiveAmt;
+          const actualRate = (totalIncentiveOnOrder / totalAmount) * 100;
+
+          if (actualRate > INCENTIVE_COMBINED_CAP_PERCENT) {
+            const cashierKey = (oData.cashierId || oData.cashierEmail || "").toString().toLowerCase().trim();
+            const assistKey = (oData.assistedByEmpId || "").toString().toLowerCase().trim();
+            if (cashierKey) {
+              capExceededIdentities.set(
+                cashierKey,
+                Math.max(capExceededIdentities.get(cashierKey) || 0, actualRate)
+              );
+            }
+            if (assistKey) {
+              capExceededIdentities.set(
+                assistKey,
+                Math.max(capExceededIdentities.get(assistKey) || 0, actualRate)
+              );
+            }
+          }
+        }
+      }
+
+      // Annotate staffPayouts and update DRAFT/PENDING payout docs
+      for (const summary of staffPayouts) {
+        const staffKey = summary.staffId.toLowerCase();
+        const empKey = (summary.empId || "").toLowerCase();
+        const matchedRate =
+          capExceededIdentities.get(staffKey) ||
+          (empKey ? capExceededIdentities.get(empKey) : undefined);
+
+        if (matchedRate !== undefined) {
+          summary.capExceeded = true;
+          summary.actualCombinedRate = Math.round(matchedRate * 10) / 10;
+
+          // Write to payout doc if not already APPROVED
+          const payoutDocRef = adminDb
+            .collection("incentive_payouts")
+            .doc(`${summary.staffId}_${month}`);
+          const pSnap = await payoutDocRef.get().catch(() => null);
+
+          if (pSnap && pSnap.exists) {
+            const pData = pSnap.data();
+            if (pData?.status !== "APPROVED") {
+              await payoutDocRef.set(
+                {
+                  capExceeded: true,
+                  actualCombinedRate: summary.actualCombinedRate,
+                  updatedAt: FieldValue.serverTimestamp(),
+                },
+                { merge: true }
+              ).catch(() => null);
+            }
+          }
+        }
+      }
+    }
+  } catch (capErr) {
+    console.error("Error evaluating multi-role incentive cap:", capErr);
   }
 
   const result: MonthlyIncentiveReport = {

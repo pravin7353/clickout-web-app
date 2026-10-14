@@ -11,7 +11,12 @@ export type IncentiveMetric = z.infer<typeof IncentiveMetricEnum>;
 export const IncentiveRoleEnum = z.enum(["cashier", "guard", "sales_executive"]);
 export type IncentiveRole = z.infer<typeof IncentiveRoleEnum>;
 
-export const CalculationTypeEnum = z.enum(["PERCENT_OF_SALE", "FIXED_PER_SALE", "TIERED"]);
+export const CalculationTypeEnum = z.enum([
+  "PERCENT_OF_SALE",
+  "FIXED_PER_SALE",
+  "TIERED",
+  "FLAT_PER_LAKH",
+]);
 export type CalculationType = z.infer<typeof CalculationTypeEnum>;
 
 export const PayoutFrequencyEnum = z.enum(["DAILY", "WEEKLY", "MONTHLY"]);
@@ -32,6 +37,7 @@ export const incentiveRuleSchema = z.object({
   calculationType: CalculationTypeEnum.default("PERCENT_OF_SALE"),
   percentValue: z.coerce.number().min(0).optional(),
   fixedAmount: z.coerce.number().min(0).optional(),
+  flatPerLakh: z.coerce.number().min(0).optional(),
   tiers: z.array(TierThresholdSchema).optional(),
   minSaleAmount: z.coerce.number().min(0).default(0),
   payoutFrequency: PayoutFrequencyEnum.default("MONTHLY"),
@@ -48,6 +54,7 @@ export const incentiveRuleSchema = z.object({
   version: z.number().int().min(1).default(1),
   effectiveFrom: z.string().optional(),
   status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("ACTIVE"),
+  overrideCap: z.boolean().optional(),
 });
 
 export type IncentiveRuleInput = z.infer<typeof incentiveRuleSchema>;
@@ -58,9 +65,10 @@ export interface IncentiveRuleDocument {
   role?: "cashier" | "guard" | "sales_executive" | "all";
   targetRole?: "cashier" | "guard" | "sales_executive" | "all";
   category: string;
-  calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
+  calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED" | "FLAT_PER_LAKH";
   percentValue?: number;
   fixedAmount?: number;
+  flatPerLakh?: number;
   tiers?: { minSaleAmount: number; percent: number }[];
   minSaleAmount: number;
   payoutFrequency: "DAILY" | "WEEKLY" | "MONTHLY";
@@ -77,6 +85,7 @@ export interface IncentiveRuleDocument {
   version?: number;
   effectiveFrom?: string;
   status?: "ACTIVE" | "DRAFT" | "ARCHIVED";
+  overrideCap?: boolean;
   createdBy?: string;
   createdAtMs?: number;
   updatedAt?: any;
@@ -99,4 +108,7 @@ export interface IncentivePayoutRecord {
   approvedBy?: string | null;
   resolvedAtMs?: number | null;
   createdAtMs: number;
+  capExceeded?: boolean;
+  actualCombinedRate?: number;
 }
+

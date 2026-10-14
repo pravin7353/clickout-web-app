@@ -28,6 +28,9 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
   const [whyLoading, setWhyLoading] = useState<boolean>(false);
   const [whyError, setWhyError] = useState<string | null>(null);
 
+  // Filter toggle for cap-exceeded orders / staff (Step 6)
+  const [filterCapExceededOnly, setFilterCapExceededOnly] = useState<boolean>(false);
+
   const isManager = userRole === "manager";
   const canPostFinance = userRole === "tenant_admin" || userRole === "super_admin";
 
@@ -139,6 +142,33 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
                 />
               </div>
             )}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 18 }}>
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: filterCapExceededOnly ? "#f59e0b" : "var(--text-secondary)",
+                  background: filterCapExceededOnly ? "rgba(245, 158, 11, 0.15)" : "transparent",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  border: filterCapExceededOnly ? "1px solid rgba(245, 158, 11, 0.4)" : "1px solid var(--border)",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={filterCapExceededOnly}
+                  onChange={(e) => setFilterCapExceededOnly(e.target.checked)}
+                  style={{ cursor: "pointer", accentColor: "#f59e0b" }}
+                />
+                ⚠️ Show cap-exceeded orders
+              </label>
+            </div>
           </div>
 
           <button
@@ -255,103 +285,148 @@ export function HrIncentiveTable({ branchCode, userRole }: HrIncentiveTableProps
                   </td>
                 </tr>
               ) : (
-                report.staffPayouts.map((s) => (
-                  <tr key={s.staffId} style={{ borderBottom: "1px solid var(--border)", fontSize: 13 }}>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>{s.name}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                        {s.empId ? `${s.empId} • ` : ""}{s.branchCode}
-                      </div>
-                    </td>
-                    <td style={{ padding: "14px 16px" }}>
-                      <Badge
-                        color={
-                          s.role.toLowerCase() === "cashier"
-                            ? "#3b82f6"
-                            : s.role.toLowerCase() === "guard"
-                            ? "#f59e0b"
-                            : "var(--text-secondary)"
-                        }
+                (report.staffPayouts || [])
+                  .filter((s) => !filterCapExceededOnly || !!s.capExceeded)
+                  .map((s) => {
+                    const isCapExceeded = !!s.capExceeded;
+                    return (
+                      <tr
+                        key={s.staffId}
+                        style={{
+                          borderBottom: "1px solid var(--border)",
+                          fontSize: 13,
+                          background: isCapExceeded ? "rgba(245, 158, 11, 0.12)" : undefined,
+                          borderLeft: isCapExceeded ? "4px solid #f59e0b" : undefined,
+                          transition: "background 0.2s ease",
+                        }}
                       >
-                        {s.role.toUpperCase()}
-                      </Badge>
-                    </td>
-                    <td style={{ padding: "14px 16px" }}>
-                      {s.role.toLowerCase() === "cashier" && (
-                        <div>
-                          <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-                            {s.ordersProcessed ?? 0} orders
-                          </span>
-                          <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
-                            ₹{(s.totalValue ?? 0).toLocaleString("en-IN")} vol
-                          </span>
-                        </div>
-                      )}
-                      {s.role.toLowerCase() === "guard" && (
-                        <div>
-                          <span style={{ fontWeight: 700, color: "#ef4444" }}>
-                            {s.fraudCatches ?? 0} catches
-                          </span>
-                          <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
-                            ₹{(s.fraudValuePrevented ?? 0).toLocaleString("en-IN")} saved
-                          </span>
-                        </div>
-                      )}
-                      {s.role.toLowerCase() !== "cashier" && s.role.toLowerCase() !== "guard" && (
-                        <span style={{ color: "var(--text-secondary)" }}>-</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "var(--text-primary)" }}>
-                      ₹{s.baseSalary.toLocaleString("en-IN")}
-                    </td>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontWeight: 800, color: s.incentiveAmount > 0 ? "#22c55e" : "var(--text-secondary)" }}>
-                          +₹{s.incentiveAmount.toLocaleString("en-IN")}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenWhyDrawer(s)}
-                          style={{
-                            background: "rgba(59, 130, 246, 0.12)",
-                            border: "1px solid rgba(59, 130, 246, 0.3)",
-                            color: "#60a5fa",
-                            borderRadius: 6,
-                            padding: "2px 7px",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          Why? →
-                        </button>
-                      </div>
-                      {s.appliedRules && s.appliedRules.length > 0 && (
-                        <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 2 }}>
-                          {s.appliedRules[0]}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: "14px 16px", fontWeight: 900, color: "var(--text-primary)" }}>
-                      ₹{s.totalPayout.toLocaleString("en-IN")}
-                    </td>
-                    <td style={{ padding: "14px 16px" }}>
-                      {getStatusBadge(s.status)}
-                    </td>
-                    {canPostFinance && (
-                      <td style={{ padding: "14px 16px", textAlign: "right" }}>
-                        <Button
-                          variant="secondary"
-                          onClick={() => handlePostIncentive(s.staffId, s.name, s.incentiveAmount)}
-                          disabled={postingStaffId === s.staffId || s.incentiveAmount <= 0}
-                          style={{ fontSize: 12, padding: "6px 12px" }}
-                        >
-                          {postingStaffId === s.staffId ? "Posting..." : "📑 Post to Finance"}
-                        </Button>
-                      </td>
-                    )}
-                  </tr>
-                ))
+                        <td style={{ padding: "14px 16px" }}>
+                          <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>{s.name}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {s.empId ? `${s.empId} • ` : ""}{s.branchCode}
+                          </div>
+                          {isCapExceeded && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                marginTop: 4,
+                                padding: "2px 8px",
+                                borderRadius: 6,
+                                fontSize: 10,
+                                fontWeight: 800,
+                                background: "rgba(245, 158, 11, 0.25)",
+                                color: "#f59e0b",
+                                border: "1px solid rgba(245, 158, 11, 0.4)",
+                              }}
+                            >
+                              ⚠️ Cap Exceeded (~{s.actualCombinedRate || 15}%)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          <Badge
+                            color={
+                              s.role.toLowerCase() === "cashier"
+                                ? "#3b82f6"
+                                : s.role.toLowerCase() === "guard"
+                                ? "#f59e0b"
+                                : s.role.toLowerCase() === "sales_executive"
+                                ? "#10b981"
+                                : "var(--text-secondary)"
+                            }
+                          >
+                            {s.role.toUpperCase()}
+                          </Badge>
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          {s.role.toLowerCase() === "cashier" && (
+                            <div>
+                              <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+                                {s.ordersProcessed ?? 0} orders
+                              </span>
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
+                                ₹{(s.totalValue ?? 0).toLocaleString("en-IN")} vol
+                              </span>
+                            </div>
+                          )}
+                          {s.role.toLowerCase() === "sales_executive" && (
+                            <div>
+                              <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+                                {s.ordersProcessed ?? 0} assisted orders
+                              </span>
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
+                                ₹{(s.totalValue ?? 0).toLocaleString("en-IN")} volume
+                              </span>
+                            </div>
+                          )}
+                          {s.role.toLowerCase() === "guard" && (
+                            <div>
+                              <span style={{ fontWeight: 700, color: "#ef4444" }}>
+                                {s.fraudCatches ?? 0} catches
+                              </span>
+                              <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
+                                ₹{(s.fraudValuePrevented ?? 0).toLocaleString("en-IN")} saved
+                              </span>
+                            </div>
+                          )}
+                          {s.role.toLowerCase() !== "cashier" &&
+                            s.role.toLowerCase() !== "guard" &&
+                            s.role.toLowerCase() !== "sales_executive" && (
+                              <span style={{ color: "var(--text-secondary)" }}>-</span>
+                            )}
+                        </td>
+                        <td style={{ padding: "14px 16px", color: "var(--text-primary)" }}>
+                          ₹{s.baseSalary.toLocaleString("en-IN")}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 800, color: s.incentiveAmount > 0 ? "#22c55e" : "var(--text-secondary)" }}>
+                              +₹{s.incentiveAmount.toLocaleString("en-IN")}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenWhyDrawer(s)}
+                              style={{
+                                background: "rgba(59, 130, 246, 0.12)",
+                                border: "1px solid rgba(59, 130, 246, 0.3)",
+                                color: "#60a5fa",
+                                borderRadius: 6,
+                                padding: "2px 7px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Why? →
+                            </button>
+                          </div>
+                          {s.appliedRules && s.appliedRules.length > 0 && (
+                            <div style={{ fontSize: 10, color: "var(--text-secondary)", marginTop: 2 }}>
+                              {s.appliedRules[0]}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "14px 16px", fontWeight: 900, color: "var(--text-primary)" }}>
+                          ₹{s.totalPayout.toLocaleString("en-IN")}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          {getStatusBadge(s.status)}
+                        </td>
+                        {canPostFinance && (
+                          <td style={{ padding: "14px 16px", textAlign: "right" }}>
+                            <Button
+                              variant="secondary"
+                              onClick={() => handlePostIncentive(s.staffId, s.name, s.incentiveAmount)}
+                              disabled={postingStaffId === s.staffId || s.incentiveAmount <= 0}
+                              style={{ fontSize: 12, padding: "6px 12px" }}
+                            >
+                              {postingStaffId === s.staffId ? "Posting..." : "📑 Post to Finance"}
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
               )}
             </tbody>
           </table>
