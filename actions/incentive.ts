@@ -27,6 +27,8 @@ import { getStaffDoc } from "@/lib/services/hr-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+import { serializeTimestamps } from "@/lib/firestore-helpers";
+import { generateRulePlainSummary } from "@/lib/utils/incentive-calc";
 
 // =========================================================================
 // 1. GET MONTHLY INCENTIVE REPORT (Managers / Admins only)
@@ -61,7 +63,7 @@ export async function getMonthlyIncentiveReport(
     effectiveMonth
   );
 
-  return { ok: true, report };
+  return { ok: true, report: serializeTimestamps(report) };
 }
 
 // =========================================================================
@@ -116,10 +118,10 @@ export async function getMyIncentive(staffId: string, month?: string) {
 
   if (staff.role.toLowerCase() === "cashier") {
     const result = await calculateCashierIncentive(staffId, effectiveMonth);
-    return { ok: true, incentive: result };
+    return { ok: true, incentive: serializeTimestamps(result) };
   } else if (staff.role.toLowerCase() === "guard") {
     const result = await calculateGuardIncentive(staffId, effectiveMonth);
-    return { ok: true, incentive: result };
+    return { ok: true, incentive: serializeTimestamps(result) };
   } else {
     return {
       ok: true,
@@ -167,11 +169,15 @@ export async function setIncentiveRule(raw: unknown) {
   const rulePayload: Omit<IncentiveRuleDocument, "id"> = {
     tenantId: data.tenantId,
     role: data.role,
+    targetRole: data.targetRole || data.role,
     category: data.category,
     calculationType: data.calculationType,
     minSaleAmount: data.minSaleAmount,
     payoutFrequency: data.payoutFrequency,
     autoApproveThreshold: data.autoApproveThreshold,
+    status: data.status || "ACTIVE",
+    version: data.version || 1,
+    effectiveFrom: data.effectiveFrom || new Date().toISOString(),
     createdBy: actorEmail,
     createdAtMs: Date.now(),
   };
@@ -188,16 +194,29 @@ export async function setIncentiveRule(raw: unknown) {
   if (data.description) {
     rulePayload.description = data.description;
   }
+  // Guard specific fields
+  if (data.fraudCatchReward !== undefined) {
+    rulePayload.fraudCatchReward = data.fraudCatchReward;
+  }
+  if (data.catchValueThreshold !== undefined) {
+    rulePayload.catchValueThreshold = data.catchValueThreshold;
+  }
+  if (data.catchValueReward !== undefined) {
+    rulePayload.catchValueReward = data.catchValueReward;
+  }
+  if (data.monthlyTargetValue !== undefined) {
+    rulePayload.monthlyTargetValue = data.monthlyTargetValue;
+  }
+  if (data.monthlyTargetBonus !== undefined) {
+    rulePayload.monthlyTargetBonus = data.monthlyTargetBonus;
+  }
+  if (data.guardRuleType) {
+    rulePayload.guardRuleType = data.guardRuleType;
+  }
 
   const ruleId = await saveIncentiveRule(rulePayload, data.id);
 
-  // Audit Log
-  const formulaDesc =
-    data.calculationType === "PERCENT_OF_SALE"
-      ? `${data.percentValue}% of sale`
-      : data.calculationType === "FIXED_PER_SALE"
-      ? `₹${data.fixedAmount} fixed`
-      : `${data.tiers?.length || 0} tiers`;
+  const plainSummary = generateRulePlainSummary(rulePayload);
 
   await adminDb.collection("admin_audit_logs").add({
     action: "INCENTIVE_RULE_CONFIGURED",
@@ -206,7 +225,7 @@ export async function setIncentiveRule(raw: unknown) {
     actorId: actorEmail,
     tenantId: data.tenantId,
     target: `incentive_rules/${ruleId}`,
-    details: `Configured ${data.role.toUpperCase()} category incentive rule for '${data.category}' (${data.calculationType}: ${formulaDesc}, Min Sale: ₹${data.minSaleAmount}, Frequency: ${data.payoutFrequency}, Auto-Approve: ₹${data.autoApproveThreshold}).`,
+    details: `Configured ${data.role.toUpperCase()} rule: "${plainSummary}"`,
     severity: "INFO",
     timestamp: FieldValue.serverTimestamp(),
   });
@@ -214,7 +233,7 @@ export async function setIncentiveRule(raw: unknown) {
   revalidatePath("/hr");
   revalidatePath("/manager");
 
-  return { ok: true, ruleId, message: "Category incentive rule saved successfully." };
+  return { ok: true, ruleId, message: "Incentive rule saved successfully." };
 }
 
 export async function deleteIncentiveRuleAction(ruleId: string, targetTenantId: string) {
@@ -264,7 +283,7 @@ export async function getIncentiveRulesAction(roleFilter?: "cashier" | "guard") 
   }
   const rules = await getTenantIncentiveRules(effectiveTenantId, roleFilter);
 
-  return { ok: true, rules: rules.map((r: any) => serializeFirestoreDoc(r)) };
+  return { ok: true, rules: rules.map((r: any) => serializeTimestamps(r)) };
 }
 
 // =========================================================================
@@ -350,5 +369,5 @@ export async function getPendingIncentivePayoutsAction(branchCode?: string) {
   const effectiveStore = role === "manager" ? (storeId || null) : (branchCode || null);
   const pending = await getPendingIncentivePayoutsService(effectiveTenantId, effectiveStore);
 
-  return { ok: true, pending };
+  return { ok: true, pending: serializeTimestamps(pending) };
 }

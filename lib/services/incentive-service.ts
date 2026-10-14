@@ -2,8 +2,9 @@ import { adminDb } from "@/lib/firebase-admin";
 import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import { getStaffDoc, getCurrentSalaryStructure } from "@/lib/services/hr-service";
 import { IncentiveRuleDocument } from "@/lib/schemas/incentive-schema";
-import { evaluateCategoryIncentive } from "@/lib/utils/incentive-calc";
+import { evaluateCategoryIncentive, evaluateGuardIncentiveRule } from "@/lib/utils/incentive-calc";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+import { serializeTimestamps } from "@/lib/firestore-helpers";
 
 export type CategoryIncentiveDetail = {
   category: string;
@@ -43,6 +44,10 @@ export type GuardIncentiveResult = {
   fraudCatches: number;
   fraudValuePrevented: number;
   incentiveAmount: number;
+  status: "AUTO_APPROVED" | "PENDING_MANAGER_APPROVAL" | "APPROVED" | "REJECTED";
+  autoApproveThreshold: number;
+  approvedBy?: string | null;
+  resolvedAtMs?: number | null;
   appliedRules: string[];
 };
 
@@ -173,9 +178,20 @@ export async function saveIncentiveRule(
     }
   }
 
+  // Versioning: increment version if editing existing rule
+  let version = 1;
+  if (ruleId) {
+    const existingSnap = await docRef.get();
+    if (existingSnap.exists) {
+      version = (existingSnap.data()?.version || 1) + 1;
+    }
+  }
+
   await docRef.set(
     {
       ...cleaned,
+      version,
+      effectiveFrom: cleaned.effectiveFrom || new Date().toISOString(),
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -381,6 +397,10 @@ export async function calculateCashierIncentive(
     status = pData.status || (incentiveAmount <= autoApproveThreshold ? "AUTO_APPROVED" : "PENDING_MANAGER_APPROVAL");
     approvedBy = pData.approvedBy || null;
     resolvedAtMs = pData.resolvedAtMs || null;
+    if (status === "APPROVED") {
+      // 🔒 Finalized payout immutability: do not overwrite approved payout
+      incentiveAmount = pData.incentiveAmount ?? incentiveAmount;
+    }
   } else {
     status = incentiveAmount <= autoApproveThreshold ? "AUTO_APPROVED" : "PENDING_MANAGER_APPROVAL";
     await payoutRef.set(
@@ -427,7 +447,7 @@ export async function calculateCashierIncentive(
 /**
  * 2. calculateGuardIncentive
  * Reads orders where verifiedByGuardId == staffId AND exitStatus == "REJECTED"
- * Rewards guards for catching fraud, not just raw volume.
+ * Rewards guards for catching fraud using evaluateGuardIncentiveRule.
  */
 export async function calculateGuardIncentive(
   staffId: string,
@@ -482,31 +502,18 @@ export async function calculateGuardIncentive(
   const rules = await getTenantIncentiveRules(staff.tenantId, "guard");
   let incentiveAmount = 0;
   const appliedRules: string[] = [];
+  let autoApproveThreshold = 500;
 
   if (rules.length > 0) {
     for (const r of rules) {
       const guardRule = r as any;
-      const threshold = guardRule.threshold ?? 0;
-      const rewardAmount = guardRule.rewardAmount ?? 0;
-      if (guardRule.metric === "FRAUD_CATCH_COUNT" && fraudCatches >= threshold) {
-        if (guardRule.rewardType === "PER_UNIT") {
-          const reward = fraudCatches * rewardAmount;
-          incentiveAmount += reward;
-          appliedRules.push(
-            `₹${rewardAmount}/fraud catch (${fraudCatches} catches = ₹${reward.toFixed(2)})`
-          );
-        } else if (guardRule.rewardType === "FLAT") {
-          incentiveAmount += rewardAmount;
-          appliedRules.push(`Flat ₹${rewardAmount} for ${threshold}+ fraud catches`);
-        }
-      } else if (guardRule.metric === "FRAUD_VALUE_PREVENTED" && fraudValuePrevented >= threshold) {
-        if (guardRule.rewardType === "PERCENTAGE") {
-          const reward = (fraudValuePrevented * rewardAmount) / 100;
-          incentiveAmount += reward;
-          appliedRules.push(
-            `${rewardAmount}% of fraud value prevented (₹${reward.toFixed(2)})`
-          );
-        }
+      if (guardRule.autoApproveThreshold !== undefined) {
+        autoApproveThreshold = guardRule.autoApproveThreshold;
+      }
+      const evalRes = evaluateGuardIncentiveRule(guardRule, fraudCatches, fraudValuePrevented);
+      if (evalRes.incentiveAmount > 0) {
+        incentiveAmount += evalRes.incentiveAmount;
+        appliedRules.push(...evalRes.appliedRules);
       }
     }
   } else {
@@ -516,6 +523,47 @@ export async function calculateGuardIncentive(
       incentiveAmount += catchReward;
       appliedRules.push(`Baseline: ₹500 per confirmed exit fraud catch (${fraudCatches} catches = ₹${catchReward})`);
     }
+  }
+
+  // Check existing payout record in incentive_payouts
+  const payoutDocId = `${staff.id}_${month}`;
+  const payoutRef = adminDb.collection("incentive_payouts").doc(payoutDocId);
+  const payoutSnap = await payoutRef.get();
+
+  let status: "AUTO_APPROVED" | "PENDING_MANAGER_APPROVAL" | "APPROVED" | "REJECTED";
+  let approvedBy: string | null = null;
+  let resolvedAtMs: number | null = null;
+
+  if (payoutSnap.exists) {
+    const pData = payoutSnap.data()!;
+    status = pData.status || (incentiveAmount <= autoApproveThreshold ? "AUTO_APPROVED" : "PENDING_MANAGER_APPROVAL");
+    approvedBy = pData.approvedBy || null;
+    resolvedAtMs = pData.resolvedAtMs || null;
+    if (status === "APPROVED") {
+      incentiveAmount = pData.incentiveAmount ?? incentiveAmount;
+    }
+  } else {
+    status = incentiveAmount <= autoApproveThreshold ? "AUTO_APPROVED" : "PENDING_MANAGER_APPROVAL";
+    await payoutRef.set(
+      {
+        id: payoutDocId,
+        tenantId: staff.tenantId,
+        staffId: staff.id,
+        empId: staff.empId,
+        name: staff.name,
+        role: staff.role,
+        branchCode: staff.branchCode,
+        month,
+        incentiveAmount: Math.round(incentiveAmount * 100) / 100,
+        status,
+        autoApproveThreshold,
+        approvedBy: null,
+        resolvedAtMs: null,
+        createdAtMs: Date.now(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
   }
 
   return {
@@ -528,6 +576,10 @@ export async function calculateGuardIncentive(
     fraudCatches,
     fraudValuePrevented: Math.round(fraudValuePrevented * 100) / 100,
     incentiveAmount: Math.round(incentiveAmount * 100) / 100,
+    status,
+    autoApproveThreshold,
+    approvedBy,
+    resolvedAtMs,
     appliedRules,
   };
 }
@@ -577,6 +629,7 @@ export async function getMonthlyIncentiveReport(
     let totalValue = 0;
     let fraudCatches = 0;
     let fraudValuePrevented = 0;
+    let staffStatus = "APPROVED";
 
     if (role === "cashier") {
       try {
@@ -585,6 +638,7 @@ export async function getMonthlyIncentiveReport(
         totalValue = cRes.totalValue;
         incentiveAmount = cRes.incentiveAmount;
         appliedRules = cRes.appliedRules;
+        staffStatus = cRes.status;
         totalOrdersProcessed += ordersProcessed;
       } catch (err) {
         console.error(`Error calculating cashier incentive for ${staffId}:`, err);
@@ -596,6 +650,7 @@ export async function getMonthlyIncentiveReport(
         fraudValuePrevented = gRes.fraudValuePrevented;
         incentiveAmount = gRes.incentiveAmount;
         appliedRules = gRes.appliedRules;
+        staffStatus = gRes.status;
         totalFraudCatches += fraudCatches;
         totalFraudValuePrevented += fraudValuePrevented;
       } catch (err) {
@@ -617,13 +672,13 @@ export async function getMonthlyIncentiveReport(
       fraudCatches: role === "guard" ? fraudCatches : undefined,
       fraudValuePrevented: role === "guard" ? fraudValuePrevented : undefined,
       incentiveAmount,
-      status: role === "cashier" ? (await calculateCashierIncentive(staffId, month)).status : "APPROVED",
+      status: staffStatus,
       totalPayout: baseSalary + incentiveAmount,
       appliedRules,
     });
   }
 
-  return {
+  const result: MonthlyIncentiveReport = {
     tenantId,
     branchCode,
     month,
@@ -636,6 +691,8 @@ export async function getMonthlyIncentiveReport(
     totalGrossPayout: Math.round((totalBaseSalaries + totalIncentivePayout) * 100) / 100,
     staffPayouts,
   };
+
+  return serializeTimestamps(result);
 }
 
 /**

@@ -8,9 +8,11 @@ import Link from "next/link";
 export function CashierLogoutButton({
   role,
   cashierName,
+  branchCode,
 }: {
   role?: string;
   cashierName?: string;
+  branchCode?: string | null;
 }) {
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -31,6 +33,11 @@ export function CashierLogoutButton({
   }
 
   const isManagement = role === "super_admin" || role === "tenant_admin" || role === "manager";
+  const backHref = branchCode
+    ? `/manager?store=${branchCode}`
+    : role === "manager"
+    ? "/manager"
+    : "/tenant-admin";
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -55,7 +62,7 @@ export function CashierLogoutButton({
 
       {isManagement && (
         <Link
-          href={role === "manager" ? "/manager" : "/dashboard"}
+          href={backHref}
           className="co-btn co-btn-ghost"
           style={{ fontSize: 13, textDecoration: "none", padding: "8px 14px", borderRadius: 8 }}
         >

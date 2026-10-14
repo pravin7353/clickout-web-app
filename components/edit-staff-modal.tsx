@@ -111,12 +111,14 @@ export function EditStaffModal({
         style={{
           width: 520,
           maxWidth: "92vw",
+          maxHeight: "90vh",
           background: "var(--card-bg)",
           borderRadius: 20,
           border: "1px solid var(--border)",
           boxShadow: "0 24px 60px rgba(0, 0, 0, 0.5)",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
         }}
       >
         {/* Modal Header */}
@@ -128,6 +130,7 @@ export function EditStaffModal({
             alignItems: "center",
             justifyContent: "space-between",
             background: "color-mix(in srgb, var(--card-bg) 95%, var(--scaffold-bg))",
+            flexShrink: 0,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -174,7 +177,17 @@ export function EditStaffModal({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            padding: "20px 24px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            overflowY: "auto",
+            flex: 1,
+          }}
+        >
           {/* Role Warning Banner */}
           <div
             style={{
@@ -608,7 +621,13 @@ export function EditStaffModal({
               gap: 12,
               marginTop: 10,
               paddingTop: 16,
+              paddingBottom: 4,
               borderTop: "1px solid var(--border)",
+              position: "sticky",
+              bottom: 0,
+              background: "var(--card-bg)",
+              zIndex: 10,
+              flexShrink: 0,
             }}
           >
             <button

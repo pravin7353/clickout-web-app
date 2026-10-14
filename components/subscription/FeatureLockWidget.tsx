@@ -45,32 +45,15 @@ export function FeatureLockWidget({
   const requiredPlanName = getRequiredPlanName(route);
 
   return (
-    <div style={{ position: "relative", width: "100%", minHeight: "60vh" }}>
-      {/* Blurred & Inactive Children */}
+    <div style={{ position: "relative", width: "100%", minHeight: "65vh" }}>
+      {/* Lock Overlay */}
       <div
         style={{
-          filter: "blur(5px)",
-          opacity: 0.15,
-          pointerEvents: "none",
-          userSelect: "none",
-          height: "100%",
-          overflow: "hidden",
-        }}
-        aria-hidden="true"
-      >
-        {children}
-      </div>
-
-      {/* Centered Lock Overlay */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           padding: 24,
-          zIndex: 20,
+          minHeight: "65vh",
         }}
       >
         <div

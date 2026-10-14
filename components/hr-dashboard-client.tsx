@@ -8,6 +8,7 @@ import { HrIncentiveTable } from "@/components/hr-incentive-table";
 import { HrIncentiveRulesEditor } from "@/components/hr-incentive-rules-editor";
 import { HrApprovalsInbox } from "@/components/hr-approvals-inbox";
 import { HrAttendanceSettings } from "@/components/hr-attendance-settings";
+import { getTotalPendingApprovalsCountAction } from "@/actions/hr";
 import { QRCodeSVG } from "qrcode.react";
 
 interface HrDashboardClientProps {
@@ -26,17 +27,49 @@ export function HrDashboardClient({
   tenantId,
 }: HrDashboardClientProps) {
   const isManager = userRole === "manager";
-  const [activeTab, setActiveTab] = useState<
-    "inbox" | "attendance" | "leaves" | "incentives" | "rules" | "salary" | "settings"
-  >("inbox");
+
+  // 4 Core Primary Sections
+  // 1. "people" -> People (Staff list, roles, branch)
+  // 2. "time_leave" -> Time & Leave (Attendance log, shifts, leaves)
+  // 3. "pay_incentives" -> Pay & Incentives (Salary, rules, payouts, "Why?")
+  // 4. "approvals" -> Approvals (Pending badge, all approval types)
+  const [activeTab, setActiveTab] = useState<"people" | "time_leave" | "pay_incentives" | "approvals">("approvals");
+
+  // Sub-tab toggles
+  const [timeSubTab, setTimeSubTab] = useState<"attendance" | "leaves">("attendance");
+  const [paySubTab, setPaySubTab] = useState<"incentives" | "rules" | "salary">("incentives");
+
+  // Modals
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [employeePortalUrl, setEmployeePortalUrl] = useState("/employee/login");
   const [copied, setCopied] = useState(false);
+
+  // Live Approvals Badge Count
+  const [pendingCount, setPendingCount] = useState<number>(0);
+
+  const fetchPendingCount = async () => {
+    try {
+      const res = await getTotalPendingApprovalsCountAction();
+      if (res.ok && typeof res.totalCount === "number") {
+        setPendingCount(res.totalCount);
+      }
+    } catch (e) {
+      // ignore silently
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       setEmployeePortalUrl(`${window.location.origin}/employee/login`);
     }
+    fetchPendingCount();
+
+    const interval = setInterval(() => {
+      fetchPendingCount();
+    }, 60000); // 60s live refresh
+
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -48,217 +81,455 @@ export function HrDashboardClient({
             HR & Workforce Operations
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: 14, marginTop: 6, marginBottom: 0 }}>
-            Manage attendance logging, approval inbox, leave quotas, performance incentives, and compensation structures
+            Simplified team management: Staff roster, attendance & shifts, performance incentives, and manager approvals
             {isManager && storeId ? ` for branch [${storeId}]` : ""}
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowQrModal(true)}
-          style={{
-            padding: "9px 16px",
-            borderRadius: 12,
-            fontSize: 13,
-            fontWeight: 800,
-            cursor: "pointer",
-            border: "1px solid rgba(59, 130, 246, 0.4)",
-            background: "rgba(59, 130, 246, 0.1)",
-            color: "var(--text-primary)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            boxShadow: "0 2px 8px rgba(59, 130, 246, 0.15)",
-            transition: "all 0.15s ease",
-          }}
-        >
-          <span>📱</span> Get Employee App
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {/* Settings Button (Moved out of primary tabs) */}
+          <button
+            type="button"
+            onClick={() => setShowSettingsModal(true)}
+            style={{
+              padding: "9px 15px",
+              borderRadius: 12,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "1px solid var(--border)",
+              background: "var(--card-bg)",
+              color: "var(--text-secondary)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              transition: "all 0.15s ease",
+            }}
+          >
+            <span>⚙️</span> Attendance Settings
+          </button>
+
+          {/* Get Employee App */}
+          <button
+            type="button"
+            onClick={() => setShowQrModal(true)}
+            style={{
+              padding: "9px 16px",
+              borderRadius: 12,
+              fontSize: 13,
+              fontWeight: 800,
+              cursor: "pointer",
+              border: "1px solid rgba(59, 130, 246, 0.4)",
+              background: "rgba(59, 130, 246, 0.1)",
+              color: "var(--text-primary)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              boxShadow: "0 2px 8px rgba(59, 130, 246, 0.15)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <span>📱</span> Get Employee App
+          </button>
+        </div>
       </div>
 
-      {/* Navigation Tabs */}
+      {/* 4 Clear Primary Navigation Tabs */}
       <div style={{ display: "flex", gap: 10, borderBottom: "1px solid var(--border)", paddingBottom: 12, overflowX: "auto" }}>
+        {/* 1. People */}
         <button
           type="button"
-          onClick={() => setActiveTab("inbox")}
+          onClick={() => setActiveTab("people")}
           style={{
-            padding: "8px 18px",
+            padding: "9px 18px",
             borderRadius: 12,
             fontSize: 13,
             fontWeight: 800,
             cursor: "pointer",
-            border: activeTab === "inbox" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-            background: activeTab === "inbox" ? "var(--cta-bg)" : "var(--card-bg)",
-            color: activeTab === "inbox" ? "var(--cta-text)" : "var(--text-secondary)",
+            border: activeTab === "people" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+            background: activeTab === "people" ? "var(--cta-bg)" : "var(--card-bg)",
+            color: activeTab === "people" ? "var(--cta-text)" : "var(--text-secondary)",
             transition: "all 0.15s ease",
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
           }}
         >
-          <span>📥</span> Approvals Inbox
+          <span>👥</span> People ({staffList.length})
         </button>
 
+        {/* 2. Time & Leave */}
         <button
           type="button"
-          onClick={() => setActiveTab("attendance")}
+          onClick={() => setActiveTab("time_leave")}
           style={{
-            padding: "8px 18px",
+            padding: "9px 18px",
             borderRadius: 12,
             fontSize: 13,
             fontWeight: 800,
             cursor: "pointer",
-            border: activeTab === "attendance" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-            background: activeTab === "attendance" ? "var(--cta-bg)" : "var(--card-bg)",
-            color: activeTab === "attendance" ? "var(--cta-text)" : "var(--text-secondary)",
+            border: activeTab === "time_leave" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+            background: activeTab === "time_leave" ? "var(--cta-bg)" : "var(--card-bg)",
+            color: activeTab === "time_leave" ? "var(--cta-text)" : "var(--text-secondary)",
             transition: "all 0.15s ease",
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
           }}
         >
-          <span>📅</span> Monthly Attendance
+          <span>🕐</span> Time & Leave
         </button>
 
+        {/* 3. Pay & Incentives */}
         <button
           type="button"
-          onClick={() => setActiveTab("leaves")}
+          onClick={() => setActiveTab("pay_incentives")}
           style={{
-            padding: "8px 18px",
+            padding: "9px 18px",
             borderRadius: 12,
             fontSize: 13,
             fontWeight: 800,
             cursor: "pointer",
-            border: activeTab === "leaves" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-            background: activeTab === "leaves" ? "var(--cta-bg)" : "var(--card-bg)",
-            color: activeTab === "leaves" ? "var(--cta-text)" : "var(--text-secondary)",
+            border: activeTab === "pay_incentives" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+            background: activeTab === "pay_incentives" ? "var(--cta-bg)" : "var(--card-bg)",
+            color: activeTab === "pay_incentives" ? "var(--cta-text)" : "var(--text-secondary)",
             transition: "all 0.15s ease",
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
           }}
         >
-          <span>🏖️</span> Leave Management
+          <span>💰</span> Pay & Incentives
         </button>
 
+        {/* 4. Approvals Inbox with live badge */}
         <button
           type="button"
-          onClick={() => setActiveTab("incentives")}
+          onClick={() => {
+            setActiveTab("approvals");
+            fetchPendingCount();
+          }}
           style={{
-            padding: "8px 18px",
+            padding: "9px 18px",
             borderRadius: 12,
             fontSize: 13,
             fontWeight: 800,
             cursor: "pointer",
-            border: activeTab === "incentives" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-            background: activeTab === "incentives" ? "var(--cta-bg)" : "var(--card-bg)",
-            color: activeTab === "incentives" ? "var(--cta-text)" : "var(--text-secondary)",
+            border: activeTab === "approvals" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
+            background: activeTab === "approvals" ? "var(--cta-bg)" : "var(--card-bg)",
+            color: activeTab === "approvals" ? "var(--cta-text)" : "var(--text-secondary)",
             transition: "all 0.15s ease",
             display: "inline-flex",
             alignItems: "center",
             gap: 8,
           }}
         >
-          <span>🏆</span> Monthly Incentives
-        </button>
-
-        {/* 🛡️ Strict: Incentive Rules configuration only rendered for tenant_admin and super_admin */}
-        {!isManager && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("rules")}
-            style={{
-              padding: "8px 18px",
-              borderRadius: 12,
-              fontSize: 13,
-              fontWeight: 800,
-              cursor: "pointer",
-              border: activeTab === "rules" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-              background: activeTab === "rules" ? "var(--cta-bg)" : "var(--card-bg)",
-              color: activeTab === "rules" ? "var(--cta-text)" : "var(--text-secondary)",
-              transition: "all 0.15s ease",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span>🎯</span> Incentive Rules
-          </button>
-        )}
-
-        {/* 🛡️ Strict: Only rendered for tenant_admin and super_admin, never for manager */}
-        {!isManager && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("salary")}
-            style={{
-              padding: "8px 18px",
-              borderRadius: 12,
-              fontSize: 13,
-              fontWeight: 800,
-              cursor: "pointer",
-              border: activeTab === "salary" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-              background: activeTab === "salary" ? "var(--cta-bg)" : "var(--card-bg)",
-              color: activeTab === "salary" ? "var(--cta-text)" : "var(--text-secondary)",
-              transition: "all 0.15s ease",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span>💰</span> Compensation & Salary
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("settings")}
-          style={{
-            padding: "8px 18px",
-            borderRadius: 12,
-            fontSize: 13,
-            fontWeight: 800,
-            cursor: "pointer",
-            border: activeTab === "settings" ? "1px solid var(--cta-bg)" : "1px solid var(--border)",
-            background: activeTab === "settings" ? "var(--cta-bg)" : "var(--card-bg)",
-            color: activeTab === "settings" ? "var(--cta-text)" : "var(--text-secondary)",
-            transition: "all 0.15s ease",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <span>⚙️</span> Attendance Settings
+          <span>✅</span> Approvals
+          {pendingCount > 0 ? (
+            <span
+              style={{
+                background: "#ef4444",
+                color: "#ffffff",
+                padding: "2px 8px",
+                borderRadius: 12,
+                fontSize: 11,
+                fontWeight: 900,
+                marginLeft: 4,
+              }}
+            >
+              {pendingCount}
+            </span>
+          ) : (
+            <span
+              style={{
+                background: "rgba(34, 197, 94, 0.2)",
+                color: "#22c55e",
+                padding: "2px 7px",
+                borderRadius: 10,
+                fontSize: 11,
+                fontWeight: 800,
+                marginLeft: 4,
+              }}
+            >
+              0
+            </span>
+          )}
         </button>
       </div>
 
-      {/* Tab Panels */}
-      {activeTab === "inbox" && (
+      {/* SECTION 1: People */}
+      {activeTab === "people" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div
+            style={{
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              overflow: "hidden",
+            }}
+          >
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: "var(--text-primary)" }}>
+                  Store Staff & Personnel ({staffList.length})
+                </h3>
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  Active team roster, branch assignments, and system designations
+                </span>
+              </div>
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}>
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.02)", borderBottom: "1px solid var(--border)", textAlign: "left" }}>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>NAME</th>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>EMP ID</th>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>DESIGNATION</th>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>ASSIGNED BRANCH</th>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: 32, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
+                        No personnel enrolled.
+                      </td>
+                    </tr>
+                  ) : (
+                    staffList.map((s) => (
+                      <tr key={s.id} style={{ borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+                        <td style={{ padding: "14px 16px", fontWeight: 700, color: "var(--text-primary)" }}>
+                          {s.name}
+                        </td>
+                        <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>
+                          {s.empId || "-"}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          <span
+                            style={{
+                              padding: "3px 10px",
+                              borderRadius: 14,
+                              fontSize: 11,
+                              fontWeight: 800,
+                              background: s.role?.toLowerCase() === "cashier"
+                                ? "rgba(59, 130, 246, 0.15)"
+                                : s.role?.toLowerCase() === "guard"
+                                ? "rgba(245, 158, 11, 0.15)"
+                                : "rgba(168, 85, 247, 0.15)",
+                              color: s.role?.toLowerCase() === "cashier"
+                                ? "#60a5fa"
+                                : s.role?.toLowerCase() === "guard"
+                                ? "#fbbf24"
+                                : "#c084fc",
+                            }}
+                          >
+                            {s.role?.toUpperCase() || "STAFF"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px 16px", color: "var(--text-primary)", fontWeight: 600 }}>
+                          {s.branchCode || "HQ"}
+                        </td>
+                        <td style={{ padding: "14px 16px" }}>
+                          <span
+                            style={{
+                              color: s.isActive ? "#22c55e" : "#ef4444",
+                              fontWeight: 700,
+                              fontSize: 12,
+                            }}
+                          >
+                            {s.isActive ? "● Active" : "● Suspended"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 2: Time & Leave */}
+      {activeTab === "time_leave" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Sub Navigation */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setTimeSubTab("attendance")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: timeSubTab === "attendance" ? "1px solid var(--border)" : "1px solid transparent",
+                background: timeSubTab === "attendance" ? "rgba(255,255,255,0.08)" : "transparent",
+                color: timeSubTab === "attendance" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              📅 Attendance Log & Shifts
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimeSubTab("leaves")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: timeSubTab === "leaves" ? "1px solid var(--border)" : "1px solid transparent",
+                background: timeSubTab === "leaves" ? "rgba(255,255,255,0.08)" : "transparent",
+                color: timeSubTab === "leaves" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              🏖️ Leave Requests & Quotas
+            </button>
+          </div>
+
+          {timeSubTab === "attendance" && (
+            <HrAttendanceTable staffList={staffList} canEdit={canEdit} userRole={userRole} />
+          )}
+
+          {timeSubTab === "leaves" && (
+            <HrLeaveRequests staffList={staffList} canEdit={canEdit} userRole={userRole} />
+          )}
+        </div>
+      )}
+
+      {/* SECTION 3: Pay & Incentives */}
+      {activeTab === "pay_incentives" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Sub Navigation */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setPaySubTab("incentives")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: paySubTab === "incentives" ? "1px solid var(--border)" : "1px solid transparent",
+                background: paySubTab === "incentives" ? "rgba(255,255,255,0.08)" : "transparent",
+                color: paySubTab === "incentives" ? "var(--text-primary)" : "var(--text-secondary)",
+              }}
+            >
+              🏆 Monthly Incentives & Payouts
+            </button>
+
+            {!isManager && (
+              <button
+                type="button"
+                onClick={() => setPaySubTab("rules")}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: paySubTab === "rules" ? "1px solid var(--border)" : "1px solid transparent",
+                  background: paySubTab === "rules" ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: paySubTab === "rules" ? "var(--text-primary)" : "var(--text-secondary)",
+                }}
+              >
+                🎯 Incentive Rules Wizard
+              </button>
+            )}
+
+            {!isManager && (
+              <button
+                type="button"
+                onClick={() => setPaySubTab("salary")}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  border: paySubTab === "salary" ? "1px solid var(--border)" : "1px solid transparent",
+                  background: paySubTab === "salary" ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: paySubTab === "salary" ? "var(--text-primary)" : "var(--text-secondary)",
+                }}
+              >
+                💵 Base Salary Structure
+              </button>
+            )}
+          </div>
+
+          {paySubTab === "incentives" && (
+            <HrIncentiveTable branchCode={storeId} userRole={userRole} />
+          )}
+
+          {paySubTab === "rules" && !isManager && (
+            <HrIncentiveRulesEditor tenantId={tenantId} userRole={userRole} />
+          )}
+
+          {paySubTab === "salary" && !isManager && (
+            <HrSalaryEditor staffList={staffList} userRole={userRole} />
+          )}
+        </div>
+      )}
+
+      {/* SECTION 4: Approvals Inbox */}
+      {activeTab === "approvals" && (
         <HrApprovalsInbox staffList={staffList} userRole={userRole} />
       )}
 
-      {activeTab === "attendance" && (
-        <HrAttendanceTable staffList={staffList} canEdit={canEdit} userRole={userRole} />
-      )}
+      {/* ⚙️ Attendance Settings Modal */}
+      {showSettingsModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(6px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div
+            style={{
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 20,
+              maxWidth: 760,
+              width: "100%",
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 60px rgba(0,0,0,0.5)",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>⚙️</span> Attendance & Shift Settings
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSettingsModal(false)}
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            </div>
 
-      {activeTab === "leaves" && (
-        <HrLeaveRequests staffList={staffList} canEdit={canEdit} userRole={userRole} />
-      )}
-
-      {activeTab === "incentives" && (
-        <HrIncentiveTable branchCode={storeId} userRole={userRole} />
-      )}
-
-      {activeTab === "rules" && !isManager && (
-        <HrIncentiveRulesEditor tenantId={tenantId} userRole={userRole} />
-      )}
-
-      {activeTab === "salary" && !isManager && (
-        <HrSalaryEditor staffList={staffList} userRole={userRole} />
-      )}
-
-      {activeTab === "settings" && (
-        <HrAttendanceSettings tenantId={tenantId} canEdit={canEdit} userRole={userRole} staffList={staffList} />
+            <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
+              <HrAttendanceSettings tenantId={tenantId} canEdit={canEdit} userRole={userRole} staffList={staffList} />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 📱 Get Employee App Modal */}
@@ -301,98 +572,54 @@ export function HrDashboardClient({
               <button
                 type="button"
                 onClick={() => setShowQrModal(false)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  fontSize: 18,
-                  cursor: "pointer",
-                  color: "var(--text-secondary)",
-                }}
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: 20, cursor: "pointer" }}
               >
                 ✕
               </button>
             </div>
 
+            <div style={{ background: "#ffffff", padding: 16, borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
+              <QRCodeSVG value={employeePortalUrl} size={200} level="M" />
+            </div>
+
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-secondary)", textAlign: "center", lineHeight: 1.5 }}>
-              Show this QR code to staff members (Cashiers, Guards, Sales Staff) during onboarding to install the app on their phone.
+              Staff members can scan this QR code with their mobile camera to check in, view monthly incentives, and submit leaves.
             </p>
 
-            {/* QR Code Container */}
-            <div
-              style={{
-                background: "#ffffff",
-                padding: 16,
-                borderRadius: 16,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-                margin: "8px 0",
-              }}
-            >
-              <QRCodeSVG
+            <div style={{ width: "100%", display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                readOnly
                 value={employeePortalUrl}
-                size={180}
-                level="H"
-                includeMargin={false}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid var(--border)",
+                  background: "rgba(255,255,255,0.03)",
+                  color: "var(--text-secondary)",
+                  fontSize: 12,
+                }}
               />
-            </div>
-
-            <div style={{ width: "100%", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>
-                Quick Instructions:
-              </div>
-              <ol style={{ margin: 0, paddingLeft: 16, fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                <li>Scan QR code with phone camera to open <b>/employee/login</b></li>
-                <li>Log in using phone number & OTP</li>
-                <li>Tap <b>"Add to Home Screen"</b> in browser to install as PWA</li>
-              </ol>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, width: "100%" }}>
               <button
                 type="button"
                 onClick={() => {
                   navigator.clipboard.writeText(employeePortalUrl);
                   setCopied(true);
-                  setTimeout(() => setCopied(false), 3000);
+                  setTimeout(() => setCopied(false), 2000);
                 }}
                 style={{
-                  flex: 1,
-                  padding: "10px 16px",
+                  padding: "8px 14px",
                   borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  background: copied ? "rgba(34, 197, 94, 0.15)" : "var(--cta-bg)",
-                  color: copied ? "#22c55e" : "var(--cta-text)",
+                  background: "var(--cta-bg, #22c55e)",
+                  color: "var(--cta-text, #000)",
                   border: "none",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  transition: "all 0.15s ease",
-                }}
-              >
-                <span>{copied ? "✅" : "📋"}</span>
-                {copied ? "Link Copied!" : "Copy Link"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowQrModal(false)}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 700,
+                  fontWeight: 800,
+                  fontSize: 12,
                   cursor: "pointer",
-                  background: "transparent",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border)",
                 }}
               >
-                Close
+                {copied ? "Copied!" : "Copy"}
               </button>
             </div>
           </div>

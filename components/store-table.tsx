@@ -83,28 +83,76 @@ export function StoreTable({ stores, tenantId }: { stores: StoreRow[]; tenantId?
               <td style={{ padding: "14px 16px", fontFamily: "monospace", color: "var(--text-secondary)" }}>{s.branchCode}</td>
               <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>{s.city || "—"}</td>
               <td style={{ padding: "14px 16px" }}>
-                <span
-                  style={{
-                    background: s.isActive ? "color-mix(in srgb, var(--success) 15%, transparent)" : "color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent)",
-                    color: s.isActive ? "var(--success)" : "var(--warning, #f59e0b)",
-                    padding: "4px 10px",
-                    borderRadius: 6,
-                    fontSize: 12,
-                    fontWeight: 700,
-                  }}
-                >
-                  {s.status}
-                </span>
+                {s.isFrozen ? (
+                  <div style={{ display: "inline-flex", flexDirection: "column", gap: 3 }}>
+                    <span
+                      style={{
+                        background: "rgba(59, 130, 246, 0.15)",
+                        color: "#38bdf8",
+                        border: "1px solid rgba(56, 189, 248, 0.4)",
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                      title="This store is FROZEN because your plan quota only permits 1 store. Upgrade or buy an add-on store to unlock."
+                    >
+                      <span>❄️</span> FROZEN
+                    </span>
+                    <span style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 600 }}>
+                      Exceeds Plan Limit
+                    </span>
+                  </div>
+                ) : (
+                  <span
+                    style={{
+                      background: s.isActive ? "color-mix(in srgb, var(--success) 15%, transparent)" : "color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent)",
+                      color: s.isActive ? "var(--success)" : "var(--warning, #f59e0b)",
+                      padding: "4px 10px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {s.status}
+                  </span>
+                )}
               </td>
               <td style={{ padding: "14px 16px" }}>
-                <div style={{ display: "flex", gap: 14, alignItems: "center", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "flex-end" }}>
+                  {/* Upgrade Unlock button for frozen stores */}
+                  {s.isFrozen && (
+                    <Link
+                      href="/usage"
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        background: "rgba(56, 189, 248, 0.12)",
+                        color: "#38bdf8",
+                        border: "1px solid rgba(56, 189, 248, 0.35)",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                      title="Upgrade plan or purchase store add-on to unlock this branch"
+                    >
+                      🔓 Unlock Branch
+                    </Link>
+                  )}
+
                   {/* Enter Store */}
                   <Link
                     href={`/dashboard?store=${s.branchCode}`}
-                    title="Enter Store Session"
-                    style={{ color: "var(--text-primary)", display: "flex", opacity: 0.8 }}
+                    title={s.isFrozen ? "View Frozen Store Session (Read-Only)" : "Enter Store Session"}
+                    style={{ color: "var(--text-primary)", display: "flex", opacity: s.isFrozen ? 0.5 : 0.8 }}
                     onMouseEnter={e => e.currentTarget.style.opacity="1"}
-                    onMouseLeave={e => e.currentTarget.style.opacity="0.8"}
+                    onMouseLeave={e => e.currentTarget.style.opacity= s.isFrozen ? "0.5" : "0.8"}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
                   </Link>
@@ -112,8 +160,9 @@ export function StoreTable({ stores, tenantId }: { stores: StoreRow[]; tenantId?
                   {/* QR Entry Modal Button */}
                   <button
                     onClick={() => setQrStore(s)}
-                    title="View In-Store Entry QR"
-                    style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex", color: "var(--primary)" }}
+                    disabled={s.isFrozen}
+                    title={s.isFrozen ? "Store is frozen" : "View In-Store Entry QR"}
+                    style={{ background: "transparent", border: "none", cursor: s.isFrozen ? "not-allowed" : "pointer", padding: 0, display: "flex", color: s.isFrozen ? "var(--text-secondary)" : "var(--primary)", opacity: s.isFrozen ? 0.4 : 1 }}
                   >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                   </button>
@@ -129,18 +178,20 @@ export function StoreTable({ stores, tenantId }: { stores: StoreRow[]; tenantId?
                   </button>
 
                   {/* Pause / Resume */}
-                  <button
-                    onClick={() => openConfirm(s.isActive ? "pause" : "resume", s.id, s.storeName)}
-                    disabled={loadingId === s.id}
-                    title={s.isActive ? "Pause Store" : "Resume Store"}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
-                  >
-                    {s.isActive ? (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><rect x="9" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/><rect x="13" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/></svg>
-                    ) : (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><polygon points="10 7 16 12 10 17" fill="#1A1A1A"/></svg>
-                    )}
-                  </button>
+                  {!s.isFrozen && (
+                    <button
+                      onClick={() => openConfirm(s.isActive ? "pause" : "resume", s.id, s.storeName)}
+                      disabled={loadingId === s.id}
+                      title={s.isActive ? "Pause Store" : "Resume Store"}
+                      style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                    >
+                      {s.isActive ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><rect x="9" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/><rect x="13" y="7" width="2" height="10" fill="#1A1A1A" rx="1"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="#FACC15"><circle cx="12" cy="12" r="12"/><polygon points="10 7 16 12 10 17" fill="#1A1A1A"/></svg>
+                      )}
+                    </button>
+                  )}
 
                   {/* Delete */}
                   <button

@@ -31,11 +31,26 @@ export function StaffRow({
   const isOwner = staff.role.toUpperCase() === "TENANT_ADMIN" || staff.role.toUpperCase() === "SUPER_ADMIN" || staff.empId === "OWNER";
   const isGlobalHq = !staff.branchCode || staff.branchCode.toUpperCase() === "HQ" || staff.branchCode.toUpperCase() === "ALL" || staff.branchCode.toUpperCase() === "GLOBAL HQ";
 
+  const handleToggle = (targetActiveState: boolean) => {
+    setShowMenu(false);
+    startTransition(async () => {
+      try {
+        const res = await toggleStaffStatus(staff.id, targetActiveState);
+        if (res && res.ok === false) {
+          alert(res.error || "Failed to update staff status");
+        } else {
+          router.refresh();
+        }
+      } catch (err: any) {
+        alert(err.message || "Failed to update staff status");
+      }
+    });
+  };
+
   return (
     <tr
         style={{
           borderBottom: "1px solid var(--border)",
-          opacity: staff.isActive ? 1 : 0.55,
           background: isSelected
             ? "color-mix(in srgb, var(--cta-bg-accent, #F9A826) 8%, transparent)"
             : "transparent",
@@ -174,7 +189,7 @@ export function StaffRow({
                 gap: 6,
                 fontSize: 12,
                 fontWeight: 700,
-                color: staff.isActive ? "var(--success)" : "var(--text-secondary)",
+                color: staff.status === "SUSPENDED" ? "#ef4444" : staff.isActive ? "var(--success)" : "var(--text-secondary)",
               }}
             >
               <span
@@ -182,11 +197,15 @@ export function StaffRow({
                   width: 7,
                   height: 7,
                   borderRadius: "50%",
-                  background: staff.isActive ? "var(--success)" : "var(--text-secondary)",
-                  boxShadow: staff.isActive ? "0 0 6px var(--success)" : "none",
+                  background: staff.status === "SUSPENDED" ? "#ef4444" : staff.isActive ? "var(--success)" : "var(--text-secondary)",
+                  boxShadow: staff.status === "SUSPENDED" ? "0 0 6px #ef4444" : staff.isActive ? "0 0 6px var(--success)" : "none",
                 }}
               />
-              {staff.isActive ? "Active" : "Inactive"}
+              {staff.status === "SUSPENDED"
+                ? (staff.suspendedReason === "PLAN_LIMIT_EXCEEDED" ? "Suspended (Plan Limit)" : "Suspended")
+                : staff.isActive
+                ? "Active"
+                : "Inactive"}
             </span>
 
             {/* Suspicious Check-in Count Badge (Last 30 Days) */}
@@ -253,6 +272,33 @@ export function StaffRow({
                 <span>Edit</span>
               </button>
 
+              {/* Direct Quick Activate Button when Suspended */}
+              {!staff.isActive && (
+                <button
+                  type="button"
+                  onClick={() => handleToggle(true)}
+                  disabled={isPending}
+                  style={{
+                    background: "color-mix(in srgb, var(--success) 14%, transparent)",
+                    color: "var(--success)",
+                    border: "1px solid color-mix(in srgb, var(--success) 35%, transparent)",
+                    padding: "5px 12px",
+                    borderRadius: 10,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: isPending ? "not-allowed" : "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    transition: "all 0.15s ease",
+                  }}
+                  title="Activate staff account"
+                >
+                  <span>{isPending ? "⏳" : "🔓"}</span>
+                  <span>{isPending ? "Activating..." : "Activate"}</span>
+                </button>
+              )}
+
               {/* Three dots menu for Deactivate / Remove */}
               <div style={{ position: "relative" }}>
                 <button
@@ -266,7 +312,7 @@ export function StaffRow({
                     padding: "5px 9px",
                     borderRadius: 10,
                     fontSize: 14,
-                    cursor: "pointer",
+                    cursor: isPending ? "not-allowed" : "pointer",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -277,108 +323,114 @@ export function StaffRow({
                 </button>
 
                 {showMenu && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      right: 0,
-                      top: "100%",
-                      marginTop: 6,
-                      background: "var(--card-bg)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 12,
-                      boxShadow: "0 10px 25px rgba(0,0,0,0.35)",
-                      zIndex: 50,
-                      minWidth: 160,
-                      overflow: "hidden",
-                      padding: 4,
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMenu(false);
-                        setShowEditModal(true);
-                      }}
+                  <>
+                    <div
+                      style={{ position: "fixed", inset: 0, zIndex: 80 }}
+                      onClick={() => setShowMenu(false)}
+                    />
+                    <div
                       style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--text-primary)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
+                        position: "absolute",
+                        right: 0,
+                        top: "100%",
+                        marginTop: 6,
+                        background: "#18181b",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                        boxShadow: "0 14px 36px rgba(0,0,0,0.75)",
+                        zIndex: 90,
+                        minWidth: 165,
+                        overflow: "hidden",
+                        padding: 4,
                       }}
                     >
-                      <span style={{ color: "#3b82f6" }}>✏️</span>
-                      <span>Edit Profile</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMenu(false);
+                          setShowEditModal(true);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 12px",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-primary)",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          borderRadius: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span style={{ color: "#3b82f6" }}>✏️</span>
+                        <span>Edit Profile</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMenu(false);
-                        startTransition(async () => {
-                          await toggleStaffStatus(staff.id, staff.isActive);
-                          router.refresh();
-                        });
-                      }}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: "transparent",
-                        border: "none",
-                        color: staff.isActive ? "var(--warning)" : "var(--success)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span>{staff.isActive ? "🔒" : "🔓"}</span>
-                      <span>{staff.isActive ? "Deactivate Access" : "Activate Access"}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggle(!staff.isActive)}
+                        disabled={isPending}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 12px",
+                          background: "transparent",
+                          border: "none",
+                          color: staff.isActive ? "var(--warning)" : "var(--success)",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: isPending ? "not-allowed" : "pointer",
+                          borderRadius: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span>{staff.isActive ? "🔒" : "🔓"}</span>
+                        <span>{staff.isActive ? "Deactivate Access" : "Activate Access"}</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMenu(false);
-                        if (confirm(`Are you sure you want to permanently remove ${staff.name}?`)) {
-                          startTransition(async () => {
-                            await softDeleteStaff(staff.id);
-                            router.refresh();
-                          });
-                        }
-                      }}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--danger)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span>🗑️</span>
-                      <span>Remove Personnel</span>
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMenu(false);
+                          if (confirm(`Are you sure you want to permanently remove ${staff.name}?`)) {
+                            startTransition(async () => {
+                              try {
+                                await softDeleteStaff(staff.id);
+                                router.refresh();
+                              } catch (err: any) {
+                                alert(err.message || "Failed to remove staff");
+                              }
+                            });
+                          }
+                        }}
+                        disabled={isPending}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 12px",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--danger)",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          borderRadius: 8,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span>🗑️</span>
+                        <span>Remove Personnel</span>
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

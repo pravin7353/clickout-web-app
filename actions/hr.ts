@@ -61,6 +61,7 @@ import {
   markAbsentees,
   updateOwnProfile as updateOwnProfileService,
 } from "@/lib/services/hr-service";
+import { getPendingIncentivePayouts } from "@/lib/services/incentive-service";
 
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
@@ -1741,7 +1742,14 @@ export async function getApprovalHistoryAction(month: string) {
 
   const effectiveTenantId = role === "super_admin" ? (tenantId || "DEFAULT") : tenantId!;
   if (effectiveTenantId && effectiveTenantId !== "DEFAULT") {
-    await requireRoutePlan(effectiveTenantId, "hr");
+    try {
+      await requireRoutePlan(effectiveTenantId, "hr");
+    } catch (err: any) {
+      if (err?.message === "PLAN_UPGRADE_REQUIRED") {
+        return { ok: false, error: "PLAN_UPGRADE_REQUIRED", history: [], leaves: [], regularizations: [], queries: [] };
+      }
+      throw err;
+    }
   }
 
   const effectiveMonth = month || new Date().toISOString().slice(0, 7);
@@ -2011,6 +2019,43 @@ export async function getApprovalHistoryAction(month: string) {
     regularizations: serializeFirestoreDoc(regularizationsHistory),
     queries: serializeFirestoreDoc(queriesHistory),
   };
+}
+
+export async function getTotalPendingApprovalsCountAction() {
+  try {
+    const { role, tenantId, storeId } = await requireRole([
+      "super_admin",
+      "tenant_admin",
+      "manager",
+    ]);
+
+    const effectiveTenantId = role === "super_admin" ? (tenantId || null) : tenantId;
+    const effectiveStoreId = role === "manager" ? storeId : null;
+
+    const [leaves, regs, queries, incentives] = await Promise.all([
+      getPendingLeavesAcrossStaff(effectiveTenantId, effectiveStoreId).catch(() => []),
+      getPendingRegularizationsAcrossStaff(effectiveTenantId, effectiveStoreId).catch(() => []),
+      getPendingHrQueriesAcrossStaff(effectiveTenantId, effectiveStoreId).catch(() => []),
+      getPendingIncentivePayouts(effectiveTenantId, effectiveStoreId).catch(() => []),
+    ]);
+
+    const leavesCount = leaves?.length || 0;
+    const regsCount = regs?.length || 0;
+    const queriesCount = queries?.length || 0;
+    const incentivesCount = incentives?.length || 0;
+    const totalCount = leavesCount + regsCount + queriesCount + incentivesCount;
+
+    return {
+      ok: true,
+      totalCount,
+      leavesCount,
+      regsCount,
+      queriesCount,
+      incentivesCount,
+    };
+  } catch (err: any) {
+    return { ok: false, totalCount: 0 };
+  }
 }
 
 

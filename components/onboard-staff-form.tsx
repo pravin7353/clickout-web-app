@@ -123,12 +123,14 @@ export function OnboardStaffForm({
             style={{
               width: 550,
               maxWidth: "94vw",
+              maxHeight: "90vh",
               background: "var(--card-bg)",
               borderRadius: 24,
               border: "1px solid var(--border)",
               boxShadow: "0 28px 70px rgba(0, 0, 0, 0.5)",
               display: "flex",
               flexDirection: "column",
+              overflow: "hidden",
             }}
           >
             {/* Modal Header */}
@@ -140,6 +142,7 @@ export function OnboardStaffForm({
                 alignItems: "center",
                 justifyContent: "space-between",
                 background: "color-mix(in srgb, var(--card-bg) 94%, var(--scaffold-bg))",
+                flexShrink: 0,
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -194,7 +197,17 @@ export function OnboardStaffForm({
             </div>
 
             {/* Form Fields */}
-            <form onSubmit={handleSubmit} style={{ padding: "22px 26px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <form
+              onSubmit={handleSubmit}
+              style={{
+                padding: "22px 26px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                overflowY: "auto",
+                flex: 1,
+              }}
+            >
               {/* Assign to Branch */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
@@ -448,7 +461,13 @@ export function OnboardStaffForm({
                   gap: 14,
                   marginTop: 6,
                   paddingTop: 16,
+                  paddingBottom: 4,
                   borderTop: "1px solid var(--border)",
+                  position: "sticky",
+                  bottom: 0,
+                  background: "var(--card-bg)",
+                  zIndex: 10,
+                  flexShrink: 0,
                 }}
               >
                 <button

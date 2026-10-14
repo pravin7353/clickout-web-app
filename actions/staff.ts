@@ -9,6 +9,7 @@ import { lockDeviceTerminal } from "@/lib/services/trust-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
+import { planFromString, effectiveMaxStaff } from "@/lib/subscription/plan";
 
 export async function onboardStaff(raw: unknown) {
   const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
@@ -646,51 +647,188 @@ export async function bulkImportStaff(csvContent: string, defaultBranchCode?: st
   return await commitBulkStaffImport(validRows, defaultBranchCode);
 }
 
-export async function toggleStaffStatus(staffId: string, currentStatus: boolean) {
-  const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
-  const doc = await adminDb.collection("staff").doc(staffId).get();
-  if (!doc.exists) throw new Error("Staff member not found");
-  const staffData = doc.data()!;
+export async function toggleStaffStatus(staffId: string, targetActiveState?: boolean) {
+  try {
+    const { role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
+    const doc = await adminDb.collection("staff").doc(staffId).get();
+    if (!doc.exists) return { ok: false, error: "Staff member not found" };
+    const staffData = doc.data()!;
 
-  // MULTI-TENANT ISOLATION CHECK
-  if (role !== "super_admin" && tenantId && staffData.tenantId && staffData.tenantId !== tenantId) {
-    throw new Error("ACCESS DENIED: Staff member belongs to a different organization.");
-  }
-
-  // MANAGER STORE ISOLATION CHECK
-  if (role === "manager") {
-    const targetBranch = (staffData.branchCode || "").toUpperCase().trim();
-    const managerStoreId = (storeId || "").toUpperCase().trim();
-    if (managerStoreId && targetBranch && targetBranch !== managerStoreId) {
-      throw new Error("ACCESS DENIED: You can only modify personnel in your assigned branch.");
+    // MULTI-TENANT ISOLATION CHECK
+    if (role !== "super_admin" && tenantId && staffData.tenantId && staffData.tenantId !== tenantId) {
+      return { ok: false, error: "ACCESS DENIED: Staff member belongs to a different organization." };
     }
-  }
 
-  if (currentStatus) {
-    if (staffData.role === "tenant_admin" || staffData.role === "TENANT_ADMIN") {
-      const snap = await adminDb.collection("staff").where("tenantId", "==", staffData.tenantId).where("role", "==", "tenant_admin").where("isDeleted", "==", false).where("isActive", "==", true).get();
-      if (snap.size <= 1) throw new Error("Cannot deactivate the sole tenant admin.");
+    // MANAGER STORE ISOLATION CHECK
+    if (role === "manager") {
+      const targetBranch = (staffData.branchCode || "").toUpperCase().trim();
+      const managerStoreId = (storeId || "").toUpperCase().trim();
+      if (managerStoreId && targetBranch && targetBranch !== managerStoreId) {
+        return { ok: false, error: "ACCESS DENIED: You can only modify personnel in your assigned branch." };
+      }
     }
-  }
 
-  // 🛡️ 30-Day Terminal Lock: If deactivating staff, lock their known device fingerprints
-  if (currentStatus && staffData.tenantId) {
-    const fps: string[] = Array.isArray(staffData.knownFingerprints)
-      ? staffData.knownFingerprints
-      : staffData.lastFingerprint
-      ? [staffData.lastFingerprint]
-      : [];
-    for (const fp of fps) {
-      await lockDeviceTerminal(fp, staffData.tenantId, staffId, "STAFF_DEACTIVATED_30_DAY_LOCK");
+    // Determine target active status
+    const isCurrentlyActive = staffData.isActive !== false && staffData.status !== "SUSPENDED";
+    const newStatus = targetActiveState !== undefined ? targetActiveState : !isCurrentlyActive;
+
+    if (!newStatus) {
+      // Deactivating
+      if (staffData.role === "tenant_admin" || staffData.role === "TENANT_ADMIN") {
+        const snap = await adminDb
+          .collection("staff")
+          .where("tenantId", "==", staffData.tenantId)
+          .where("role", "==", "tenant_admin")
+          .where("isDeleted", "==", false)
+          .where("isActive", "==", true)
+          .get();
+        if (snap.size <= 1) return { ok: false, error: "Cannot deactivate the sole tenant admin." };
+      }
+
+      // 🛡️ 30-Day Terminal Lock: If deactivating staff, lock their known device fingerprints
+      if (staffData.tenantId) {
+        const fps: string[] = Array.isArray(staffData.knownFingerprints)
+          ? staffData.knownFingerprints
+          : staffData.lastFingerprint
+          ? [staffData.lastFingerprint]
+          : [];
+        for (const fp of fps) {
+          await lockDeviceTerminal(fp, staffData.tenantId, staffId, "STAFF_DEACTIVATED_30_DAY_LOCK");
+        }
+      }
+    } else {
+      // Activating staff: verify plan quota
+      if (staffData.tenantId) {
+        const [tDoc, activeSnap] = await Promise.all([
+          adminDb.collection("tenants").doc(staffData.tenantId).get(),
+          adminDb
+            .collection("staff")
+            .where("tenantId", "==", staffData.tenantId)
+            .where("isDeleted", "==", false)
+            .where("isActive", "==", true)
+            .get(),
+        ]);
+        const tData = tDoc.data() || {};
+        const plan = planFromString(tData.subscriptionPlan ?? tData.plan);
+        const extraStaff = Number(
+          tData.extraStaffPurchased ??
+            (tData.extraStaffBlocksPurchased ? Number(tData.extraStaffBlocksPurchased) * 10 : 0)
+        );
+        const maxAllowed = effectiveMaxStaff(plan, extraStaff);
+
+        // Count other active staff excluding this doc and any legacy suspended records
+        const otherActiveCount = activeSnap.docs.filter(
+          (d) => d.id !== staffId && d.data().status !== "SUSPENDED"
+        ).length;
+        if (maxAllowed !== "unlimited" && otherActiveCount >= maxAllowed) {
+          return {
+            ok: false,
+            error: `Staff quota reached: Your ${plan.toUpperCase()} plan allows ${maxAllowed} active staff (${otherActiveCount}/${maxAllowed} used). Suspend another staff first or purchase a Staff Block (+10) to add capacity.`,
+          };
+        }
+      }
     }
+
+    await adminDb.collection("staff").doc(staffId).update({
+      isActive: newStatus,
+      status: newStatus ? "ACTIVE" : "SUSPENDED",
+      suspendedReason: newStatus ? FieldValue.delete() : "ADMIN_MANUAL_SUSPEND",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/manager");
+    revalidatePath("/manager", "page");
+    revalidatePath("/tenant-admin");
+    revalidatePath("/usage");
+
+    return { ok: true, newStatus };
+  } catch (err: any) {
+    console.error("toggleStaffStatus error:", err);
+    return { ok: false, error: err.message || "Failed to update staff status" };
+  }
+}
+
+export async function enforcePlanStaffSuspension(targetTenantId?: string) {
+  const { role, tenantId: userTenantId } = await requireRole(["super_admin", "tenant_admin"]);
+  const effectiveTenantId = role === "super_admin" ? (targetTenantId || userTenantId) : userTenantId;
+  if (!effectiveTenantId) return { ok: false, error: "No tenant ID found" };
+
+  const [tDoc, staffSnap] = await Promise.all([
+    adminDb.collection("tenants").doc(effectiveTenantId).get(),
+    adminDb
+      .collection("staff")
+      .where("tenantId", "==", effectiveTenantId)
+      .where("isDeleted", "==", false)
+      .get(),
+  ]);
+
+  if (!tDoc.exists) return { ok: false, error: "Tenant not found" };
+  const tData = tDoc.data() || {};
+  const plan = planFromString(tData.subscriptionPlan ?? tData.plan);
+  const extraStaffPurchased = Number(
+    tData.extraStaffPurchased ?? (tData.extraStaffBlocksPurchased ? Number(tData.extraStaffBlocksPurchased) * 10 : 0)
+  );
+  const maxAllowed = effectiveMaxStaff(plan, extraStaffPurchased);
+
+  if (maxAllowed === "unlimited") {
+    return { ok: true, message: "Plan allows unlimited staff, no suspensions required." };
   }
 
-  await adminDb.collection("staff").doc(staffId).update({
-    isActive: !currentStatus,
-    updatedAt: FieldValue.serverTimestamp(),
+  // Get all active staff
+  const allStaff = staffSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+  const activeStaff = allStaff.filter((s: any) => s.isActive !== false && s.status !== "SUSPENDED");
+
+  if (activeStaff.length <= maxAllowed) {
+    return { ok: true, message: `Active staff count (${activeStaff.length}) is within plan limit (${maxAllowed}).` };
+  }
+
+  // Priority sort:
+  // 1. Owner / tenant_admin first
+  // 2. Managers next
+  // 3. Earliest joined (createdAt)
+  const sorted = [...activeStaff].sort((a: any, b: any) => {
+    const roleA = (a.role || "").toLowerCase();
+    const roleB = (b.role || "").toLowerCase();
+    const isOwnerA = roleA === "tenant_admin" || a.empId === "OWNER";
+    const isOwnerB = roleB === "tenant_admin" || b.empId === "OWNER";
+    if (isOwnerA && !isOwnerB) return -1;
+    if (!isOwnerA && isOwnerB) return 1;
+
+    const isMgrA = roleA === "manager";
+    const isMgrB = roleB === "manager";
+    if (isMgrA && !isMgrB) return -1;
+    if (!isMgrA && isMgrB) return 1;
+
+    const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+    const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+    return timeA - timeB;
   });
+
+  const staffToKeep = sorted.slice(0, maxAllowed);
+  const staffToSuspend = sorted.slice(maxAllowed);
+
+  // Batch update suspended staff
+  const batch = adminDb.batch();
+  for (const s of staffToSuspend) {
+    batch.update(adminDb.collection("staff").doc(s.id), {
+      isActive: false,
+      status: "SUSPENDED",
+      suspendedReason: "PLAN_LIMIT_EXCEEDED",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  await batch.commit();
+
   revalidatePath("/manager");
+  revalidatePath("/tenant-admin");
   revalidatePath("/usage");
+
+  return {
+    ok: true,
+    suspendedCount: staffToSuspend.length,
+    keptActiveCount: staffToKeep.length,
+    message: `Plan limit enforced: kept ${staffToKeep.length} active staff, suspended ${staffToSuspend.length} excess accounts.`,
+  };
 }
 
 export async function softDeleteStaff(staffId: string) {
@@ -751,8 +889,13 @@ export async function bulkToggleStaffStatus(staffIds: string[], newStatus: boole
 
   for (const id of staffIds) {
     try {
-      await toggleStaffStatus(id, !newStatus);
-      successCount++;
+      const res = await toggleStaffStatus(id, newStatus);
+      if (res && res.ok === false) {
+        failCount++;
+        errors.push(`${id}: ${res.error}`);
+      } else {
+        successCount++;
+      }
     } catch (e: any) {
       failCount++;
       errors.push(`${id}: ${e.message ?? "Failed to toggle status"}`);

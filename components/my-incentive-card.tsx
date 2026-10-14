@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { Card, Badge, SkeletonRow } from "@/components/ui";
@@ -145,10 +145,45 @@ export function MyIncentiveCard({ staffId, role }: MyIncentiveCardProps) {
           )}
 
           <div style={{ gridColumn: "span 2" }}>
-            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>Applied Incentive Rules</div>
-            <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 2 }}>
-              {data.appliedRules && data.appliedRules.length > 0 ? (
-                data.appliedRules.map((rule: string, i: number) => (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700 }}>Applied Incentive Formula & Rules</span>
+              {data.categoryBreakdown && data.categoryBreakdown.length > 0 && (
+                <span style={{ fontSize: 11, color: "#60a5fa", fontWeight: 700 }}>
+                  {data.categoryBreakdown.length} Categories Matched
+                </span>
+              )}
+            </div>
+
+            {data.categoryBreakdown && data.categoryBreakdown.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                {data.categoryBreakdown.map((cat: any, i: number) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{cat.category}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-secondary)", display: "block" }}>
+                        Sales: ₹{cat.eligibleSales.toLocaleString("en-IN")} • {cat.ruleDetails}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#22c55e" }}>
+                      +₹{cat.incentive.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : data.appliedRules && data.appliedRules.length > 0 ? (
+              <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 2 }}>
+                {data.appliedRules.map((rule: string, i: number) => (
                   <span
                     key={i}
                     style={{
@@ -165,13 +200,13 @@ export function MyIncentiveCard({ staffId, role }: MyIncentiveCardProps) {
                   >
                     ✓ {rule}
                   </span>
-                ))
-              ) : (
-                <span style={{ color: "var(--text-secondary)", fontStyle: "italic" }}>
-                  Standard tier calculation active.
-                </span>
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <span style={{ color: "var(--text-secondary)", fontStyle: "italic", fontSize: 12 }}>
+                Standard performance calculation active.
+              </span>
+            )}
           </div>
         </div>
       )}

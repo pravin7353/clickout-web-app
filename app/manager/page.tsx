@@ -1,6 +1,9 @@
 import { requireRole, resolveStoreScope } from "@/lib/rbac";
 import { getStaffList } from "@/lib/services/staff-service";
 import { getStores } from "@/lib/services/store-service";
+import { adminDb } from "@/lib/firebase-admin";
+import { planFromString, effectiveMaxStaff } from "@/lib/subscription/plan";
+import { StaffQuotaAlert } from "@/components/staff-quota-alert";
 import { OnboardStaffForm } from "@/components/onboard-staff-form";
 import { BulkImportModal } from "@/components/bulk-import-modal";
 import { StaffTableClient } from "@/components/staff-table-client";
@@ -30,6 +33,40 @@ export default async function ManagerPage({
     getStaffList(role, tenantId, effectiveStoreId, activeRoleFilter),
     getStores(role, tenantId),
   ]);
+
+  // Plan Staff Limit Evaluation
+  let planName = "spark";
+  let maxAllowedStaff: number | "unlimited" = 5;
+  let totalTenantActive = staff.filter((s) => s.isActive).length;
+
+  if (tenantId) {
+    try {
+      const [tDoc, allActiveSnap] = await Promise.all([
+        adminDb.collection("tenants").doc(tenantId).get(),
+        adminDb
+          .collection("staff")
+          .where("tenantId", "==", tenantId)
+          .where("isDeleted", "==", false)
+          .where("isActive", "==", true)
+          .get(),
+      ]);
+      if (tDoc.exists) {
+        const tData = tDoc.data() || {};
+        const plan = planFromString(tData.subscriptionPlan ?? tData.plan);
+        planName = plan;
+        const extraStaff = Number(
+          tData.extraStaffPurchased ?? (tData.extraStaffBlocksPurchased ? Number(tData.extraStaffBlocksPurchased) * 10 : 0)
+        );
+        maxAllowedStaff = effectiveMaxStaff(plan, extraStaff);
+      }
+      totalTenantActive = allActiveSnap.size;
+    } catch (e) {
+      console.error("Error evaluating staff quota in ManagerPage:", e);
+    }
+  }
+
+  const excessStaffCount =
+    maxAllowedStaff !== "unlimited" ? Math.max(0, totalTenantActive - maxAllowedStaff) : 0;
 
   // Isolation: For a manager, lock strictly to their assigned branch.
   // They must never see or assign staff to other branches or HQ.
@@ -63,6 +100,15 @@ export default async function ManagerPage({
 
   return (
     <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Excess Staff Limit Warning Banner */}
+      {excessStaffCount > 0 && (
+        <StaffQuotaAlert
+          totalActive={totalTenantActive}
+          maxAllowed={typeof maxAllowedStaff === "number" ? maxAllowedStaff : 9999}
+          planName={planName}
+          excessCount={excessStaffCount}
+        />
+      )}
       {/* Top Security Banner matching Flutter */}
       <div
         style={{
@@ -135,8 +181,13 @@ export default async function ManagerPage({
           <div style={{ fontSize: 24, fontWeight: 800, color: "var(--text-primary)" }}>{totalCount}</div>
         </Card>
         <Card style={{ padding: 16 }}>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Active Staff</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: "var(--success)" }}>{activeCount}</div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4 }}>Active Staff (Branch / Org Quota)</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: excessStaffCount > 0 ? "var(--warning, #f59e0b)" : "var(--success)" }}>
+            {activeCount}{" "}
+            <span style={{ fontSize: 14, color: "var(--text-secondary)", fontWeight: 600 }}>
+              ({totalTenantActive}{maxAllowedStaff !== "unlimited" ? `/${maxAllowedStaff}` : ""} org)
+            </span>
+          </div>
         </Card>
         <Card style={{ padding: 16 }}>
           <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 4, display: "flex", alignItems: "center" }}>

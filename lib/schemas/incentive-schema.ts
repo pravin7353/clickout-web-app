@@ -26,7 +26,8 @@ export type TierThreshold = z.infer<typeof TierThresholdSchema>;
 export const incentiveRuleSchema = z.object({
   id: z.string().optional(),
   tenantId: z.string().trim().min(1, "Tenant ID is required"),
-  role: IncentiveRoleEnum.default("cashier"),
+  role: z.enum(["cashier", "guard", "all"]).default("cashier"),
+  targetRole: z.enum(["cashier", "guard", "all"]).optional(),
   category: z.string().trim().default("ALL"),
   calculationType: CalculationTypeEnum.default("PERCENT_OF_SALE"),
   percentValue: z.coerce.number().min(0).optional(),
@@ -36,6 +37,17 @@ export const incentiveRuleSchema = z.object({
   payoutFrequency: PayoutFrequencyEnum.default("MONTHLY"),
   autoApproveThreshold: z.coerce.number().min(0).default(500),
   description: z.string().trim().optional(),
+  // Guard specific fields
+  fraudCatchReward: z.coerce.number().min(0).optional(),
+  catchValueThreshold: z.coerce.number().min(0).optional(),
+  catchValueReward: z.coerce.number().min(0).optional(),
+  monthlyTargetValue: z.coerce.number().min(0).optional(),
+  monthlyTargetBonus: z.coerce.number().min(0).optional(),
+  guardRuleType: z.enum(["PER_CATCH", "MONTHLY_TARGET"]).optional(),
+  // Versioning & Lifecycle
+  version: z.number().int().min(1).default(1),
+  effectiveFrom: z.string().optional(),
+  status: z.enum(["ACTIVE", "DRAFT", "ARCHIVED"]).default("ACTIVE"),
 });
 
 export type IncentiveRuleInput = z.infer<typeof incentiveRuleSchema>;
@@ -43,7 +55,8 @@ export type IncentiveRuleInput = z.infer<typeof incentiveRuleSchema>;
 export interface IncentiveRuleDocument {
   id: string;
   tenantId: string;
-  role?: "cashier" | "guard";
+  role?: "cashier" | "guard" | "all";
+  targetRole?: "cashier" | "guard" | "all";
   category: string;
   calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
   percentValue?: number;
@@ -53,6 +66,17 @@ export interface IncentiveRuleDocument {
   payoutFrequency: "DAILY" | "WEEKLY" | "MONTHLY";
   autoApproveThreshold: number;
   description?: string;
+  // Guard specific
+  fraudCatchReward?: number;
+  catchValueThreshold?: number;
+  catchValueReward?: number;
+  monthlyTargetValue?: number;
+  monthlyTargetBonus?: number;
+  guardRuleType?: "PER_CATCH" | "MONTHLY_TARGET";
+  // Versioning & Lifecycle
+  version?: number;
+  effectiveFrom?: string;
+  status?: "ACTIVE" | "DRAFT" | "ARCHIVED";
   createdBy?: string;
   createdAtMs?: number;
   updatedAt?: any;

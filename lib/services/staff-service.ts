@@ -9,6 +9,8 @@ export type StaffRow = {
   role: string;
   branchCode: string;
   isActive: boolean;
+  status: string;
+  suspendedReason?: string;
   trustScore: number;
   tenantId?: string;
   authUid?: string | null;
@@ -36,6 +38,8 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
 
   return snap.docs.map((doc) => {
     const data = doc.data();
+    const isActive = data.isActive !== false;
+    const rawStatus = (data.status || (isActive ? "ACTIVE" : "SUSPENDED")).toUpperCase();
     return {
       id: doc.id,
       empId: data.empId ?? "",
@@ -44,7 +48,9 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       email: data.email ?? "",
       role: data.role ?? "",
       branchCode: data.branchCode ?? "",
-      isActive: data.isActive !== false,
+      isActive: isActive && rawStatus === "ACTIVE",
+      status: rawStatus,
+      suspendedReason: data.suspendedReason ?? undefined,
       trustScore: typeof data.trustScore === "number" ? data.trustScore : 100,
       tenantId: data.tenantId ?? "",
       authUid: data.authUid ?? null,
