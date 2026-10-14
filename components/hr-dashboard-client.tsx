@@ -8,7 +8,11 @@ import { HrIncentiveTable } from "@/components/hr-incentive-table";
 import { HrIncentiveRulesEditor } from "@/components/hr-incentive-rules-editor";
 import { HrApprovalsInbox } from "@/components/hr-approvals-inbox";
 import { HrAttendanceSettings } from "@/components/hr-attendance-settings";
-import { getTotalPendingApprovalsCountAction } from "@/actions/hr";
+import {
+  getTotalPendingApprovalsCountAction,
+  getSalesExecMonthlyStatsAction,
+  getAllSalesExecMonthlyStatsAction,
+} from "@/actions/hr";
 import { QRCodeSVG } from "qrcode.react";
 
 interface HrDashboardClientProps {
@@ -48,6 +52,46 @@ export function HrDashboardClient({
   // Live Approvals Badge Count
   const [pendingCount, setPendingCount] = useState<number>(0);
 
+  // Sales Executive Monthly Stats (Chunk 34C)
+  const [selectedExec, setSelectedExec] = useState<SimpleStaff | null>(null);
+  const [execStats, setExecStats] = useState<{
+    totalAssistedOrders: number;
+    totalAssistedRevenue: number;
+    estimatedCommission: number;
+    month: string;
+  } | null>(null);
+  const [loadingExecStats, setLoadingExecStats] = useState(false);
+  const [allExecStatsMap, setAllExecStatsMap] = useState<
+    Record<
+      string,
+      {
+        totalAssistedOrders: number;
+        totalAssistedRevenue: number;
+        estimatedCommission: number;
+        month: string;
+      }
+    >
+  >({});
+
+  const handleViewExecPerformance = async (staff: SimpleStaff) => {
+    setSelectedExec(staff);
+    if (!tenantId) return;
+    setLoadingExecStats(true);
+    try {
+      const res = await getSalesExecMonthlyStatsAction({
+        tenantId,
+        empId: staff.empId,
+      });
+      if (res.ok && res.stats) {
+        setExecStats(res.stats);
+      }
+    } catch (e) {
+      // fallback
+    } finally {
+      setLoadingExecStats(false);
+    }
+  };
+
   const fetchPendingCount = async () => {
     try {
       const res = await getTotalPendingApprovalsCountAction();
@@ -71,6 +115,16 @@ export function HrDashboardClient({
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "people" && tenantId) {
+      getAllSalesExecMonthlyStatsAction({ tenantId }).then((res) => {
+        if (res.ok && res.statsMap) {
+          setAllExecStatsMap(res.statsMap);
+        }
+      });
+    }
+  }, [activeTab, tenantId]);
 
   return (
     <div style={{ padding: "28px 24px", maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 24 }}>
@@ -288,67 +342,252 @@ export function HrDashboardClient({
                     <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>DESIGNATION</th>
                     <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>ASSIGNED BRANCH</th>
                     <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>STATUS</th>
+                    <th style={{ padding: "12px 16px", fontSize: 11, fontWeight: 800, color: "var(--text-secondary)" }}>ACTIONS / METRICS</th>
                   </tr>
                 </thead>
                 <tbody>
                   {staffList.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: 32, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
+                      <td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>
                         No personnel enrolled.
                       </td>
                     </tr>
                   ) : (
-                    staffList.map((s) => (
-                      <tr key={s.id} style={{ borderBottom: "1px solid var(--border)", fontSize: 13 }}>
-                        <td style={{ padding: "14px 16px", fontWeight: 700, color: "var(--text-primary)" }}>
-                          {s.name}
-                        </td>
-                        <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>
-                          {s.empId || "-"}
-                        </td>
-                        <td style={{ padding: "14px 16px" }}>
-                          <span
-                            style={{
-                              padding: "3px 10px",
-                              borderRadius: 14,
-                              fontSize: 11,
-                              fontWeight: 800,
-                              background: s.role?.toLowerCase() === "cashier"
-                                ? "rgba(59, 130, 246, 0.15)"
-                                : s.role?.toLowerCase() === "guard"
-                                ? "rgba(245, 158, 11, 0.15)"
-                                : "rgba(168, 85, 247, 0.15)",
-                              color: s.role?.toLowerCase() === "cashier"
-                                ? "#60a5fa"
-                                : s.role?.toLowerCase() === "guard"
-                                ? "#fbbf24"
-                                : "#c084fc",
-                            }}
-                          >
-                            {s.role?.toUpperCase() || "STAFF"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "14px 16px", color: "var(--text-primary)", fontWeight: 600 }}>
-                          {s.branchCode || "HQ"}
-                        </td>
-                        <td style={{ padding: "14px 16px" }}>
-                          <span
-                            style={{
-                              color: s.isActive ? "#22c55e" : "#ef4444",
-                              fontWeight: 700,
-                              fontSize: 12,
-                            }}
-                          >
-                            {s.isActive ? "● Active" : "● Suspended"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
+                    staffList.map((s) => {
+                      const isSalesExec = s.role?.toLowerCase() === "sales_executive";
+                      const isSelected = selectedExec?.id === s.id;
+                      return (
+                        <tr
+                          key={s.id}
+                          style={{
+                            borderBottom: "1px solid var(--border)",
+                            fontSize: 13,
+                            background: isSelected ? "color-mix(in srgb, var(--cta-bg) 8%, transparent)" : "transparent",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          <td style={{ padding: "14px 16px", fontWeight: 700, color: "var(--text-primary)" }}>
+                            {s.name}
+                          </td>
+                          <td style={{ padding: "14px 16px", color: "var(--text-secondary)" }}>
+                            {s.empId || "-"}
+                          </td>
+                          <td style={{ padding: "14px 16px" }}>
+                            <span
+                              style={{
+                                padding: "3px 10px",
+                                borderRadius: 14,
+                                fontSize: 11,
+                                fontWeight: 800,
+                                background: isSalesExec
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : s.role?.toLowerCase() === "cashier"
+                                  ? "rgba(59, 130, 246, 0.15)"
+                                  : s.role?.toLowerCase() === "guard"
+                                  ? "rgba(245, 158, 11, 0.15)"
+                                  : "rgba(168, 85, 247, 0.15)",
+                                color: isSalesExec
+                                  ? "#10b981"
+                                  : s.role?.toLowerCase() === "cashier"
+                                  ? "#60a5fa"
+                                  : s.role?.toLowerCase() === "guard"
+                                  ? "#fbbf24"
+                                  : "#c084fc",
+                              }}
+                            >
+                              {s.role?.toUpperCase() || "STAFF"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "14px 16px", color: "var(--text-primary)", fontWeight: 600 }}>
+                            {s.branchCode || "HQ"}
+                          </td>
+                          <td style={{ padding: "14px 16px" }}>
+                            <span
+                              style={{
+                                color: s.isActive ? "#22c55e" : "#ef4444",
+                                fontWeight: 700,
+                                fontSize: 12,
+                              }}
+                            >
+                              {s.isActive ? "● Active" : "● Suspended"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "14px 16px" }}>
+                            {isSalesExec ? (
+                              <button
+                                type="button"
+                                onClick={() => handleViewExecPerformance(s)}
+                                style={{
+                                  padding: "5px 12px",
+                                  borderRadius: 8,
+                                  fontSize: 11,
+                                  fontWeight: 800,
+                                  background: isSelected
+                                    ? "var(--cta-bg)"
+                                    : "rgba(16, 185, 129, 0.12)",
+                                  color: isSelected ? "var(--cta-text)" : "#10b981",
+                                  border: "1px solid rgba(16, 185, 129, 0.3)",
+                                  cursor: "pointer",
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  transition: "all 0.15s ease",
+                                }}
+                              >
+                                <span>📈</span>
+                                <span>Monthly Performance</span>
+                              </button>
+                            ) : (
+                              <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Monthly Performance Section (Chunk 34C: Read-Only, Sourced from salesExecStats) */}
+          {selectedExec && (
+            <div
+              style={{
+                background: "var(--card-bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 16,
+                padding: "20px 24px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 16,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 20 }}>👔</span>
+                    <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "var(--text-primary)" }}>
+                      Monthly Performance — {selectedExec.name} ({selectedExec.empId})
+                    </h3>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        background: "rgba(16, 185, 129, 0.15)",
+                        color: "#10b981",
+                      }}
+                    >
+                      Sales Executive
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 4 }}>
+                    <strong>{new Date().toLocaleString("en-US", { month: "long", year: "numeric" })}</strong> • Store: {selectedExec.branchCode || "HQ"} • Self-Checkout Referral Attribution
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedExec(null)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-secondary)",
+                    fontSize: 18,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    padding: "4px 8px",
+                  }}
+                  title="Close performance view"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 12,
+                    background: "color-mix(in srgb, var(--card-bg) 85%, var(--scaffold-bg))",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Assisted Orders
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: "var(--text-primary)" }}>
+                    {loadingExecStats
+                      ? "..."
+                      : (execStats?.totalAssistedOrders ?? allExecStatsMap[selectedExec.empId]?.totalAssistedOrders ?? 0)}
+                  </div>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4, display: "block" }}>
+                    Total checkout referrals completed
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 12,
+                    background: "color-mix(in srgb, var(--card-bg) 85%, var(--scaffold-bg))",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Assisted Revenue
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: "#10b981" }}>
+                    {loadingExecStats
+                      ? "..."
+                      : `₹${(execStats?.totalAssistedRevenue ?? allExecStatsMap[selectedExec.empId]?.totalAssistedRevenue ?? 0).toLocaleString("en-IN")}`}
+                  </div>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4, display: "block" }}>
+                    Gross sales volume attributed
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    padding: 16,
+                    borderRadius: 12,
+                    background: "color-mix(in srgb, var(--card-bg) 85%, var(--scaffold-bg))",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    Earned Commission (estimate)
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: "var(--warning, #f59e0b)" }}>
+                    {loadingExecStats
+                      ? "..."
+                      : `₹${(execStats?.estimatedCommission ?? allExecStatsMap[selectedExec.empId]?.estimatedCommission ?? 0).toLocaleString("en-IN")}`}
+                  </div>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4, display: "block" }}>
+                    Calculated from active incentive rules
+                  </span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  borderTop: "1px solid var(--border)",
+                  paddingTop: 10,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>🔒</span>
+                <span>Read-only performance log sourced from <code>salesExecStats</code>. Generated automatically via customer self-checkout assist.</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

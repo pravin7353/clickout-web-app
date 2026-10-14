@@ -371,3 +371,10 @@ export async function getPendingIncentivePayoutsAction(branchCode?: string) {
 
   return { ok: true, pending: serializeTimestamps(pending) };
 }
+
+// Re-export sales executive stats actions
+export {
+  updateSalesExecMonthlyStats,
+  getSalesExecMonthlyStatsAction,
+  getAllSalesExecMonthlyStatsAction,
+} from "@/actions/hr";

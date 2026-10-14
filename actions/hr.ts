@@ -2058,6 +2058,229 @@ export async function getTotalPendingApprovalsCountAction() {
   }
 }
 
+// =========================================================================
+// SALES EXECUTIVE MONTHLY STATS (CHUNK 34C)
+// =========================================================================
+
+export async function updateSalesExecMonthlyStats(params: {
+  tenantId: string;
+  assistedByEmpId: string;
+  orderAmount: number;
+  orderId?: string;
+  month?: string;
+}) {
+  const { tenantId, assistedByEmpId, orderAmount } = params;
+  if (!tenantId || !assistedByEmpId || typeof orderAmount !== "number" || orderAmount <= 0) {
+    return { ok: false, error: "Invalid parameters for sales executive stats update" };
+  }
+
+  // Server-side verification: Never trust assistedByEmpId without verifying
+  // that empId exists and has role === sales_executive in tenant.
+  const staffSnap = await adminDb
+    .collection("staff")
+    .where("tenantId", "==", tenantId)
+    .where("empId", "==", assistedByEmpId)
+    .where("isDeleted", "==", false)
+    .limit(1)
+    .get();
+
+  if (staffSnap.empty) {
+    return { ok: false, error: `Sales executive '${assistedByEmpId}' not found in tenant.` };
+  }
+
+  const staffData = staffSnap.docs[0].data();
+  const staffRole = (staffData.role || "").toLowerCase();
+  if (staffRole !== "sales_executive") {
+    return { ok: false, error: `Staff member '${assistedByEmpId}' does not have the 'sales_executive' role.` };
+  }
+
+  const empName = staffData.name || assistedByEmpId;
+  const branchCode = staffData.branchCode || "HQ";
+
+  // Format month: YYYY-MM (e.g. 2026-10)
+  const currentMonth = params.month || new Date().toISOString().slice(0, 7);
+  const docId = `${assistedByEmpId}_${currentMonth}`;
+
+  const statRef = adminDb
+    .collection("tenants")
+    .doc(tenantId)
+    .collection("salesExecStats")
+    .doc(docId);
+
+  // Use Firestore set() with merge: true and FieldValue.increment() — no read-then-write
+  await statRef.set(
+    {
+      empId: assistedByEmpId,
+      empName,
+      branchCode,
+      tenantId,
+      month: currentMonth,
+      totalAssistedOrders: FieldValue.increment(1),
+      totalAssistedRevenue: FieldValue.increment(orderAmount),
+      lastUpdated: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return { ok: true, docId, month: currentMonth };
+}
+
+export async function getSalesExecMonthlyStatsAction(params: {
+  tenantId: string;
+  empId: string;
+  month?: string;
+}) {
+  const { tenantId, empId, month } = params;
+  if (!tenantId || !empId) {
+    return { ok: false, error: "Missing tenantId or empId", stats: null };
+  }
+
+  const effectiveMonth = month || new Date().toISOString().slice(0, 7);
+  const docId = `${empId}_${effectiveMonth}`;
+
+  const [statDoc, ruleSnap] = await Promise.all([
+    adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("salesExecStats")
+      .doc(docId)
+      .get(),
+    adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("incentiveRules")
+      .where("status", "==", "ACTIVE")
+      .get()
+      .catch(() => null),
+  ]);
+
+  let totalAssistedOrders = 0;
+  let totalAssistedRevenue = 0;
+  let lastUpdated: string | null = null;
+
+  if (statDoc.exists) {
+    const data = statDoc.data() || {};
+    totalAssistedOrders = Number(data.totalAssistedOrders || 0);
+    totalAssistedRevenue = Number(data.totalAssistedRevenue || 0);
+    if (data.lastUpdated?.toDate) {
+      lastUpdated = data.lastUpdated.toDate().toISOString();
+    }
+  }
+
+  // Calculate estimated commission based on incentive rules
+  let estimatedCommission = 0;
+  if (ruleSnap && !ruleSnap.empty && totalAssistedRevenue > 0) {
+    const rules = ruleSnap.docs.map((d) => d.data());
+    const execRule = rules.find(
+      (r) => (r.role || "").toLowerCase() === "sales_executive" || (r.targetRole || "").toLowerCase() === "sales_executive"
+    );
+
+    if (execRule) {
+      if (execRule.calculationType === "PERCENT_OF_SALE" && typeof execRule.percentValue === "number") {
+        estimatedCommission = (totalAssistedRevenue * execRule.percentValue) / 100;
+      } else if (execRule.calculationType === "FIXED_PER_SALE" && typeof execRule.fixedAmount === "number") {
+        estimatedCommission = totalAssistedOrders * execRule.fixedAmount;
+      } else if (execRule.calculationType === "TIERED" && Array.isArray(execRule.tiers)) {
+        const sortedTiers = [...execRule.tiers].sort((a: any, b: any) => b.minSaleAmount - a.minSaleAmount);
+        const matchingTier = sortedTiers.find((t: any) => totalAssistedRevenue >= t.minSaleAmount);
+        if (matchingTier) {
+          estimatedCommission = (totalAssistedRevenue * matchingTier.percent) / 100;
+        }
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    stats: {
+      empId,
+      month: effectiveMonth,
+      totalAssistedOrders,
+      totalAssistedRevenue,
+      estimatedCommission: Math.round(estimatedCommission),
+      lastUpdated,
+    },
+  };
+}
+
+export async function getAllSalesExecMonthlyStatsAction(params: {
+  tenantId: string;
+  month?: string;
+}) {
+  const { tenantId, month } = params;
+  if (!tenantId) {
+    return { ok: false, statsMap: {} };
+  }
+
+  const effectiveMonth = month || new Date().toISOString().slice(0, 7);
+
+  const [statsSnap, ruleSnap] = await Promise.all([
+    adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("salesExecStats")
+      .where("month", "==", effectiveMonth)
+      .get()
+      .catch(() => null),
+    adminDb
+      .collection("tenants")
+      .doc(tenantId)
+      .collection("incentiveRules")
+      .where("status", "==", "ACTIVE")
+      .get()
+      .catch(() => null),
+  ]);
+
+  const statsMap: Record<
+    string,
+    {
+      totalAssistedOrders: number;
+      totalAssistedRevenue: number;
+      estimatedCommission: number;
+      month: string;
+    }
+  > = {};
+
+  let execRule: any = null;
+  if (ruleSnap && !ruleSnap.empty) {
+    const rules = ruleSnap.docs.map((d) => d.data());
+    execRule = rules.find(
+      (r) => (r.role || "").toLowerCase() === "sales_executive" || (r.targetRole || "").toLowerCase() === "sales_executive"
+    );
+  }
+
+  if (statsSnap && !statsSnap.empty) {
+    statsSnap.docs.forEach((doc) => {
+      const data = doc.data();
+      const empId = data.empId || doc.id.split("_")[0];
+      const orders = Number(data.totalAssistedOrders || 0);
+      const revenue = Number(data.totalAssistedRevenue || 0);
+
+      let comm = 0;
+      if (execRule) {
+        if (execRule.calculationType === "PERCENT_OF_SALE" && typeof execRule.percentValue === "number") {
+          comm = (revenue * execRule.percentValue) / 100;
+        } else if (execRule.calculationType === "FIXED_PER_SALE" && typeof execRule.fixedAmount === "number") {
+          comm = orders * execRule.fixedAmount;
+        } else if (execRule.calculationType === "TIERED" && Array.isArray(execRule.tiers)) {
+          const sortedTiers = [...execRule.tiers].sort((a: any, b: any) => b.minSaleAmount - a.minSaleAmount);
+          const matchingTier = sortedTiers.find((t: any) => revenue >= t.minSaleAmount);
+          if (matchingTier) comm = (revenue * matchingTier.percent) / 100;
+        }
+      }
+
+      statsMap[empId] = {
+        totalAssistedOrders: orders,
+        totalAssistedRevenue: revenue,
+        estimatedCommission: Math.round(comm),
+        month: effectiveMonth,
+      };
+    });
+  }
+
+  return { ok: true, statsMap, month: effectiveMonth };
+}
+
 
 
 

@@ -191,5 +191,16 @@ service cloud.firestore {
       allow create: if isFinanceRole() && (request.resource.data.tenantId == tenantId() || role() == 'super_admin');
       allow update, delete: if false; // Append-only double-entry ledger: corrections via reversing journal entries
     }
+
+    // ---- salesExecStats (Chunk 34C: monthly performance stats) ----
+    match /tenants/{tenantDocId}/salesExecStats/{statDocId} {
+      allow read: if isSignedIn() && (
+        role() == 'super_admin' ||
+        (role() == 'tenant_admin' && tenantDocId == tenantId()) ||
+        (role() == 'manager' && tenantDocId == tenantId() && (resource == null || resource.data.branchCode == storeId())) ||
+        (request.auth.token.empId != null && (resource == null || resource.data.empId == request.auth.token.empId))
+      );
+      allow write: if false; // server-side only (Admin SDK)
+    }
   }
 }

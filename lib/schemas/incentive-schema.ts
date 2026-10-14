@@ -8,7 +8,7 @@ export const IncentiveMetricEnum = z.enum([
 ]);
 export type IncentiveMetric = z.infer<typeof IncentiveMetricEnum>;
 
-export const IncentiveRoleEnum = z.enum(["cashier", "guard"]);
+export const IncentiveRoleEnum = z.enum(["cashier", "guard", "sales_executive"]);
 export type IncentiveRole = z.infer<typeof IncentiveRoleEnum>;
 
 export const CalculationTypeEnum = z.enum(["PERCENT_OF_SALE", "FIXED_PER_SALE", "TIERED"]);
@@ -26,8 +26,8 @@ export type TierThreshold = z.infer<typeof TierThresholdSchema>;
 export const incentiveRuleSchema = z.object({
   id: z.string().optional(),
   tenantId: z.string().trim().min(1, "Tenant ID is required"),
-  role: z.enum(["cashier", "guard", "all"]).default("cashier"),
-  targetRole: z.enum(["cashier", "guard", "all"]).optional(),
+  role: z.enum(["cashier", "guard", "sales_executive", "all"]).default("cashier"),
+  targetRole: z.enum(["cashier", "guard", "sales_executive", "all"]).optional(),
   category: z.string().trim().default("ALL"),
   calculationType: CalculationTypeEnum.default("PERCENT_OF_SALE"),
   percentValue: z.coerce.number().min(0).optional(),
@@ -55,8 +55,8 @@ export type IncentiveRuleInput = z.infer<typeof incentiveRuleSchema>;
 export interface IncentiveRuleDocument {
   id: string;
   tenantId: string;
-  role?: "cashier" | "guard" | "all";
-  targetRole?: "cashier" | "guard" | "all";
+  role?: "cashier" | "guard" | "sales_executive" | "all";
+  targetRole?: "cashier" | "guard" | "sales_executive" | "all";
   category: string;
   calculationType: "PERCENT_OF_SALE" | "FIXED_PER_SALE" | "TIERED";
   percentValue?: number;
