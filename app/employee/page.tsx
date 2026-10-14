@@ -39,7 +39,7 @@ export default async function EmployeePage() {
           Staff Account Required
         </div>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0, maxWidth: 440, lineHeight: 1.5 }}>
-          Employee Self-Service is for staff accounts (cashier, guard, manager) who have linked their phone device. Please log in with your verified phone number to access this portal.
+          Employee Self-Service is for staff accounts (cashier, guard, manager, sales_executive) who have linked their phone device. Please log in with your verified phone number to access this portal.
         </p>
         <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
           <Link

@@ -9,10 +9,11 @@ import { CustomSelect, OptionItem } from "@/components/custom-select";
 export type BranchOption = { branchCode: string; storeName: string };
 
 const ROLE_OPTIONS: OptionItem[] = [
-  { value: "CASHIER", label: "CASHIER", icon: "🛒" },
-  { value: "GUARD", label: "GUARD", icon: "🛡️" },
-  { value: "MANAGER", label: "MANAGER", icon: "💼" },
-  { value: "AUDITOR", label: "AUDITOR", icon: "📊" },
+  { value: "MANAGER", label: "Manager", icon: "💼" },
+  { value: "CASHIER", label: "Cashier", icon: "🛒" },
+  { value: "GUARD", label: "Guard", icon: "🛡️" },
+  { value: "AUDITOR", label: "Auditor", icon: "📊" },
+  { value: "SALES_EXECUTIVE", label: "Sales Executive", icon: "👔" },
 ];
 
 export function OnboardStaffForm({

@@ -188,7 +188,12 @@ export default function EmployeeLoginPage() {
       }
 
       // 5. Navigate to Employee Portal
-      router.push("/employee");
+      const role = (linkRes.role || "").toLowerCase();
+      if (["cashier", "guard", "sales_executive"].includes(role)) {
+        router.push("/employee");
+      } else {
+        router.push("/employee");
+      }
       router.refresh();
     } catch (err: any) {
       console.error("OTP verification error:", err);

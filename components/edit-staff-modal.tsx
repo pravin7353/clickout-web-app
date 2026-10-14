@@ -10,10 +10,11 @@ import { CustomSelect, OptionItem } from "@/components/custom-select";
 type BranchOption = { branchCode: string; storeName: string };
 
 const ROLE_OPTIONS: OptionItem[] = [
-  { value: "CASHIER", label: "CASHIER (Assisted POS)", icon: "🛒" },
-  { value: "GUARD", label: "GUARD (Exit Verification)", icon: "🛡️" },
-  { value: "MANAGER", label: "MANAGER (Store Ops)", icon: "💼" },
-  { value: "AUDITOR", label: "AUDITOR (Financial CA Ledger)", icon: "📊" },
+  { value: "MANAGER", label: "Manager", icon: "💼" },
+  { value: "CASHIER", label: "Cashier", icon: "🛒" },
+  { value: "GUARD", label: "Guard", icon: "🛡️" },
+  { value: "AUDITOR", label: "Auditor", icon: "📊" },
+  { value: "SALES_EXECUTIVE", label: "Sales Executive", icon: "👔" },
 ];
 
 const BLOOD_GROUP_OPTIONS: OptionItem[] = [

@@ -5,7 +5,7 @@ import { isRouteAllowed, isTrialActive } from "./subscription/access-engine";
 import { planFromString } from "./subscription/plan";
 import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 
-type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor";
+type Role = "super_admin" | "tenant_admin" | "manager" | "cashier" | "guard" | "auditor" | "sales_executive";
 
 export async function requireRole(allowed: Role[]) {
   const session = await auth();
@@ -19,6 +19,12 @@ export async function requireRole(allowed: Role[]) {
   }
 
   const role = ((session.user as any).role as string)?.toLowerCase() as Role;
+
+  // sales_executive is treated like cashier: no admin portal access -> redirect to /employee
+  if (role === "sales_executive") {
+    redirect("/employee");
+  }
+
   if (!allowed.includes(role)) {
     try {
       const fs = await import("fs");

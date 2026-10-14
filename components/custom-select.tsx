@@ -27,7 +27,9 @@ export function CustomSelect({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  const selectedOption = options.find(
+    (opt) => opt.value.toLowerCase() === (value || "").toLowerCase()
+  );
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
