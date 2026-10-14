@@ -52,7 +52,7 @@ export function StaffRow({
         style={{
           borderBottom: "1px solid var(--border)",
           background: isSelected
-            ? "color-mix(in srgb, var(--cta-bg-accent, #F9A826) 8%, transparent)"
+            ? "color-mix(in srgb, var(--text-primary) 6%, transparent)"
             : "transparent",
           transition: "background 0.12s ease",
         }}
@@ -334,10 +334,10 @@ export function StaffRow({
                         right: 0,
                         top: "100%",
                         marginTop: 6,
-                        background: "#18181b",
+                        background: "var(--card-bg)",
                         border: "1px solid var(--border)",
                         borderRadius: 12,
-                        boxShadow: "0 14px 36px rgba(0,0,0,0.75)",
+                        boxShadow: "0 10px 25px rgba(0,0,0,0.25)",
                         zIndex: 90,
                         minWidth: 165,
                         overflow: "hidden",
@@ -350,6 +350,8 @@ export function StaffRow({
                           setShowMenu(false);
                           setShowEditModal(true);
                         }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--text-primary) 8%, transparent)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         style={{
                           width: "100%",
                           textAlign: "left",
@@ -364,6 +366,7 @@ export function StaffRow({
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
+                          transition: "background 0.12s ease",
                         }}
                       >
                         <span style={{ color: "#3b82f6" }}>✏️</span>
@@ -374,6 +377,8 @@ export function StaffRow({
                         type="button"
                         onClick={() => handleToggle(!staff.isActive)}
                         disabled={isPending}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--text-primary) 8%, transparent)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         style={{
                           width: "100%",
                           textAlign: "left",
@@ -388,6 +393,7 @@ export function StaffRow({
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
+                          transition: "background 0.12s ease",
                         }}
                       >
                         <span>{staff.isActive ? "🔒" : "🔓"}</span>
@@ -410,6 +416,8 @@ export function StaffRow({
                           }
                         }}
                         disabled={isPending}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--text-primary) 8%, transparent)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         style={{
                           width: "100%",
                           textAlign: "left",
@@ -419,11 +427,12 @@ export function StaffRow({
                           color: "var(--danger)",
                           fontSize: 12,
                           fontWeight: 600,
-                          cursor: "pointer",
+                          cursor: isPending ? "not-allowed" : "pointer",
                           borderRadius: 8,
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
+                          transition: "background 0.12s ease",
                         }}
                       >
                         <span>🗑️</span>

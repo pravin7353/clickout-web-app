@@ -16,6 +16,7 @@ const ROLE_TABS = [
   { label: "GUARD", value: "GUARD" },
   { label: "MANAGER", value: "MANAGER" },
   { label: "AUDITOR", value: "AUDITOR" },
+  { label: "SALES_EXECUTIVE", value: "SALES_EXECUTIVE" },
 ];
 
 export default async function ManagerPage({

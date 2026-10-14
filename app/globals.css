@@ -33,11 +33,11 @@ html.dark {
   --sidebar-bg: #181816;
   --text-primary: #EEEEEC;
   --text-secondary: #A8A29B;
-  --cta-bg: #00D26A;
-  --cta-bg-accent: #00D26A;
-  --cta-text: #000000;
-  --primary: #00D26A;
-  --primary-text: #000000;
+  --cta-bg: #C96442;
+  --cta-bg-accent: #F9A826;
+  --cta-text: #FFFFFF;
+  --primary: #C96442;
+  --primary-text: #FFFFFF;
   --danger: #EF6B5F;
   --warning: #E0A855;
   --success: #00D26A;

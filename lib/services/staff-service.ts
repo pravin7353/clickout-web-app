@@ -32,7 +32,9 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
 
   if (role !== "super_admin" && tenantId) query = query.where("tenantId", "==", tenantId);
   if (storeId) query = query.where("branchCode", "==", storeId);
-  if (roleFilter !== "ALL") query = query.where("role", "==", roleFilter);
+  if (roleFilter !== "ALL") {
+    query = query.where("role", "in", [roleFilter.toUpperCase(), roleFilter.toLowerCase()]);
+  }
 
   const snap = await query.orderBy("createdAt", "desc").limit(50).get();
 

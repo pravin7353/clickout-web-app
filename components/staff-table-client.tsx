@@ -55,6 +55,20 @@ export function StaffTableClient({
     setSelectedIds([]);
   }
 
+  function handleBulkActivate() {
+    if (selectedIds.length === 0) return;
+    if (confirm(`Activate ${selectedIds.length} staff members?`)) {
+      startTransition(async () => {
+        const res = await bulkToggleStaffStatus(selectedIds, true);
+        if (!res.ok && res.errors.length > 0) {
+          alert(`Bulk activation encountered issues:\n${res.errors.join("\n")}`);
+        }
+        setSelectedIds([]);
+        router.refresh();
+      });
+    }
+  }
+
   function handleBulkDeactivate() {
     if (selectedIds.length === 0) return;
     if (confirm(`Deactivate ${selectedIds.length} staff members?`)) {
@@ -193,7 +207,7 @@ export function StaffTableClient({
           >
             <span
               style={{
-                background: "var(--cta-bg-accent, #F9A826)",
+                background: "#F9A826",
                 color: "#0A0A0A",
                 padding: "2px 8px",
                 borderRadius: 12,
@@ -207,6 +221,27 @@ export function StaffTableClient({
           </span>
 
           <span style={{ color: "var(--border)", userSelect: "none" }}>|</span>
+
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={handleBulkActivate}
+            style={{
+              background: "color-mix(in srgb, var(--success, #10b981) 15%, transparent)",
+              color: "var(--success, #10b981)",
+              border: "1px solid color-mix(in srgb, var(--success, #10b981) 30%, transparent)",
+              borderRadius: 10,
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: isPending ? "not-allowed" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            🔓 Activate
+          </button>
 
           <button
             type="button"
