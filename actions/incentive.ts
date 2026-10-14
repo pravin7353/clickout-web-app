@@ -372,9 +372,31 @@ export async function getPendingIncentivePayoutsAction(branchCode?: string) {
   return { ok: true, pending: serializeTimestamps(pending) };
 }
 
-// Re-export sales executive stats actions
-export {
-  updateSalesExecMonthlyStats,
-  getSalesExecMonthlyStatsAction,
-  getAllSalesExecMonthlyStatsAction,
-} from "@/actions/hr";
+// Sales executive stats actions (Chunk 34C)
+export async function updateSalesExecMonthlyStats(params: {
+  tenantId: string;
+  assistedByEmpId: string;
+  orderAmount: number;
+  orderId?: string;
+  month?: string;
+}) {
+  const { updateSalesExecMonthlyStats: fn } = await import("@/actions/hr");
+  return fn(params);
+}
+
+export async function getSalesExecMonthlyStatsAction(params: {
+  tenantId: string;
+  empId: string;
+  month?: string;
+}) {
+  const { getSalesExecMonthlyStatsAction: fn } = await import("@/actions/hr");
+  return fn(params);
+}
+
+export async function getAllSalesExecMonthlyStatsAction(params: {
+  tenantId: string;
+  month?: string;
+}) {
+  const { getAllSalesExecMonthlyStatsAction: fn } = await import("@/actions/hr");
+  return fn(params);
+}
