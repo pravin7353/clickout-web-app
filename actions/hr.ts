@@ -1729,6 +1729,81 @@ export async function updateStaffShiftProfileAction(
   return { ok: true, success: true, message: "Staff shift profile updated successfully." };
 }
 
+export async function bulkUpdateStaffShiftProfileAction(
+  staffIds: string[],
+  payload: {
+    weeklyOffDay?: string;
+    attendanceMode?: "GEO_AUTO" | "MANUAL";
+    shiftStartOverride?: string;
+    shiftEndOverride?: string;
+    shiftStartTime?: string;
+    shiftEndTime?: string;
+  }
+): Promise<{ ok: boolean; success: boolean; updatedCount: number; message?: string; error?: string }> {
+  if (!Array.isArray(staffIds) || staffIds.length === 0) {
+    return { ok: false, success: false, updatedCount: 0, error: "No staff members selected." };
+  }
+
+  const { session, role, tenantId, storeId } = await requireEditAccess([
+    "super_admin",
+    "tenant_admin",
+    "manager",
+  ]);
+
+  let updatedCount = 0;
+  const managerStore = (storeId || (session.user as any)?.storeId || "").toUpperCase().trim();
+
+  await Promise.all(
+    staffIds.map(async (staffId) => {
+      try {
+        const staff = await getStaffDoc(staffId);
+        if (!staff) return;
+
+        if (role !== "super_admin" && tenantId && staff.tenantId) {
+          if (tenantId !== staff.tenantId) return;
+        }
+
+        if (role === "manager") {
+          const staffBranch = (staff.branchCode || "").toUpperCase().trim();
+          if (managerStore && staffBranch && managerStore !== staffBranch) return;
+        }
+
+        const res = await updateStaffShiftProfile(staffId, payload);
+        if (res.ok) {
+          updatedCount++;
+        }
+      } catch (err) {
+        console.error(`Failed to update shift for staff ${staffId}:`, err);
+      }
+    })
+  );
+
+  const actorEmail = session.user?.email || "Manager";
+  if (updatedCount > 0) {
+    await adminDb.collection("admin_audit_logs").add({
+      action: "HR_STAFF_BULK_SHIFT_PROFILE_UPDATED",
+      actionType: "HR_STAFF_BULK_SHIFT_PROFILE_UPDATED",
+      actor: actorEmail,
+      actorId: actorEmail,
+      tenantId: tenantId || null,
+      target: "staff",
+      details: `Bulk updated shift profiles for ${updatedCount} staff members (Shift: ${payload.shiftStartOverride || payload.shiftStartTime || "Default"} to ${payload.shiftEndOverride || payload.shiftEndTime || "Default"}, Weekly Off: ${payload.weeklyOffDay || "Default"}, Mode: ${payload.attendanceMode || "GEO_AUTO"}).`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/hr");
+    revalidatePath("/staff");
+  }
+
+  return {
+    ok: true,
+    success: true,
+    updatedCount,
+    message: `Successfully updated shift policy for ${updatedCount} staff member(s).`,
+  };
+}
+
 // =========================================================================
 // 19. UNIFIED APPROVAL HISTORY (Leaves, Regularizations, HR Queries)
 // =========================================================================

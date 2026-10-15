@@ -6,6 +6,8 @@ import {
   searchProductsCatalog,
   fetchActivePosOffers,
   createPosOrder,
+  markUpiPaid,
+  getStorePaymentSettings,
   CartItem,
   PosProduct,
 } from "@/actions/pos";
@@ -56,6 +58,34 @@ export function PosTerminal({
   const [paymentMode, setPaymentMode] = useState<string>("CASH");
   const [customerPhone, setCustomerPhone] = useState<string>("");
   const [isStorageLoaded, setIsStorageLoaded] = useState(false);
+
+  // Tenant Merchant UPI Settings & Direct Modal State
+  const [merchantUpiConfig, setMerchantUpiConfig] = useState<{
+    hasUpi: boolean;
+    upiId: string;
+    upiName: string;
+  } | null>(null);
+  const [upiPendingOrder, setUpiPendingOrder] = useState<{
+    orderId: string;
+    invoiceNo: string;
+    totalAmount: number;
+    upiQrUrl: string;
+    upiDirectLink: string;
+    receipt: any;
+  } | null>(null);
+  const [isMarkingPaid, setIsMarkingPaid] = useState(false);
+
+  useEffect(() => {
+    getStorePaymentSettings(branchCode ?? undefined).then((res) => {
+      if (res?.ok) {
+        setMerchantUpiConfig({
+          hasUpi: res.hasUpi,
+          upiId: res.upiId,
+          upiName: res.upiName,
+        });
+      }
+    });
+  }, [branchCode]);
 
   // Restore cart from localStorage on mount / branch switch (Parity with Flutter SharedPreferences)
   useEffect(() => {
@@ -426,9 +456,11 @@ export function PosTerminal({
     setSuccess("");
 
     startTransition(async () => {
+      const effectiveMode = paymentMode === "UPI" && merchantUpiConfig?.hasUpi ? "UPI_DIRECT" : paymentMode;
+
       const res = await createPosOrder({
         items: cart,
-        paymentMode,
+        paymentMode: effectiveMode,
         customerPhone: customerPhone ? customerPhone.trim() : undefined,
         instantDiscountPercent: instantDiscount,
         targetBranchCode: branchCode ?? undefined,
@@ -436,6 +468,16 @@ export function PosTerminal({
 
       if (!res.ok) {
         setError(res.error ?? "Checkout failed.");
+      } else if (effectiveMode === "UPI_DIRECT" && res.upiQrUrl && res.orderId) {
+        // Pop up Direct UPI QR payment modal for customer scan
+        setUpiPendingOrder({
+          orderId: res.orderId,
+          invoiceNo: res.invoiceNo,
+          totalAmount: (res as any).totalAmount || netEstimatedTotal,
+          upiQrUrl: res.upiQrUrl,
+          upiDirectLink: res.upiDirectLink || "",
+          receipt: res.receipt,
+        });
       } else {
         const discountMsg = res.discountApplied && res.discountApplied > 0
           ? ` · Saved ₹${res.discountApplied.toFixed(0)}`
@@ -460,6 +502,36 @@ export function PosTerminal({
       }
     });
   }
+
+  const handleConfirmUpiPaid = async () => {
+    if (!upiPendingOrder) return;
+    setIsMarkingPaid(true);
+    try {
+      const res = await markUpiPaid(upiPendingOrder.orderId);
+      if (res.ok) {
+        setSuccess(`✅ Sale complete! Invoice: ${upiPendingOrder.invoiceNo} (Direct UPI Received)`);
+        setCart([]);
+        setInstantDiscount(0);
+        setCustomerPhone("");
+        if (typeof window !== "undefined") {
+          const b = branchCode || "default";
+          localStorage.removeItem(`clickout_pos_cart_${b}`);
+          localStorage.removeItem(`clickout_pos_discount_${b}`);
+          localStorage.removeItem(`clickout_pos_phone_${b}`);
+        }
+        if (upiPendingOrder.receipt) {
+          setReceipt(upiPendingOrder.receipt as ReceiptData);
+        }
+        setUpiPendingOrder(null);
+      } else {
+        setError(res.error || "Failed to confirm payment status.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "Error confirming UPI payment.");
+    } finally {
+      setIsMarkingPaid(false);
+    }
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -1322,6 +1394,84 @@ export function PosTerminal({
                 style={{ background: "var(--danger)", color: "#fff", border: "none" }}
               >
                 Clear All
+              </Button>
+            </div>
+          </Card>
+        </Modal>
+      )}
+
+      {/* UPI Direct Dynamic QR Payment Modal */}
+      {upiPendingOrder && (
+        <Modal onClose={() => setUpiPendingOrder(null)}>
+          <Card style={{ width: 440, maxWidth: "92vw", padding: 24, textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 20 }}>📱</span>
+                <h3 style={{ fontSize: 17, fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
+                  Scan & Pay via UPI
+                </h3>
+              </div>
+              <Badge color="var(--success)">DIRECT SETTLEMENT</Badge>
+            </div>
+
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
+              Invoice: <span style={{ fontWeight: 700, fontFamily: "monospace", color: "var(--text-primary)" }}>{upiPendingOrder.invoiceNo}</span>
+            </div>
+
+            <div style={{ fontSize: 28, fontWeight: 900, color: "var(--success)", marginBottom: 14 }}>
+              ₹{upiPendingOrder.totalAmount.toFixed(2)}
+            </div>
+
+            {/* QR Code Container */}
+            <div
+              style={{
+                background: "#ffffff",
+                padding: 14,
+                borderRadius: 14,
+                display: "inline-block",
+                border: "1px solid var(--border)",
+                boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+                marginBottom: 14,
+              }}
+            >
+              <img
+                src={upiPendingOrder.upiQrUrl}
+                alt="UPI Payment QR"
+                width={200}
+                height={200}
+                style={{ display: "block" }}
+              />
+            </div>
+
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+              Pay to: <span style={{ fontWeight: 700, color: "var(--text-primary)", fontFamily: "monospace" }}>{merchantUpiConfig?.upiId}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 20, maxWidth: 360, margin: "0 auto 20px", lineHeight: 1.4 }}>
+              Customer scans with GPay, PhonePe, Paytm or any UPI app. Once amount reflects in your store bank account, click &quot;Payment Received&quot;.
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <Button
+                variant="secondary"
+                disabled={isMarkingPaid}
+                onClick={() => setUpiPendingOrder(null)}
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={isMarkingPaid}
+                onClick={handleConfirmUpiPaid}
+                style={{
+                  flex: 2,
+                  background: "#22c55e",
+                  color: "#ffffff",
+                  border: "none",
+                  fontWeight: 800,
+                  fontSize: 13,
+                }}
+              >
+                {isMarkingPaid ? "Confirming..." : "Payment Received ✓"}
               </Button>
             </div>
           </Card>

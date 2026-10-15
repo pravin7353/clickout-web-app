@@ -19,6 +19,14 @@ export default async function HrPage() {
     role: s.role,
     branchCode: s.branchCode,
     isActive: s.isActive,
+    weeklyOffDay: s.weeklyOffDay,
+    weeklyOff: s.weeklyOffDay,
+    weeklyOffDays: s.weeklyOffDays,
+    shiftStartOverride: s.shiftStartOverride,
+    shiftEndOverride: s.shiftEndOverride,
+    customShiftStartTime: s.customShiftStartTime,
+    customShiftEndTime: s.customShiftEndTime,
+    attendanceMode: s.attendanceMode,
   }));
 
   return (

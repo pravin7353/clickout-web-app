@@ -11,6 +11,7 @@ import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-servic
 import { postSalesVoucher } from "@/lib/services/finance-service";
 import { getActivePosTerminalSessions } from "@/lib/services/pos-session-service";
 import { getMaxPosCounters } from "@/lib/plan-limits";
+import { generateUpiLink, generateUpiQrDataUrl } from "@/lib/utils/upi-link";
 
 export type PosProduct = {
   id?: string;
@@ -480,6 +481,25 @@ export async function createPosOrder(params: {
     const invoiceNo = `${invoicePrefix}${fyStr}/${dateStr}-${String(seq).padStart(2, "0")}`;
     const orderRef = adminDb.collection("orders").doc();
 
+    let upiDirectLink: string | null = null;
+    let upiQrUrl: string | null = null;
+    const isUpiDirect = params.paymentMode === "UPI_DIRECT";
+
+    if (isUpiDirect && tenantId) {
+      const tSnap = await adminDb.collection("tenants").doc(tenantId).get();
+      const pSettings = tSnap.data()?.paymentSettings || {};
+      if (pSettings.upiId) {
+        upiDirectLink = generateUpiLink({
+          upiId: pSettings.upiId,
+          upiName: pSettings.upiName || storeName || companyName || "ClickOut Store",
+          amount: totalAmount,
+          invoiceNo,
+          storeName: storeName || companyName || "ClickOut Store",
+        });
+        upiQrUrl = generateUpiQrDataUrl(upiDirectLink);
+      }
+    }
+
     const batch = adminDb.batch();
     batch.set(orderRef, {
       id: orderRef.id,
@@ -520,9 +540,11 @@ export async function createPosOrder(params: {
       weightVerifiedAtGate: true,
       weightMismatchFlag: false,
       paymentMode: params.paymentMode,
-      status: "completed",
-      paymentStatus: "PAID",
-      exitStatus: "APPROVED",
+      status: isUpiDirect ? "pending_upi" : "completed",
+      paymentStatus: isUpiDirect ? "PENDING" : "PAID",
+      exitStatus: isUpiDirect ? "PENDING" : "APPROVED",
+      upiDirectLink: upiDirectLink || null,
+      upiDirectStatus: isUpiDirect ? "pending" : null,
       generatedBy: "CASHIER",
       qrConsumed: true,
       timestamp: FieldValue.serverTimestamp(),
@@ -641,6 +663,9 @@ export async function createPosOrder(params: {
       ok: true as const,
       invoiceNo,
       orderId: orderRef.id,
+      upiDirectLink: upiDirectLink || undefined,
+      upiQrUrl: upiQrUrl || undefined,
+      totalAmount,
       ...(isTxnLimitExceeded
         ? {
             warning: "TXN_LIMIT_WARNING",
@@ -679,5 +704,74 @@ export async function createPosOrder(params: {
     };
   } catch (e: any) {
     return { ok: false as const, error: e.message ?? "Checkout failed" };
+  }
+}
+
+export async function markUpiPaid(orderId: string) {
+  try {
+    const { session, role, tenantId } = await requireRole([
+      "tenant_admin",
+      "manager",
+      "cashier",
+      "super_admin",
+    ]);
+
+    const orderRef = adminDb.collection("orders").doc(orderId);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      return { ok: false, error: "Order not found." };
+    }
+
+    const oData = orderSnap.data() || {};
+    if (role !== "super_admin" && tenantId && oData.tenantId && oData.tenantId !== tenantId) {
+      return { ok: false, error: "Unauthorized access to order." };
+    }
+
+    const actorEmail = session.user?.email || "Cashier Staff";
+    await orderRef.update({
+      upiDirectStatus: "confirmed",
+      paymentStatus: "PAID",
+      status: "completed",
+      exitStatus: "APPROVED",
+      paymentConfirmedBy: actorEmail,
+      paymentConfirmedAt: FieldValue.serverTimestamp(),
+    });
+
+    await adminDb.collection("admin_audit_logs").add({
+      action: "POS_UPI_PAYMENT_CONFIRMED",
+      actionType: "POS_UPI_PAYMENT_CONFIRMED",
+      orderId,
+      invoiceNo: oData.invoiceNo || orderId,
+      tenantId: oData.tenantId || tenantId,
+      actor: actorEmail,
+      actorId: actorEmail,
+      details: `Cashier confirmed direct UPI payment for order ${oData.invoiceNo || orderId} (₹${oData.totalAmount || 0})`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/cashier");
+    return { ok: true, orderId, invoiceNo: oData.invoiceNo };
+  } catch (err: any) {
+    console.error("Error marking UPI order paid:", err);
+    return { ok: false, error: err?.message || "Failed to confirm payment." };
+  }
+}
+
+export async function getStorePaymentSettings(branchCode?: string) {
+  try {
+    const { tenantId } = await requireRole(["tenant_admin", "manager", "cashier", "super_admin"]);
+    if (!tenantId) return { ok: true, hasUpi: false, upiId: "", upiName: "" };
+
+    const tDoc = await adminDb.collection("tenants").doc(tenantId).get();
+    const raw = tDoc.data()?.paymentSettings || {};
+    return {
+      ok: true,
+      hasUpi: Boolean(raw.acceptsUpi && raw.upiId),
+      upiId: raw.upiId || "",
+      upiName: raw.upiName || "",
+    };
+  } catch {
+    return { ok: true, hasUpi: false, upiId: "", upiName: "" };
   }
 }

@@ -275,8 +275,8 @@ export const attendanceSettingsSchema = z.object({
     .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Shift end time must be in HH:mm format (e.g. 18:00)")
     .default("18:00"),
   gracePeriodMinutes: z.coerce.number().min(0).max(180).default(15),
-  defaultWeeklyOffDay: z.string().optional().default("Sunday"),
-  weeklyOffDays: z.array(z.union([z.number(), z.string()])).optional().default([0]), // 0=Sun, 1=Mon, ..., 6=Sat
+  defaultWeeklyOffDay: z.string().optional().default("None"),
+  weeklyOffDays: z.array(z.union([z.number(), z.string()])).optional().default([]), // 0=Sun, 1=Mon, ..., 6=Sat
   holidays: z.array(z.object({ date: z.string(), name: z.string() })).optional().default([]),
   geoRadiusMeters: z.coerce.number().min(10).max(500).default(100),
   halfDayThresholdMinutes: z.coerce.number().min(60).max(720).default(240),
@@ -284,7 +284,7 @@ export const attendanceSettingsSchema = z.object({
   autoMarkAbsentEnabled: z.boolean().default(true),
   allowRemoteCheckIn: z.boolean().optional().default(false),
   requireSelfieOnCheckIn: z.boolean().optional().default(false),
-  strictAntiSpoofingMode: z.boolean().optional().default(false),
+  strictAntiSpoofingMode: z.boolean().optional().default(true),
   updatedBy: z.string().nullable().optional(),
   updatedAtMs: z.number().nullable().optional(),
 });
@@ -295,8 +295,8 @@ export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsDocument = {
   shiftStartTime: "09:00",
   shiftEndTime: "18:00",
   gracePeriodMinutes: 15,
-  defaultWeeklyOffDay: "Sunday",
-  weeklyOffDays: [0], // Sunday
+  defaultWeeklyOffDay: "None",
+  weeklyOffDays: [],
   holidays: [],
   geoRadiusMeters: 100,
   halfDayThresholdMinutes: 240,
@@ -304,7 +304,7 @@ export const DEFAULT_ATTENDANCE_SETTINGS: AttendanceSettingsDocument = {
   autoMarkAbsentEnabled: true,
   allowRemoteCheckIn: false,
   requireSelfieOnCheckIn: false,
-  strictAntiSpoofingMode: false,
+  strictAntiSpoofingMode: true,
   updatedBy: null,
   updatedAtMs: null,
 };

@@ -63,6 +63,7 @@ const SECURITY_ITEMS: NavItem[] = [
 ];
 
 const SETTINGS_ITEMS: NavItem[] = [
+  { label: "Payment & UPI", href: "/settings/payment", routeKey: "payment-settings" },
   { label: "Integrations", href: "/integrations", routeKey: "integrations" },
 ];
 

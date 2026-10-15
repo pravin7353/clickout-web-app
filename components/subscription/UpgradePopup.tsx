@@ -1,12 +1,16 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Modal } from "@/components/profile-menu";
 import {
   SubscriptionPlan,
   PLAN_CONFIG,
   planFromString,
 } from "@/lib/subscription/plan";
+import { useTenantSubscription } from "@/lib/subscription/use-subscription";
+import { RazorpayCheckout } from "./RazorpayCheckout";
 
 const PLAN_FEATURES: Record<SubscriptionPlan, string[]> = {
   trial: [
@@ -77,9 +81,18 @@ export function UpgradePopup({
   onClose: () => void;
   currentPlan?: SubscriptionPlan | string;
 }) {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const sub = useTenantSubscription();
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "annual">("monthly");
+  const isAnnual = billingCycle === "annual";
+
   if (!isOpen) return null;
 
   const resolvedCurrent = currentPlan ? planFromString(currentPlan) : null;
+  const tenantId = sub.tenantId || (session?.user as any)?.tenantId || "";
+  const userEmail = session?.user?.email || "";
+  const tenantName = (session?.user as any)?.companyName || "ClickOut";
 
   return (
     <Modal onClose={onClose}>
@@ -96,7 +109,7 @@ export function UpgradePopup({
           padding: "32px 28px",
           display: "flex",
           flexDirection: "column",
-          gap: 24,
+          gap: 20,
           position: "relative",
         }}
       >
@@ -175,6 +188,70 @@ export function UpgradePopup({
           >
             Scale your locations, fraud prevention, and operational automation seamlessly.
           </p>
+
+          {/* Billing Cycle Toggle */}
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(255, 255, 255, 0.04)",
+              border: "1px solid var(--border)",
+              borderRadius: 24,
+              padding: 4,
+              marginTop: 14,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setBillingCycle("monthly")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 20,
+                border: "none",
+                background: !isAnnual ? "var(--primary)" : "transparent",
+                color: !isAnnual ? "#ffffff" : "var(--text-secondary)",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle("annual")}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 20,
+                border: "none",
+                background: isAnnual ? "#F59E0B" : "transparent",
+                color: isAnnual ? "#000000" : "var(--text-secondary)",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                transition: "all 0.15s ease",
+              }}
+            >
+              <span>Annual</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: isAnnual ? "#000000" : "rgba(245, 158, 11, 0.2)",
+                  color: isAnnual ? "#F59E0B" : "#F59E0B",
+                  fontWeight: 900,
+                }}
+              >
+                SAVE 20%
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Plans Grid */}
@@ -191,6 +268,10 @@ export function UpgradePopup({
             const isPopular = planKey === "pro";
             const isCurrent = resolvedCurrent === planKey;
             const features = PLAN_FEATURES[planKey];
+            const displayPrice = isAnnual
+              ? Math.round(config.monthlyPrice * 0.8)
+              : config.monthlyPrice;
+            const annualTotalRs = Math.round(config.monthlyPrice * 12 * 0.8);
 
             return (
               <div
@@ -256,13 +337,20 @@ export function UpgradePopup({
                       Custom
                     </div>
                   ) : (
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                      <span style={{ fontSize: 26, fontWeight: 900, color: "var(--text-primary)" }}>
-                        ₹{config.monthlyPrice}
-                      </span>
-                      <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        /month
-                      </span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                        <span style={{ fontSize: 26, fontWeight: 900, color: "var(--text-primary)" }}>
+                          ₹{displayPrice}
+                        </span>
+                        <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                          /month
+                        </span>
+                      </div>
+                      {isAnnual && (
+                        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
+                          billed annually (₹{annualTotalRs}/yr)
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -353,7 +441,7 @@ export function UpgradePopup({
                     >
                       Current Plan
                     </button>
-                  ) : (
+                  ) : config.monthlyPrice === 0 ? (
                     <a
                       href="https://clickout.in/pricing"
                       target="_blank"
@@ -380,8 +468,34 @@ export function UpgradePopup({
                       onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
                       onMouseLeave={(e) => (e.currentTarget.style.transform = "none")}
                     >
-                      {config.monthlyPrice === 0 ? "Contact Sales" : `Upgrade to ${config.displayName}`}
+                      Contact Sales
                     </a>
+                  ) : (
+                    <RazorpayCheckout
+                      planKey={planKey}
+                      planLabel={config.displayName}
+                      amountRs={isAnnual ? annualTotalRs : config.monthlyPrice}
+                      billingCycle={billingCycle}
+                      tenantId={tenantId}
+                      tenantName={tenantName}
+                      userEmail={userEmail}
+                      purchaseType="plan_upgrade"
+                      buttonText={`Upgrade to ${config.displayName}`}
+                      style={{
+                        width: "100%",
+                        border: isPopular ? "none" : "1px solid var(--border)",
+                        background: isPopular
+                          ? "linear-gradient(135deg, #F59E0B, #D97706)"
+                          : "var(--card-bg)",
+                        color: isPopular ? "#000000" : "var(--text-primary)",
+                        boxShadow: isPopular ? "0 4px 12px rgba(245, 158, 11, 0.3)" : "none",
+                      }}
+                      onSuccess={() => {
+                        alert("🎉 Plan upgraded successfully!");
+                        onClose();
+                        router.refresh();
+                      }}
+                    />
                   )}
                 </div>
               </div>
@@ -392,3 +506,4 @@ export function UpgradePopup({
     </Modal>
   );
 }
+

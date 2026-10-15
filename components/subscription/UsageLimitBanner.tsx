@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { useTenantSubscription } from "@/lib/subscription/use-subscription";
 import {
   isTransactionWarning,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/subscription/plan";
 import { purchaseExtraStore, purchaseStaffBlock } from "@/actions/subscription";
 import { UpgradePopup } from "./UpgradePopup";
+import { RazorpayCheckout } from "./RazorpayCheckout";
 
 interface UsageLimitBannerProps {
   plan?: SubscriptionPlan | string;
@@ -41,6 +43,7 @@ export function UsageLimitBanner({
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const router = useRouter();
 
   const sub = useTenantSubscription();
 
@@ -194,11 +197,14 @@ export function UsageLimitBanner({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          {canBuyExtraStore && (
-            <button
-              type="button"
-              onClick={handleBuyExtraStore}
-              disabled={isPending}
+          {canBuyExtraStore && cfg.extraStorePrice !== null && (
+            <RazorpayCheckout
+              purchaseType="extra_store"
+              planKey={resolvedPlan}
+              planLabel={cfg.displayName}
+              amountRs={cfg.extraStorePrice}
+              tenantId={sub.tenantId || ""}
+              buttonText={`+ Buy Extra Store (₹${cfg.extraStorePrice}/mo)`}
               style={{
                 padding: "8px 16px",
                 borderRadius: 8,
@@ -207,18 +213,21 @@ export function UsageLimitBanner({
                 color: "#ffffff",
                 fontSize: 12,
                 fontWeight: 800,
-                cursor: isPending ? "not-allowed" : "pointer",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
-                transition: "all 0.15s ease",
                 boxShadow: "0 2px 8px rgba(34, 197, 94, 0.25)",
                 flexShrink: 0,
-                opacity: isPending ? 0.7 : 1,
               }}
-            >
-              {isPending ? "Processing..." : `+ Buy Extra Store (₹${cfg.extraStorePrice}/mo)`}
-            </button>
+              onSuccess={() => {
+                setActionMsg({
+                  type: "success",
+                  text: "🎉 Extra store slot purchased successfully!",
+                });
+                router.refresh();
+                setTimeout(() => setActionMsg(null), 5000);
+              }}
+            />
           )}
 
           {canBuyStaffBlock && (

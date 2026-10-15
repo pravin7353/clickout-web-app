@@ -10,6 +10,7 @@ import {
 } from "@/actions/hr";
 import { handleEmployeeSessionRevocation } from "@/lib/utils/device";
 import { generateDeviceFingerprint } from "@/lib/utils/device-fingerprint";
+import { MyIncentiveCard } from "@/components/my-incentive-card";
 
 async function handleRevocationCheck(resOrErr: any): Promise<boolean> {
   const errMsg = typeof resOrErr === "string" ? resOrErr : resOrErr?.error || resOrErr?.message;
@@ -767,6 +768,11 @@ export function HomeTabClient({ initialData }: HomeTabClientProps) {
           </div>
         )}
       </div>
+
+      {/* Performance Incentive & Milestone Tracker (Store Manager Milestone Bonus / Cashier / Guard) */}
+      {data?.staff?.id && (
+        <MyIncentiveCard staffId={data.staff.id} role={data.staff.role || "staff"} />
+      )}
 
       {/* [C] UPCOMING HOLIDAYS — horizontal scrollable chips */}
       <div

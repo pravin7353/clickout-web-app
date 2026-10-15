@@ -129,6 +129,9 @@ export async function getMyIncentive(staffId: string, month?: string) {
   } else if (staff.role.toLowerCase() === "guard") {
     const result = await calculateGuardIncentive(staffId, effectiveMonth);
     return { ok: true, incentive: serializeTimestamps(result) };
+  } else if (staff.role.toLowerCase() === "manager") {
+    const result = await calculateManagerMonthlyMilestone(staff, effectiveMonth);
+    return { ok: true, incentive: serializeTimestamps(result) };
   } else {
     return {
       ok: true,
@@ -144,6 +147,144 @@ export async function getMyIncentive(staffId: string, month?: string) {
       },
     };
   }
+}
+
+export async function calculateManagerMonthlyMilestone(
+  staff: any,
+  monthStr: string
+) {
+  const branchCode = staff.branchCode || "";
+  let targetRevenue = 0;
+  let bonusAmount = 0;
+  let storeName = branchCode || "Branch Store";
+  let milestoneNotes = "";
+
+  // 1. Fetch store doc for target config
+  if (branchCode) {
+    const sSnap = await adminDb
+      .collection("stores")
+      .where("branchCode", "==", branchCode)
+      .limit(1)
+      .get();
+    if (!sSnap.empty) {
+      const sData = sSnap.docs[0].data();
+      targetRevenue = Number(sData.monthlyTargetRevenue || 0);
+      bonusAmount = Number(sData.monthlyManagerBonus || 0);
+      storeName = sData.storeName || branchCode;
+      milestoneNotes = sData.milestoneNotes || "";
+    }
+  }
+
+  // 2. Calculate MTD revenue for current month
+  const statsSnap = await adminDb
+    .collection("daily_store_stats")
+    .where("branchCode", "==", branchCode)
+    .where("date", ">=", `${monthStr}-01`)
+    .where("date", "<=", `${monthStr}-31`)
+    .get();
+
+  let statsRevenue = 0;
+  let statsOrders = 0;
+  statsSnap.docs.forEach((doc) => {
+    const d = doc.data();
+    statsRevenue += Number(d.totalRevenue ?? d.revenue ?? 0);
+    statsOrders += Number(d.totalOrders ?? 0);
+  });
+
+  // Query live orders for fallback
+  const startOfMonth = new Date(`${monthStr}-01T00:00:00Z`);
+  const ordersSnap = await adminDb
+    .collection("orders")
+    .where("branchCode", "==", branchCode)
+    .where("timestamp", ">=", startOfMonth)
+    .limit(1000)
+    .get();
+
+  let liveRevenue = 0;
+  let liveOrders = 0;
+  ordersSnap.docs.forEach((doc) => {
+    const d = doc.data();
+    liveRevenue += Number(d.totalAmount ?? d.amount ?? 0);
+    liveOrders += 1;
+  });
+
+  const currentRevenue = Math.max(statsRevenue, liveRevenue);
+  const currentOrders = Math.max(statsOrders, liveOrders);
+
+  // 3. Evaluate milestone
+  const isAchieved = targetRevenue > 0 && currentRevenue >= targetRevenue;
+  const percentAchieved =
+    targetRevenue > 0 ? Math.min(100, Math.round((currentRevenue / targetRevenue) * 100)) : 0;
+  const incentiveAmount = isAchieved ? bonusAmount : 0;
+
+  // Days remaining in month
+  const now = new Date();
+  const year = parseInt(monthStr.slice(0, 4), 10);
+  const month = parseInt(monthStr.slice(5, 7), 10);
+  const lastDayOfMonth = new Date(year, month, 0).getDate();
+  const currentDay = now.getMonth() + 1 === month && now.getFullYear() === year ? now.getDate() : 1;
+  const daysRemaining = Math.max(0, lastDayOfMonth - currentDay);
+
+  // 4. Fetch past months track record
+  let history: Array<{ month: string; revenue: number; orders: number; isAchieved?: boolean }> = [];
+  try {
+    const historySnap = await adminDb
+      .collection("daily_store_stats")
+      .where("branchCode", "==", branchCode)
+      .limit(60)
+      .get();
+
+    const monthMap: Record<string, { revenue: number; orders: number }> = {};
+    historySnap.docs.forEach((d) => {
+      const data = d.data();
+      const mKey = (data.date || "").slice(0, 7);
+      if (mKey && mKey !== monthStr) {
+        if (!monthMap[mKey]) monthMap[mKey] = { revenue: 0, orders: 0 };
+        monthMap[mKey].revenue += Number(data.totalRevenue ?? data.revenue ?? 0);
+        monthMap[mKey].orders += Number(data.totalOrders ?? 0);
+      }
+    });
+
+    history = Object.entries(monthMap)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 3)
+      .map(([m, vals]) => ({
+        month: m,
+        revenue: vals.revenue,
+        orders: vals.orders,
+        isAchieved: targetRevenue > 0 ? vals.revenue >= targetRevenue : undefined,
+      }));
+  } catch (err) {
+    // Graceful fallback
+  }
+
+  return {
+    staffId: staff.id,
+    empId: staff.empId,
+    name: staff.name,
+    role: "manager",
+    branchCode,
+    storeName,
+    month: monthStr,
+    monthlyTargetRevenue: targetRevenue,
+    monthlyManagerBonus: bonusAmount,
+    currentRevenue,
+    currentOrders,
+    percentAchieved,
+    isAchieved,
+    incentiveAmount,
+    milestoneNotes,
+    daysRemaining,
+    status: isAchieved ? "ACHIEVED" : targetRevenue > 0 ? "IN_PROGRESS" : "NO_TARGET_SET",
+    appliedRules: targetRevenue > 0
+      ? [
+          isAchieved
+            ? `🎉 Target Achieved: Branch MTD sales ₹${currentRevenue.toLocaleString("en-IN")} exceeded ₹${targetRevenue.toLocaleString("en-IN")} target. Full ₹${bonusAmount.toLocaleString("en-IN")} Milestone Bonus unlocked!`
+            : `⚡ In Progress: Branch MTD sales ₹${currentRevenue.toLocaleString("en-IN")} of ₹${targetRevenue.toLocaleString("en-IN")} target (${percentAchieved}%). ${daysRemaining} days remaining to reach milestone.`,
+        ]
+      : ["No monthly revenue milestone configured by Tenant Admin for this branch."],
+    history,
+  };
 }
 
 // =========================================================================

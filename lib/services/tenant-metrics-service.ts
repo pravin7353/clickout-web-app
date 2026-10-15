@@ -55,6 +55,12 @@ export type BranchRevenueSnapshot = {
   activeStaff: number;
   lastActivityAt: number | null; // ms timestamp
   rank: number; // 1 = highest monthly revenue
+  storeId?: string;
+  managerName?: string;
+  monthlyTargetRevenue?: number;
+  monthlyManagerBonus?: number;
+  milestonePercent?: number;
+  isMilestoneAchieved?: boolean;
 };
 
 export type ConsolidatedOwnerMetrics = {
@@ -81,9 +87,9 @@ export async function getConsolidatedOwnerMetrics(
   const todayStr = ISTnow.toISOString().slice(0, 10);
   const monthStr = todayStr.slice(0, 7); // YYYY-MM
 
-  // 2. Query daily_store_stats for current month (one single query for all branches)
+  // 2. Query daily_store_stats for current month, live orders, staff, and store configs
   const startOfMonthDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-  const [statsSnap, staffSnap, liveOrdersSnap] = await Promise.all([
+  const [statsSnap, staffSnap, liveOrdersSnap, storesSnap] = await Promise.all([
     adminDb
       .collection("daily_store_stats")
       .where("tenantId", "==", tenantId)
@@ -101,13 +107,30 @@ export async function getConsolidatedOwnerMetrics(
       .where("timestamp", ">=", startOfMonthDate)
       .limit(2000)
       .get(),
+    adminDb
+      .collection("stores")
+      .where("tenantId", "==", tenantId)
+      .get(),
   ]);
+
+  // Group store target settings
+  const storeSettingsByBranch: Record<string, { storeId: string; target: number; bonus: number; manager?: string }> = {};
+  storesSnap.docs.forEach((doc) => {
+    const data = doc.data();
+    const bCode = (data.branchCode || doc.id).toUpperCase().trim();
+    storeSettingsByBranch[bCode] = {
+      storeId: doc.id,
+      target: Number(data.monthlyTargetRevenue || 0),
+      bonus: Number(data.monthlyManagerBonus || 0),
+      manager: data.managerName || undefined,
+    };
+  });
 
   // Group daily_store_stats by branchCode
   const statsByBranch: Record<string, any[]> = {};
   statsSnap.docs.forEach((doc) => {
     const data = doc.data();
-    const branch = data.branchCode || "HQ";
+    const branch = (data.branchCode || "HQ").toUpperCase().trim();
     if (!statsByBranch[branch]) statsByBranch[branch] = [];
     statsByBranch[branch].push(data);
   });
@@ -116,7 +139,7 @@ export async function getConsolidatedOwnerMetrics(
   const ordersByBranch: Record<string, any[]> = {};
   liveOrdersSnap.docs.forEach((doc) => {
     const data = doc.data();
-    const branch = data.branchCode || data.storeId || "HQ";
+    const branch = (data.branchCode || data.storeId || "HQ").toUpperCase().trim();
     if (!ordersByBranch[branch]) ordersByBranch[branch] = [];
 
     const ts = data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp ? new Date(data.timestamp) : new Date();
@@ -136,7 +159,7 @@ export async function getConsolidatedOwnerMetrics(
   const activeStaffByBranch: Record<string, number> = {};
   staffSnap.docs.forEach((doc) => {
     const data = doc.data();
-    const branch = data.branchCode || "HQ";
+    const branch = (data.branchCode || "HQ").toUpperCase().trim();
     const lastLoginAt = data.lastLoginAt?.toDate?.() || (data.lastLoginAt ? new Date(data.lastLoginAt) : null);
     if (lastLoginAt && lastLoginAt >= todayStart) {
       activeStaffByBranch[branch] = (activeStaffByBranch[branch] || 0) + 1;
@@ -146,12 +169,13 @@ export async function getConsolidatedOwnerMetrics(
   // 3. Calculate metrics per branch
   const snapshots: BranchRevenueSnapshot[] = stores.map((s) => {
     const branchCode = s.branchCode;
+    const branchKey = branchCode.toUpperCase().trim();
     const branchName = s.name || s.branchCode;
 
-    const bStats = statsByBranch[branchCode] || [];
+    const bStats = statsByBranch[branchKey] || [];
     const todayStat = bStats.find((d) => d.date === todayStr);
 
-    const bOrders = ordersByBranch[branchCode] || [];
+    const bOrders = ordersByBranch[branchKey] || [];
     const todayOrdersDocs = bOrders.filter((o) => o.dateStr === todayStr);
 
     // Today revenue & orders
@@ -174,12 +198,19 @@ export async function getConsolidatedOwnerMetrics(
     }
 
     const avgOrderValue = monthOrders > 0 ? monthRevenue / monthOrders : 0;
-    const activeStaff = activeStaffByBranch[branchCode] || 0;
+    const activeStaff = activeStaffByBranch[branchKey] || 0;
 
     let lastActivityAt: number | null = null;
     if (bOrders.length > 0) {
       lastActivityAt = Math.max(...bOrders.map((o) => o.timestampMs));
     }
+
+    const storeConfig = storeSettingsByBranch[branchKey];
+    const monthlyTargetRevenue = storeConfig?.target || 0;
+    const monthlyManagerBonus = storeConfig?.bonus || 0;
+    const isMilestoneAchieved = monthlyTargetRevenue > 0 && monthRevenue >= monthlyTargetRevenue;
+    const milestonePercent =
+      monthlyTargetRevenue > 0 ? Math.min(100, Math.round((monthRevenue / monthlyTargetRevenue) * 100)) : 0;
 
     return {
       branchCode,
@@ -192,6 +223,12 @@ export async function getConsolidatedOwnerMetrics(
       activeStaff,
       lastActivityAt,
       rank: 0,
+      storeId: storeConfig?.storeId,
+      managerName: storeConfig?.manager,
+      monthlyTargetRevenue,
+      monthlyManagerBonus,
+      milestonePercent,
+      isMilestoneAchieved,
     };
   });
 

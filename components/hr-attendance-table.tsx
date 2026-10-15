@@ -13,6 +13,14 @@ export type SimpleStaff = {
   role: string;
   branchCode: string;
   isActive: boolean;
+  weeklyOffDay?: string;
+  weeklyOff?: string;
+  weeklyOffDays?: (number | string)[];
+  shiftStartOverride?: string;
+  shiftEndOverride?: string;
+  customShiftStartTime?: string;
+  customShiftEndTime?: string;
+  attendanceMode?: "GEO_AUTO" | "MANUAL";
 };
 
 interface HrAttendanceTableProps {

@@ -25,6 +25,13 @@ export type StaffRow = {
   registeredDeviceFingerprint?: string | null;
   suspiciousCheckInCount?: number;
   reportsToStaffId?: string | null;
+  weeklyOffDay?: string;
+  weeklyOffDays?: (number | string)[];
+  shiftStartOverride?: string;
+  shiftEndOverride?: string;
+  customShiftStartTime?: string;
+  customShiftEndTime?: string;
+  attendanceMode?: "GEO_AUTO" | "MANUAL";
 };
 
 export async function getStaffList(role: string, tenantId: string | null, storeId: string | null, roleFilter: string): Promise<StaffRow[]> {
@@ -67,6 +74,13 @@ export async function getStaffList(role: string, tenantId: string | null, storeI
       registeredDeviceFingerprint: data.registeredDeviceFingerprint ?? null,
       suspiciousCheckInCount: typeof data.suspiciousCheckInCount === "number" ? data.suspiciousCheckInCount : (data.suspiciousCheckinCount30d || 0),
       reportsToStaffId: data.reportsToStaffId ?? null,
+      weeklyOffDay: data.weeklyOffDay ?? data.weeklyOff ?? undefined,
+      weeklyOffDays: Array.isArray(data.weeklyOffDays) ? data.weeklyOffDays : undefined,
+      shiftStartOverride: data.shiftStartOverride ?? data.customShiftStartTime ?? undefined,
+      shiftEndOverride: data.shiftEndOverride ?? data.customShiftEndTime ?? undefined,
+      customShiftStartTime: data.customShiftStartTime ?? data.shiftStartOverride ?? undefined,
+      customShiftEndTime: data.customShiftEndTime ?? data.shiftEndOverride ?? undefined,
+      attendanceMode: data.attendanceMode === "MANUAL" ? "MANUAL" : "GEO_AUTO",
     };
   });
 }

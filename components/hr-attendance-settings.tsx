@@ -7,6 +7,7 @@ import {
   triggerMarkAbsentees,
   bulkRegularizeDateAction,
   updateStaffShiftProfileAction,
+  bulkUpdateStaffShiftProfileAction,
 } from "@/actions/hr";
 import { AttendanceSettingsDocument, DEFAULT_ATTENDANCE_SETTINGS } from "@/lib/schemas/hr-schema";
 import { SimpleStaff } from "@/components/hr-attendance-table";
@@ -57,6 +58,122 @@ export function HrAttendanceSettings({
   const [bulkRegReason, setBulkRegReason] = useState("Gandhi Jayanti National Holiday");
   const [isBulkRegularizing, setIsBulkRegularizing] = useState(false);
   const [bulkRegResult, setBulkRegResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // Staff Shift Bulk Assignment State
+  const [localStaffList, setLocalStaffList] = useState<SimpleStaff[]>(staffList);
+  useEffect(() => {
+    setLocalStaffList((prev) => {
+      if (!prev || prev.length === 0) return staffList;
+      return staffList.map((serverStaff) => {
+        const localMatch = prev.find((p) => p.id === serverStaff.id);
+        return {
+          ...serverStaff,
+          shiftStartOverride: serverStaff.shiftStartOverride ?? localMatch?.shiftStartOverride,
+          shiftEndOverride: serverStaff.shiftEndOverride ?? localMatch?.shiftEndOverride,
+          customShiftStartTime: serverStaff.customShiftStartTime ?? localMatch?.customShiftStartTime,
+          customShiftEndTime: serverStaff.customShiftEndTime ?? localMatch?.customShiftEndTime,
+          weeklyOffDay: serverStaff.weeklyOffDay ?? localMatch?.weeklyOffDay,
+          weeklyOff: serverStaff.weeklyOff ?? localMatch?.weeklyOff,
+          attendanceMode: serverStaff.attendanceMode ?? localMatch?.attendanceMode,
+        };
+      });
+    });
+  }, [staffList]);
+
+  const handleRowUpdated = (staffId: string, updated: any) => {
+    setLocalStaffList((prev) =>
+      prev.map((s) => (s.id === staffId ? { ...s, ...updated } : s))
+    );
+  };
+
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
+  const [bulkShiftStart, setBulkShiftStart] = useState<string>("09:00");
+  const [bulkShiftEnd, setBulkShiftEnd] = useState<string>("18:00");
+  const [bulkWeeklyOff, setBulkWeeklyOff] = useState<string>("None");
+  const [bulkMode, setBulkMode] = useState<"GEO_AUTO" | "MANUAL">("GEO_AUTO");
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (settings.shiftStartTime) setBulkShiftStart(settings.shiftStartTime);
+    if (settings.shiftEndTime) setBulkShiftEnd(settings.shiftEndTime);
+    if (settings.defaultWeeklyOffDay) setBulkWeeklyOff(settings.defaultWeeklyOffDay);
+  }, [settings.shiftStartTime, settings.shiftEndTime, settings.defaultWeeklyOffDay]);
+
+  const isAllSelected = localStaffList.length > 0 && selectedStaffIds.size === localStaffList.length;
+
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedStaffIds(new Set());
+    } else {
+      setSelectedStaffIds(new Set(localStaffList.map((s) => s.id)));
+    }
+  };
+
+  const handleToggleStaff = (id: string) => {
+    const next = new Set(selectedStaffIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setSelectedStaffIds(next);
+  };
+
+  const handleApplyBulkSettings = async () => {
+    if (!canEdit || selectedStaffIds.size === 0 || isBulkUpdating) return;
+    setIsBulkUpdating(true);
+    setBulkResult(null);
+
+    try {
+      const ids = Array.from(selectedStaffIds);
+      const res = await bulkUpdateStaffShiftProfileAction(ids, {
+        shiftStartOverride: bulkShiftStart,
+        shiftEndOverride: bulkShiftEnd,
+        shiftStartTime: bulkShiftStart,
+        shiftEndTime: bulkShiftEnd,
+        weeklyOffDay: bulkWeeklyOff,
+        attendanceMode: bulkMode,
+      });
+
+      if (res && res.ok) {
+        setBulkResult({
+          ok: true,
+          message: res.message || `Updated shift policy for ${ids.length} staff member(s).`,
+        });
+        setLocalStaffList((prev) =>
+          prev.map((staff) => {
+            if (selectedStaffIds.has(staff.id)) {
+              return {
+                ...staff,
+                shiftStartOverride: bulkShiftStart,
+                shiftEndOverride: bulkShiftEnd,
+                customShiftStartTime: bulkShiftStart,
+                customShiftEndTime: bulkShiftEnd,
+                weeklyOffDay: bulkWeeklyOff,
+                weeklyOff: bulkWeeklyOff,
+                attendanceMode: bulkMode,
+              } as SimpleStaff;
+            }
+            return staff;
+          })
+        );
+        setTimeout(() => setBulkResult(null), 4000);
+      } else {
+        setBulkResult({
+          ok: false,
+          message: res?.error || "Failed to update selected staff.",
+        });
+      }
+    } catch (err: any) {
+      setBulkResult({
+        ok: false,
+        message: err?.message || "An unexpected error occurred during bulk update.",
+      });
+    } finally {
+      setIsBulkUpdating(false);
+    }
+  };
 
   const handleRunBulkRegularize = async () => {
     if (!canEdit) return;
@@ -388,8 +505,16 @@ export function HrAttendanceSettings({
             </label>
             <select
               disabled={!canEdit}
-              value={settings.defaultWeeklyOffDay || "Sunday"}
-              onChange={(e) => setSettings({ ...settings, defaultWeeklyOffDay: e.target.value })}
+              value={settings.defaultWeeklyOffDay || "None"}
+              onChange={(e) => {
+                const day = e.target.value;
+                const dayIndex = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(day.toLowerCase());
+                setSettings({
+                  ...settings,
+                  defaultWeeklyOffDay: day,
+                  weeklyOffDays: day === "None" || dayIndex === -1 ? [] : [dayIndex],
+                });
+              }}
               style={{
                 padding: "10px 14px",
                 borderRadius: 10,
@@ -400,6 +525,7 @@ export function HrAttendanceSettings({
                 fontWeight: 700,
               }}
             >
+              <option value="None">None (No Fixed Weekly Off)</option>
               {DAYS_OF_WEEK.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -670,8 +796,23 @@ export function HrAttendanceSettings({
             }}
           >
             <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
-                Auto-Mark Absent
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>Auto-Mark Absent</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    textTransform: "uppercase",
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: "rgba(34, 197, 94, 0.15)",
+                    color: "#22c55e",
+                    border: "1px solid rgba(34, 197, 94, 0.3)",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Recommended
+                </span>
               </div>
               <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
                 Automatically mark active staff ABSENT via Cloud Scheduler (23:59 IST) if no check-in is recorded
@@ -735,17 +876,32 @@ export function HrAttendanceSettings({
           }}
         >
           <div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>
-              Strict Anti-Spoofing Mode
+            <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>Strict Anti-Spoofing Mode</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: "uppercase",
+                  padding: "2px 8px",
+                  borderRadius: 6,
+                  background: "rgba(34, 197, 94, 0.15)",
+                  color: "#22c55e",
+                  border: "1px solid rgba(34, 197, 94, 0.3)",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                Recommended
+              </span>
             </div>
             <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4, lineHeight: 1.5 }}>
               {settings.strictAntiSpoofingMode ? (
                 <strong style={{ color: "#ef4444" }}>
-                  ON: High-risk check-ins (Trust Score &lt; 50) are REJECTED immediately at the employee portal. Staff must contact manager.
+                  ON (Recommended): High-risk check-ins (Trust Score &lt; 50 or mock GPS) are REJECTED immediately at the employee portal. Staff must contact manager.
                 </strong>
               ) : (
                 <span>
-                  OFF (Default): Suspicious check-ins are flagged but allowed. Store manager reviews flagged records in the monthly log.
+                  OFF: Suspicious check-ins are flagged but allowed. Store manager reviews flagged records in the monthly log.
                 </span>
               )}
             </div>
@@ -1049,8 +1205,8 @@ export function HrAttendanceSettings({
         </div>
       )}
 
-      {/* 7. Flexible Weekly-Off & Shift Time Assignment per Employee (Redesigned Table) */}
-      {staffList && staffList.length > 0 && (
+      {/* 7. Flexible Weekly-Off & Shift Time Assignment per Employee */}
+      {localStaffList && localStaffList.length > 0 && (
         <div
           style={{
             background: "var(--card-bg)",
@@ -1068,15 +1224,236 @@ export function HrAttendanceSettings({
                 <span>👥</span> Staff Shift Policy &amp; Flexible Weekly-Off Assignment
               </div>
               <p style={{ margin: "4px 0 0 0", fontSize: 13, color: "var(--text-secondary)" }}>
-                Configure individual shift timings, weekly off days, and attendance modes per employee.
+                Configure individual shift timings, weekly off days, and attendance modes per employee, or select multiple staff to apply all at once.
               </p>
             </div>
           </div>
+
+          {/* Bulk Action Controls */}
+          {canEdit && (
+            <div
+              style={{
+                background: selectedStaffIds.size > 0 ? "rgba(99, 102, 241, 0.08)" : "rgba(255, 255, 255, 0.02)",
+                border: `1px solid ${selectedStaffIds.size > 0 ? "rgba(99, 102, 241, 0.35)" : "var(--border)"}`,
+                borderRadius: 14,
+                padding: "14px 18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                transition: "all 0.2s ease",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      style={{ width: 17, height: 17, accentColor: "var(--cta-bg)", cursor: "pointer" }}
+                    />
+                    <span>Select All Staff</span>
+                  </label>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: 12,
+                      background: selectedStaffIds.size > 0 ? "rgba(99, 102, 241, 0.2)" : "rgba(255,255,255,0.06)",
+                      color: selectedStaffIds.size > 0 ? "#818cf8" : "var(--text-secondary)",
+                    }}
+                  >
+                    {selectedStaffIds.size} of {localStaffList.length} selected
+                  </span>
+                </div>
+
+                {selectedStaffIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStaffIds(new Set())}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      color: "var(--text-secondary)",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                      padding: 0,
+                    }}
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+
+              {/* Controls row */}
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  alignItems: "flex-end",
+                  opacity: selectedStaffIds.size > 0 ? 1 : 0.6,
+                  pointerEvents: selectedStaffIds.size > 0 ? "auto" : "none",
+                }}
+              >
+                {/* Shift Time Start & End */}
+                <div style={{ flex: "1 1 270px", minWidth: 260 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    SHIFT TIME (START → END)
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                    <input
+                      type="time"
+                      value={bulkShiftStart}
+                      onChange={(e) => setBulkShiftStart(e.target.value)}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        padding: "7px 8px",
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg)",
+                        color: "var(--text-primary)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        boxSizing: "border-box",
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: "var(--text-secondary)", flexShrink: 0 }}>→</span>
+                    <input
+                      type="time"
+                      value={bulkShiftEnd}
+                      onChange={(e) => setBulkShiftEnd(e.target.value)}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        padding: "7px 8px",
+                        borderRadius: 8,
+                        border: "1px solid var(--border)",
+                        background: "var(--bg)",
+                        color: "var(--text-primary)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        boxSizing: "border-box",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Weekly Off */}
+                <div style={{ flex: "1 1 180px", minWidth: 160 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    WEEKLY OFF DAY
+                  </label>
+                  <select
+                    value={bulkWeeklyOff}
+                    onChange={(e) => setBulkWeeklyOff(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value="None">None (No Fixed Weekly Off)</option>
+                    {DAYS_OF_WEEK.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Attendance Mode */}
+                <div style={{ flex: "1 1 150px", minWidth: 140 }}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    ATTENDANCE MODE
+                  </label>
+                  <select
+                    value={bulkMode}
+                    onChange={(e) => setBulkMode(e.target.value as any)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text-primary)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value="GEO_AUTO">Geo-Fence Auto</option>
+                    <option value="MANUAL">Manual</option>
+                  </select>
+                </div>
+
+                {/* Apply Button */}
+                <div style={{ flex: "1 1 150px", minWidth: 140 }}>
+                  <button
+                    type="button"
+                    onClick={handleApplyBulkSettings}
+                    disabled={selectedStaffIds.size === 0 || isBulkUpdating}
+                    style={{
+                      width: "100%",
+                      padding: "8px 16px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: selectedStaffIds.size === 0 || isBulkUpdating ? "not-allowed" : "pointer",
+                      background: selectedStaffIds.size > 0 ? "var(--cta-bg)" : "rgba(255,255,255,0.05)",
+                      color: selectedStaffIds.size > 0 ? "var(--cta-text)" : "var(--text-secondary)",
+                      border: "none",
+                      transition: "all 0.15s ease",
+                      boxSizing: "border-box",
+                      height: 35,
+                    }}
+                  >
+                    {isBulkUpdating ? "Applying..." : `Apply to ${selectedStaffIds.size} Staff`}
+                  </button>
+                </div>
+              </div>
+
+              {bulkResult && (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: bulkResult.ok ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                    color: bulkResult.ok ? "#22c55e" : "#ef4444",
+                    border: `1px solid ${bulkResult.ok ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+                  }}
+                >
+                  {bulkResult.ok ? "✓ " : "⚠️ "} {bulkResult.message}
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)", color: "var(--text-secondary)", background: "rgba(0,0,0,0.15)" }}>
+                  <th style={{ width: 40, padding: "10px 14px", textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={isAllSelected}
+                      onChange={handleToggleSelectAll}
+                      disabled={!canEdit}
+                      title="Select / Deselect All Staff"
+                      style={{ cursor: canEdit ? "pointer" : "not-allowed" }}
+                    />
+                  </th>
                   <th style={{ padding: "10px 14px" }}>Staff Member</th>
                   <th style={{ padding: "10px 14px" }}>Role / Branch</th>
                   <th style={{ padding: "10px 14px" }}>Shift Time</th>
@@ -1086,14 +1463,17 @@ export function HrAttendanceSettings({
                 </tr>
               </thead>
               <tbody>
-                {staffList.map((st) => (
+                {localStaffList.map((st) => (
                   <StaffShiftRow
                     key={st.id}
                     staff={st}
                     canEdit={canEdit}
+                    isSelected={selectedStaffIds.has(st.id)}
+                    onToggleSelect={() => handleToggleStaff(st.id)}
+                    onRowUpdated={handleRowUpdated}
                     defaultStartTime={settings.shiftStartTime || "09:00"}
                     defaultEndTime={settings.shiftEndTime || "18:00"}
-                    defaultWeeklyOff={settings.defaultWeeklyOffDay || "Sunday"}
+                    defaultWeeklyOff={settings.defaultWeeklyOffDay || "None"}
                   />
                 ))}
               </tbody>
@@ -1239,6 +1619,9 @@ export function HrAttendanceSettings({
 interface StaffShiftRowProps {
   staff: SimpleStaff;
   canEdit: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
+  onRowUpdated?: (staffId: string, updated: any) => void;
   defaultStartTime: string;
   defaultEndTime: string;
   defaultWeeklyOff: string;
@@ -1247,6 +1630,9 @@ interface StaffShiftRowProps {
 function StaffShiftRow({
   staff,
   canEdit,
+  isSelected,
+  onToggleSelect,
+  onRowUpdated,
   defaultStartTime,
   defaultEndTime,
   defaultWeeklyOff,
@@ -1259,11 +1645,29 @@ function StaffShiftRow({
     staffData.shiftEndOverride || staffData.customShiftEndTime || defaultEndTime
   );
   const [weeklyOff, setWeeklyOff] = useState<string>(
-    staffData.weeklyOffDay || staffData.weeklyOff || defaultWeeklyOff
+    staffData.weeklyOffDay || staffData.weeklyOff || defaultWeeklyOff || "None"
   );
   const [mode, setMode] = useState<"GEO_AUTO" | "MANUAL">(
     staffData.attendanceMode === "MANUAL" ? "MANUAL" : "GEO_AUTO"
   );
+
+  useEffect(() => {
+    setShiftStart(staffData.shiftStartOverride || staffData.customShiftStartTime || defaultStartTime);
+    setShiftEnd(staffData.shiftEndOverride || staffData.customShiftEndTime || defaultEndTime);
+    setWeeklyOff(staffData.weeklyOffDay || staffData.weeklyOff || defaultWeeklyOff || "None");
+    setMode(staffData.attendanceMode === "MANUAL" ? "MANUAL" : "GEO_AUTO");
+  }, [
+    staffData.shiftStartOverride,
+    staffData.customShiftStartTime,
+    staffData.shiftEndOverride,
+    staffData.customShiftEndTime,
+    staffData.weeklyOffDay,
+    staffData.weeklyOff,
+    staffData.attendanceMode,
+    defaultStartTime,
+    defaultEndTime,
+    defaultWeeklyOff,
+  ]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1287,6 +1691,15 @@ function StaffShiftRow({
       if (res && res.ok) {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
+        onRowUpdated?.(staff.id, {
+          shiftStartOverride: shiftStart,
+          shiftEndOverride: shiftEnd,
+          customShiftStartTime: shiftStart,
+          customShiftEndTime: shiftEnd,
+          weeklyOffDay: weeklyOff,
+          weeklyOff: weeklyOff,
+          attendanceMode: mode,
+        });
       } else {
         setRowError((res as any)?.error || "Failed to save");
       }
@@ -1299,7 +1712,18 @@ function StaffShiftRow({
   };
 
   return (
-    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+    <tr style={{ borderBottom: "1px solid var(--border)", background: isSelected ? "rgba(99, 102, 241, 0.04)" : "transparent" }}>
+      {/* 0. Selection Checkbox */}
+      <td style={{ padding: "12px 14px", textAlign: "center", width: 40 }}>
+        <input
+          type="checkbox"
+          checked={Boolean(isSelected)}
+          onChange={onToggleSelect}
+          disabled={!canEdit}
+          style={{ cursor: canEdit ? "pointer" : "not-allowed" }}
+        />
+      </td>
+
       {/* 1. Staff Member */}
       <td style={{ padding: "12px 14px" }}>
         <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{staff.name}</div>
@@ -1355,7 +1779,7 @@ function StaffShiftRow({
       {/* 4. Weekly Off Day */}
       <td style={{ padding: "12px 14px" }}>
         <select
-          value={weeklyOff}
+          value={weeklyOff || "None"}
           onChange={(e) => setWeeklyOff(e.target.value)}
           disabled={!canEdit || isSaving}
           style={{
@@ -1368,6 +1792,7 @@ function StaffShiftRow({
             fontWeight: 600,
           }}
         >
+          <option value="None">None</option>
           {DAYS_OF_WEEK.map((d) => (
             <option key={d} value={d}>
               {d}

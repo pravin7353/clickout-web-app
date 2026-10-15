@@ -315,3 +315,75 @@ export async function updateStoreProfile(params: {
     return { ok: false, error: e.message || "Failed to update profile" };
   }
 }
+
+export async function updateStoreMilestoneTargetAction(params: {
+  storeIdOrBranchCode: string;
+  monthlyTargetRevenue: number;
+  monthlyManagerBonus: number;
+  milestoneNotes?: string;
+}): Promise<{ ok: boolean; success: boolean; message?: string; error?: string }> {
+  try {
+    const { session, role, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
+
+    let docRef = adminDb.collection("stores").doc(params.storeIdOrBranchCode);
+    let snap = await docRef.get();
+    if (!snap.exists) {
+      const qSnap = await adminDb
+        .collection("stores")
+        .where("branchCode", "==", params.storeIdOrBranchCode)
+        .limit(1)
+        .get();
+      if (!qSnap.empty) {
+        docRef = qSnap.docs[0].ref;
+        snap = qSnap.docs[0];
+      } else {
+        return { ok: false, success: false, error: "Store not found" };
+      }
+    }
+
+    const storeData = snap.data() || {};
+    if (role !== "super_admin" && tenantId && storeData.tenantId) {
+      if (tenantId !== storeData.tenantId) {
+        return { ok: false, success: false, error: "Unauthorized tenant scope." };
+      }
+    }
+
+    const targetRevenue = Math.max(0, Number(params.monthlyTargetRevenue) || 0);
+    const bonusAmount = Math.max(0, Number(params.monthlyManagerBonus) || 0);
+    const notes = params.milestoneNotes?.trim() || "";
+
+    await docRef.update({
+      monthlyTargetRevenue: targetRevenue,
+      monthlyManagerBonus: bonusAmount,
+      milestoneNotes: notes,
+      milestoneUpdatedAt: FieldValue.serverTimestamp(),
+      milestoneUpdatedBy: session.user?.email || "Tenant Admin",
+    });
+
+    const actorEmail = session.user?.email || "Admin";
+    await adminDb.collection("admin_audit_logs").add({
+      action: "STORE_MANAGER_MILESTONE_UPDATED",
+      actionType: "STORE_MANAGER_MILESTONE_UPDATED",
+      actor: actorEmail,
+      actorId: actorEmail,
+      tenantId: storeData.tenantId || tenantId || null,
+      target: `stores/${docRef.id}`,
+      details: `Updated monthly milestone for branch ${storeData.branchCode || params.storeIdOrBranchCode} (${storeData.storeName || "Store"}): Target Revenue = ₹${targetRevenue.toLocaleString("en-IN")}, Milestone Bonus = ₹${bonusAmount.toLocaleString("en-IN")}.`,
+      severity: "INFO",
+      timestamp: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath("/tenant-admin");
+    revalidatePath("/manager");
+    revalidatePath("/employee");
+
+    return {
+      ok: true,
+      success: true,
+      message: `Store manager milestone target updated: Target ₹${targetRevenue.toLocaleString("en-IN")} • Bonus ₹${bonusAmount.toLocaleString("en-IN")}`,
+    };
+  } catch (err: any) {
+    console.error("Error updating store milestone target:", err);
+    return { ok: false, success: false, error: err?.message || "Failed to update milestone target." };
+  }
+}
