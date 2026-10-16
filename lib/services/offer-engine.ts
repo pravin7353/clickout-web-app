@@ -88,7 +88,7 @@ export type CartGroup = {
 
 export function cleanBarcode(b: any): string {
   if (b === null || b === undefined) return "";
-  return b.toString().replace(/[^0-9a-zA-Z]/g, "");
+  return b.toString().trim().replace(/[^0-9a-zA-Z_-]/g, "");
 }
 
 export function safeParse(v: any): number {
@@ -197,7 +197,7 @@ export function normalizeOffer(raw: Record<string, any>): Record<string, any> {
 export function collapseToBase(items: CartLine[]): Record<string, CartLine> {
   const out: Record<string, CartLine> = {};
   for (const item of items) {
-    const rawBc = cleanBarcode(item.barcode);
+    const rawBc = String(item.barcode ?? "").trim();
     const baseBc = rawBc.replace(/_FREE$/, "").replace(/_OVERFLOW$/, "");
     if (out[baseBc]) {
       out[baseBc] = {
@@ -279,7 +279,8 @@ export function applyOffers(
     if (rawKey.endsWith("_FREE") || rawKey.endsWith("_OVERFLOW")) continue;
 
     const original = safe[rawKey];
-    const bc = cleanBarcode(rawKey);
+    const rawBarcode = original.barcode || rawKey;
+    const bc = cleanBarcode(rawBarcode);
     const qty = original.quantity;
     // Direct product offer matching (exact barcode, productId, or endsWith prefix)
     const trigger = normalizedOffers.find((o) => {
@@ -297,6 +298,7 @@ export function applyOffers(
 
     const stock =
       liveStock[bc] ??
+      liveStock[rawBarcode] ??
       liveStock[rawKey] ??
       (trigger?.stock ?? trigger?.physicalStock ?? 999);
     const mrp = original.originalPrice;
@@ -343,8 +345,8 @@ export function applyOffers(
         const comboHint = targetInCart ? "" : `Combo Starter: Add ${targetName} to unlock offer! 🎁`;
 
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -381,8 +383,8 @@ export function applyOffers(
         }
 
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -397,8 +399,8 @@ export function applyOffers(
         if (actualFreeEarned > 0) {
           freeCount += actualFreeEarned;
           writeLine({
-            key: `${bc}_FREE`,
-            barcode: bc,
+            key: `${rawBarcode}_FREE`,
+            barcode: rawBarcode,
             name: `${original.name} (FREE)`,
             originalPrice: mrp,
             quantity: actualFreeEarned,
@@ -417,8 +419,8 @@ export function applyOffers(
         const disc = safeParse(trigger.discount);
         const met = qty >= minQ;
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -436,8 +438,8 @@ export function applyOffers(
         const expired = expMs > 0 && Date.now() > expMs;
         const disc = safeParse(trigger.discount ?? trigger.discountPercent ?? trigger.value1);
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -457,8 +459,8 @@ export function applyOffers(
         const rem = qty % bunQty;
         const total = fullB * bunPrice + rem * mrp;
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -474,8 +476,8 @@ export function applyOffers(
       if (ot === "PERCENTAGE") {
         const disc = safeParse(trigger.discount ?? trigger.discountPercent);
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -490,8 +492,8 @@ export function applyOffers(
       if (ot === "FLAT_AMOUNT") {
         const flat = safeParse(trigger.discount ?? trigger.discountAmount);
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -517,8 +519,8 @@ export function applyOffers(
       if (!trigEntry) {
         const trigName = crossTarget.productName ?? crossTarget.name ?? "Combo Item";
         writeLine({
-          key: bc,
-          barcode: bc,
+          key: rawBarcode,
+          barcode: rawBarcode,
           name: original.name,
           originalPrice: mrp,
           quantity: qty,
@@ -553,8 +555,8 @@ export function applyOffers(
         if (freeToGive > 0) {
           freeCount += freeToGive;
           writeLine({
-            key: `${bc}_FREE`,
-            barcode: bc,
+            key: `${rawBarcode}_FREE`,
+            barcode: rawBarcode,
             name: `${original.name} (FREE)`,
             originalPrice: mrp,
             quantity: freeToGive,
@@ -568,8 +570,8 @@ export function applyOffers(
 
         if (paidCount > 0) {
           writeLine({
-            key: freeToGive > 0 ? `${bc}_OVERFLOW` : bc,
-            barcode: bc,
+            key: freeToGive > 0 ? `${rawBarcode}_OVERFLOW` : rawBarcode,
+            barcode: rawBarcode,
             name: original.name,
             originalPrice: mrp,
             quantity: paidCount,
@@ -589,8 +591,8 @@ export function applyOffers(
 
         if (discountedQty > 0) {
           writeLine({
-            key: bc,
-            barcode: bc,
+            key: rawBarcode,
+            barcode: rawBarcode,
             name: original.name,
             originalPrice: mrp,
             quantity: discountedQty,
@@ -603,8 +605,8 @@ export function applyOffers(
 
         if (normalQty > 0) {
           writeLine({
-            key: discountedQty > 0 ? `${bc}_OVERFLOW` : bc,
-            barcode: bc,
+            key: discountedQty > 0 ? `${rawBarcode}_OVERFLOW` : rawBarcode,
+            barcode: rawBarcode,
             name: original.name,
             originalPrice: mrp,
             quantity: normalQty,
@@ -620,8 +622,8 @@ export function applyOffers(
 
     // No offer applied — standard line
     writeLine({
-      key: bc,
-      barcode: bc,
+      key: rawBarcode,
+      barcode: rawBarcode,
       name: original.name,
       originalPrice: mrp,
       quantity: qty,

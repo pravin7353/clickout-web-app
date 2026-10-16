@@ -14,6 +14,7 @@ import {
 import {
   applyOffers,
   buildCartGroups,
+  cleanBarcode,
   ProductOffer,
   CartGroup,
 } from "@/lib/services/offer-engine";
@@ -373,15 +374,25 @@ export function PosTerminal({
   }
 
   function updateQty(barcode: string, delta: number) {
+    const norm = cleanBarcode(barcode);
     setCart((prev) =>
       prev
-        .map((i) => (i.barcode === barcode ? { ...i, quantity: i.quantity + delta } : i))
+        .map((i) =>
+          i.barcode === barcode || (norm && cleanBarcode(i.barcode) === norm)
+            ? { ...i, quantity: i.quantity + delta }
+            : i
+        )
         .filter((i) => i.quantity > 0)
     );
   }
 
   function removeItem(barcode: string) {
-    setCart((prev) => prev.filter((i) => i.barcode !== barcode));
+    const norm = cleanBarcode(barcode);
+    setCart((prev) =>
+      prev.filter(
+        (i) => i.barcode !== barcode && (!norm || cleanBarcode(i.barcode) !== norm)
+      )
+    );
   }
 
   function clearCart() {
@@ -1093,7 +1104,7 @@ export function PosTerminal({
                               {group.offerType}
                             </span>
                           )}
-                          {cart.find((c) => c.barcode === group.baseKey)?.itemType === "SERVICE" && (
+                          {cart.find((c) => c.barcode === group.baseKey || (cleanBarcode(c.barcode) && cleanBarcode(c.barcode) === cleanBarcode(group.baseKey)))?.itemType === "SERVICE" && (
                             <span
                               style={{
                                 fontSize: 9,
