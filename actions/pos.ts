@@ -23,6 +23,8 @@ export type PosProduct = {
   weight: string;
   availableStock: number;
   category?: string;
+  itemType?: "PRODUCT" | "SERVICE" | string;
+  sac?: string;
   clearanceActive?: boolean;
   clearanceType?: string;
   offerDisplayName?: string;
@@ -78,6 +80,9 @@ function resolveOfferTag(data: Record<string, any>, price: number): string {
 function mapDocToPosProduct(doc: FirebaseFirestore.DocumentSnapshot): PosProduct {
   const data = doc.data() || {};
   const price = Number(data.price ?? data.mrp ?? 0);
+  const itemType = (data.itemType ?? "PRODUCT").toString().toUpperCase();
+  const isService = itemType === "SERVICE";
+
   return {
     id: doc.id,
     barcode: data.barcode ?? doc.id,
@@ -86,8 +91,10 @@ function mapDocToPosProduct(doc: FirebaseFirestore.DocumentSnapshot): PosProduct
     originalPrice: Number(data.mrp ?? data.price ?? 0),
     gst: data.gst ? String(data.gst) : "0",
     weight: data.weight ? String(data.weight) : "0",
-    availableStock: Number(data.physicalStock ?? 0),
-    category: data.category ?? "General",
+    availableStock: isService ? 999999 : Number(data.physicalStock ?? 0),
+    category: data.category ?? (isService ? "Services" : "General"),
+    itemType,
+    sac: data.sac ? String(data.sac) : "",
     clearanceActive: data.clearanceActive === true,
     clearanceType: data.clearanceType,
     offerDisplayName: resolveOfferTag(data, price),
@@ -149,63 +156,98 @@ export async function searchProductsCatalog(query: string, targetBranchCode?: st
     return qRef;
   }
 
-  // 3. Keep current behavior for empty query (no search text): fetch limit(15) for the default browsing grid
+  // If empty query (no search text): fetch default browsing grid
   if (!q) {
-    const emptySnap = await buildScopedQuery().limit(15).get();
+    const emptySnap = await buildScopedQuery().limit(25).get();
     return { ok: true, products: emptySnap.docs.map(mapDocToPosProduct) };
   }
 
-  // 1. For barcode-looking input (all digits, length 8+): do a direct exact-match query first:
-  // .where("barcode","==",q) scoped to tenantId/branchCode, limit(1) — barcode scans should be exact and fast, not a substring search.
-  const isBarcode = /^\d{8,}$/.test(cleanInput);
-  if (isBarcode) {
+  const resultMap = new Map<string, { score: number; product: PosProduct }>();
+
+  // 1. Direct barcode exact match (numeric or alphanumeric e.g. "SRV-24", "12345678")
+  try {
     const barcodeSnap = await buildScopedQuery()
-      .where("barcode", "==", cleanInput)
-      .limit(1)
+      .where("barcode", "in", [cleanInput, cleanInput.toUpperCase()])
+      .limit(5)
       .get();
 
-    if (!barcodeSnap.empty) {
-      return { ok: true, products: barcodeSnap.docs.map(mapDocToPosProduct) };
+    for (const doc of barcodeSnap.docs) {
+      resultMap.set(doc.id, { score: 100, product: mapDocToPosProduct(doc) });
     }
+  } catch (err: any) {
+    console.warn("barcode search query fallback:", err?.message);
   }
 
-  // 2. For name/category text search: use the existing searchKey field
-  // (already set at write-time as lowercased name) with a Firestore prefix-range query:
-  // .where("searchKey", ">=", q).where("searchKey", "<", q + '\uf8ff')
-  // scoped to tenantId/branchCode, limit(15) — this searches the FULL catalog for a name-prefix match,
-  // not just an arbitrary 60-doc window.
-  //
-  // NOTE: This only matches PREFIX of the name (not mid-string substring) — this is a Firestore
-  // limitation; full substring search would need a dedicated search service (Algolia/Typesense)
-  // as a future upgrade, out of scope here.
-  //
-  // KNOWN LIMITATION: searchKey is populated at write-time. If any legacy products predate this field,
-  // this search will not find them until they are re-saved.
+  // 2. SearchKey prefix query (fast start-of-name match)
   try {
     const prefixSnap = await buildScopedQuery()
       .where("searchKey", ">=", q)
       .where("searchKey", "<", q + "\uf8ff")
-      .limit(15)
+      .limit(20)
       .get();
 
-    if (!prefixSnap.empty) {
-      return { ok: true, products: prefixSnap.docs.map(mapDocToPosProduct) };
+    for (const doc of prefixSnap.docs) {
+      if (!resultMap.has(doc.id)) {
+        resultMap.set(doc.id, { score: 75, product: mapDocToPosProduct(doc) });
+      }
     }
   } catch (err: any) {
     console.warn("searchProductsCatalog prefix range query fallback:", err?.message);
   }
 
-  // Fallback: If cleanInput is a custom / alphanumeric barcode (e.g. "SKU-999", "SRV-01") or shorter barcode
-  const exactBarcodeSnap = await buildScopedQuery()
-    .where("barcode", "==", cleanInput)
-    .limit(1)
-    .get();
+  // 3. Multi-word & Substring Token Match across active catalog
+  // This solves searching "alteration" matching "Shorts Alteration", SAC codes, categories, etc.
+  try {
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const catalogSnap = await buildScopedQuery().limit(400).get();
 
-  if (!exactBarcodeSnap.empty) {
-    return { ok: true, products: exactBarcodeSnap.docs.map(mapDocToPosProduct) };
+    for (const doc of catalogSnap.docs) {
+      const data = doc.data() || {};
+      if (data.isDeleted === true) continue;
+
+      const name = String(data.name || "").toLowerCase();
+      const barcode = String(data.barcode || "").toLowerCase();
+      const category = String(data.category || "").toLowerCase();
+      const sac = String(data.sac || "").toLowerCase();
+
+      // Check if all tokens match somewhere across name, barcode, category, or sac
+      const matchesAll = tokens.every(
+        (t) =>
+          name.includes(t) ||
+          barcode.includes(t) ||
+          category.includes(t) ||
+          sac.includes(t)
+      );
+
+      if (!matchesAll) continue;
+
+      let score = 25;
+      if (barcode === q) score += 60;
+      if (name === q) score += 50;
+      if (name.startsWith(q)) score += 35;
+      if (barcode.startsWith(q)) score += 25;
+
+      // Word boundary match (e.g. "alteration" in "shorts alteration")
+      const words = name.split(/\s+/);
+      if (words.some((w) => w.startsWith(q))) {
+        score += 30;
+      }
+
+      const existing = resultMap.get(doc.id);
+      if (!existing || score > existing.score) {
+        resultMap.set(doc.id, { score, product: mapDocToPosProduct(doc) });
+      }
+    }
+  } catch (err: any) {
+    console.warn("searchProductsCatalog token match error:", err?.message);
   }
 
-  return { ok: true, products: [] };
+  const sortedProducts = Array.from(resultMap.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 25)
+    .map((item) => item.product);
+
+  return { ok: true, products: sortedProducts };
 }
 
 export async function fetchActivePosOffers(targetBranchCode?: string) {
@@ -268,6 +310,8 @@ export type CartItem = {
   gst: string;
   weight: string;
   quantity: number;
+  itemType?: "PRODUCT" | "SERVICE" | string;
+  sac?: string;
 };
 
 export async function createPosOrder(params: {
@@ -370,6 +414,10 @@ export async function createPosOrder(params: {
 
   const liveStock: Record<string, number> = {};
   for (const item of params.items) {
+    if (item.itemType === "SERVICE") {
+      liveStock[item.barcode] = 999999;
+      continue;
+    }
     let pQuery = adminDb
       .collection("products")
       .where("barcode", "==", item.barcode);
@@ -385,7 +433,12 @@ export async function createPosOrder(params: {
             !d.data().branchCode ||
             d.data().branchCode === branchCode
         ) ?? pSnap.docs[0];
-      liveStock[item.barcode] = Number(match.data().physicalStock ?? 999);
+      const mData = match.data();
+      if (mData.itemType === "SERVICE") {
+        liveStock[item.barcode] = 999999;
+      } else {
+        liveStock[item.barcode] = Number(mData.physicalStock ?? 999);
+      }
     }
   }
 
@@ -527,6 +580,8 @@ export async function createPosOrder(params: {
           quantity: l.quantity,
           gst: cartItem?.gst ?? "0",
           weight: cartItem?.weight ?? "",
+          itemType: cartItem?.itemType ?? "PRODUCT",
+          sac: cartItem?.sac ?? "",
           offerType: l.offerType,
           isFreeLine: l.isFreeLine ?? false,
         };
@@ -582,9 +637,14 @@ export async function createPosOrder(params: {
       });
     }
 
-    // Deduct stock
+    // Deduct stock (Only for physical products; skip services)
     for (const line of priced.lines) {
       const baseBarcode = line.barcode.replace("_FREE", "");
+      const cartItem = params.items.find((i) => i.barcode === line.barcode || i.barcode === baseBarcode);
+      if (cartItem?.itemType === "SERVICE") {
+        continue;
+      }
+
       const pSnap = await adminDb
         .collection("products")
         .where("barcode", "==", baseBarcode)
@@ -594,6 +654,10 @@ export async function createPosOrder(params: {
         .get();
 
       if (!pSnap.empty) {
+        const pData = pSnap.docs[0].data();
+        if (pData.itemType === "SERVICE") {
+          continue;
+        }
         batch.update(pSnap.docs[0].ref, {
           physicalStock: FieldValue.increment(-line.quantity),
           soldStock: FieldValue.increment(line.quantity),

@@ -209,7 +209,7 @@ export function PosTerminal({
     }, 25000);
 
     const handleUnload = () => {
-      releasePosSessionAction({ sessionId }).catch(() => {});
+      releasePosSessionAction({ sessionId }).catch(() => { });
     };
     window.addEventListener("beforeunload", handleUnload);
 
@@ -260,11 +260,11 @@ export function PosTerminal({
     setIsLoggingOut(true);
     try {
       if (sessionId) {
-        await releasePosSessionAction({ sessionId }).catch(() => {});
+        await releasePosSessionAction({ sessionId }).catch(() => { });
       }
       try {
-        await clientAuth.signOut().catch(() => {});
-      } catch {}
+        await clientAuth.signOut().catch(() => { });
+      } catch { }
       await signOut({ callbackUrl: "/login" });
     } catch {
       window.location.href = "/login";
@@ -324,7 +324,7 @@ export function PosTerminal({
     };
   }, [catalogQuery, branchCode]);
 
-  function addToCart(p: PosProduct | { barcode: string; name: string; price: number; gst?: string; weight?: string }) {
+  function addToCart(p: PosProduct | { barcode: string; name: string; price: number; gst?: string; weight?: string; itemType?: "PRODUCT" | "SERVICE" | string; sac?: string }) {
     setError("");
     setCart((prev) => {
       const existing = prev.find((i) => i.barcode === p.barcode);
@@ -343,6 +343,8 @@ export function PosTerminal({
           gst: p.gst ?? "0",
           weight: p.weight ?? "0",
           quantity: 1,
+          itemType: (p as any).itemType ?? "PRODUCT",
+          sac: (p as any).sac ?? "",
         },
       ];
     });
@@ -825,7 +827,7 @@ export function PosTerminal({
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-                  Product Catalog
+                  Product/Service Catalog
                 </h3>
                 <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                   Tap item to add to bill
@@ -896,8 +898,27 @@ export function PosTerminal({
                       >
                         {p.name}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)", fontFamily: "monospace" }}>
-                        {p.barcode}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, color: "var(--text-secondary)", fontFamily: "monospace" }}>
+                          {p.barcode}
+                        </span>
+                        {p.itemType === "SERVICE" && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 800,
+                              padding: "1px 5px",
+                              borderRadius: 4,
+                              background: "rgba(56, 189, 248, 0.15)",
+                              color: "#38bdf8",
+                              border: "1px solid rgba(56, 189, 248, 0.35)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            Service
+                          </span>
+                        )}
                       </div>
                       {(p.offerDisplayName || (p.flashExpiry && p.flashExpiry > 0)) && (
                         <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -927,9 +948,15 @@ export function PosTerminal({
                       <span style={{ fontSize: 14, fontWeight: 800, color: "var(--success)" }}>
                         ₹{p.price.toFixed(0)}
                       </span>
-                      <span style={{ fontSize: 11, color: p.availableStock < 5 ? "var(--warning)" : "var(--text-secondary)" }}>
-                        {p.availableStock} in stock
-                      </span>
+                      {p.itemType === "SERVICE" ? (
+                        <span style={{ fontSize: 11, color: "#38bdf8", fontWeight: 700 }}>
+                          Service
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: p.availableStock < 5 ? "var(--warning)" : "var(--text-secondary)" }}>
+                          {p.availableStock} in stock
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1064,6 +1091,22 @@ export function PosTerminal({
                               }}
                             >
                               {group.offerType}
+                            </span>
+                          )}
+                          {cart.find((c) => c.barcode === group.baseKey)?.itemType === "SERVICE" && (
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 800,
+                                background: "rgba(56, 189, 248, 0.15)",
+                                color: "#38bdf8",
+                                border: "1px solid rgba(56, 189, 248, 0.35)",
+                                borderRadius: 4,
+                                padding: "1px 5px",
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              Service
                             </span>
                           )}
                         </div>
@@ -1354,21 +1397,21 @@ export function PosTerminal({
                   fontWeight: 800,
                   ...(posSessionAllowed === false
                     ? {
-                        background: "rgba(239, 68, 68, 0.2)",
-                        border: "1px solid rgba(239, 68, 68, 0.4)",
-                        color: "#f87171",
-                        cursor: "not-allowed",
-                      }
+                      background: "rgba(239, 68, 68, 0.2)",
+                      border: "1px solid rgba(239, 68, 68, 0.4)",
+                      color: "#f87171",
+                      cursor: "not-allowed",
+                    }
                     : {}),
                 }}
               >
                 {!canEdit
                   ? "View-Only Mode (Checkouts Disabled)"
                   : posSessionAllowed === false
-                  ? `Terminal Limit Reached (${posSessionInfo?.activeCount || 0}/${posSessionInfo?.maxAllowed || 1} Active)`
-                  : isPending
-                  ? "Processing Sale..."
-                  : `Complete Sale (₹${netEstimatedTotal.toFixed(2)})`}
+                    ? `Terminal Limit Reached (${posSessionInfo?.activeCount || 0}/${posSessionInfo?.maxAllowed || 1} Active)`
+                    : isPending
+                      ? "Processing Sale..."
+                      : `Complete Sale (₹${netEstimatedTotal.toFixed(2)})`}
               </Button>
             </div>
           )}
