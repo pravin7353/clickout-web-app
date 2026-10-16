@@ -1,4 +1,4 @@
-export type PlanTier = "spark_lite" | "spark" | "mini" | "pro" | "growth" | "enterprise" | "business" | "trial";
+export type PlanTier = "spark_lite" | "spark" | "pro" | "growth" | "enterprise" | "trial";
 
 export interface PlanLimits {
   maxScansPerMonth: number; // -1 = unlimited
@@ -25,7 +25,7 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
     limits: {
       maxScansPerMonth: 100,
       maxStores: 1,
-      maxProducts: 50,
+      maxProducts: -1,
       maxStaff: 3,
       maxCashiers: 1,
     },
@@ -38,20 +38,7 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
     limits: {
       maxScansPerMonth: 500,
       maxStores: 1,
-      maxProducts: 500,
-      maxStaff: 5,
-      maxCashiers: 1,
-    },
-  },
-  mini: {
-    name: "mini",
-    displayName: "Spark",
-    monthlyPrice: 399,
-    description: "Single store plan with 500 scans and 5 staff accounts",
-    limits: {
-      maxScansPerMonth: 500,
-      maxStores: 1,
-      maxProducts: 500,
+      maxProducts: -1,
       maxStaff: 5,
       maxCashiers: 1,
     },
@@ -64,7 +51,7 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
     limits: {
       maxScansPerMonth: 2500,
       maxStores: 3,
-      maxProducts: 5000,
+      maxProducts: -1,
       maxStaff: 15,
       maxCashiers: 2,
     },
@@ -77,7 +64,7 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
     limits: {
       maxScansPerMonth: 6000,
       maxStores: 5,
-      maxProducts: 25000,
+      maxProducts: -1,
       maxStaff: 50,
       maxCashiers: 5,
     },
@@ -90,7 +77,7 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
     limits: {
       maxScansPerMonth: 6000,
       maxStores: 5,
-      maxProducts: 5000,
+      maxProducts: -1,
       maxStaff: 50,
       maxCashiers: 5,
     },
@@ -98,19 +85,6 @@ export const PLAN_CONFIG: Record<string, PlanConfigItem> = {
   enterprise: {
     name: "enterprise",
     displayName: "Enterprise",
-    monthlyPrice: 0,
-    description: "Unlimited enterprise grade deployment",
-    limits: {
-      maxScansPerMonth: -1,
-      maxStores: -1,
-      maxProducts: -1,
-      maxStaff: -1,
-      maxCashiers: -1,
-    },
-  },
-  business: {
-    name: "business",
-    displayName: "Business",
     monthlyPrice: 0,
     description: "Unlimited enterprise grade deployment",
     limits: {
