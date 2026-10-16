@@ -10,7 +10,7 @@ import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service"
 import { incrementTransactionUsage, usageRef } from "@/lib/services/usage-service";
 import { postSalesVoucher } from "@/lib/services/finance-service";
 import { getActivePosTerminalSessions } from "@/lib/services/pos-session-service";
-import { getMaxPosCounters } from "@/lib/plan-limits";
+import { getMaxPosCounters, checkPlanLimit } from "@/lib/plan-limits";
 import { generateUpiLink, generateUpiQrDataUrl } from "@/lib/utils/upi-link";
 
 export type PosProduct = {
@@ -310,7 +310,12 @@ export async function createPosOrder(params: {
     const planKey = (tData.subscriptionPlan || tData.plan || "spark_lite").toLowerCase();
     const extraStores = Number(tData.extraStoresPurchased ?? 0);
     effectiveLimit = getEffectiveTxnLimit(planKey, extraStores);
-    currentMonthTxns = Number(uData.transactionCount ?? tData.currentTransactions ?? 0);
+    currentMonthTxns = Number(tData.monthlyScans ?? uData.transactionCount ?? tData.currentTransactions ?? 0);
+
+    const scanCheck = await checkPlanLimit(tenantId, "maxScansPerMonth", currentMonthTxns);
+    if (!scanCheck.allowed) {
+      return { ok: false as const, error: "Monthly scan limit reached. Upgrade your plan to continue." };
+    }
 
     // Soft Check: warn and flag tenant, do NOT hard block live POS checkout
     if (currentMonthTxns >= effectiveLimit) {

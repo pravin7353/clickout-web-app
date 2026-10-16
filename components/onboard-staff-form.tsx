@@ -5,6 +5,7 @@ import { onboardStaff } from "@/actions/staff";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/profile-menu";
 import { CustomSelect, OptionItem } from "@/components/custom-select";
+import { PlanLimitAlert } from "@/components/plan-limit-alert";
 
 export type BranchOption = { branchCode: string; storeName: string };
 
@@ -438,19 +439,23 @@ export function OnboardStaffForm({
               </div>
 
               {error && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    background: "color-mix(in srgb, var(--danger) 12%, transparent)",
-                    border: "1px solid var(--danger)",
-                    color: "var(--danger)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  🚨 {error}
-                </div>
+                error.toLowerCase().includes("limit reached") || error.toLowerCase().includes("upgrade") ? (
+                  <PlanLimitAlert error={error} />
+                ) : (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      background: "color-mix(in srgb, var(--danger) 12%, transparent)",
+                      border: "1px solid var(--danger)",
+                      color: "var(--danger)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    🚨 {error}
+                  </div>
+                )
               )}
 
               {/* Footer Actions */}

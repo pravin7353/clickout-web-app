@@ -7,6 +7,7 @@ import { PLAN_LIMITS } from "@/lib/subscription/feature-flag-matrix";
 import { checkAndAutoDowngradeExpiredTrial } from "@/lib/services/trial-service";
 import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
+import { checkPlanLimit } from "@/lib/plan-limits";
 
 export async function createStore(raw: unknown) {
   const { session, tenantId } = await requireRole(["super_admin", "tenant_admin"]);
@@ -81,11 +82,12 @@ export async function createStore(raw: unknown) {
     const maxExtraStores = limits.maxExtraStores;
     const totalStoresAllowed = maxStores + extraStoresPurchased;
 
-    if (currentStoreCount >= maxStores + maxExtraStores) {
+    const limitCheck = await checkPlanLimit(effectiveTenantId, "maxStores", currentStoreCount);
+    if (!limitCheck.allowed || currentStoreCount >= maxStores + maxExtraStores) {
       return {
         ok: false,
-        error: "STORE_LIMIT_REACHED",
-        message: "You've reached the maximum stores for your plan. Please upgrade to add more stores.",
+        error: "Store limit reached for your plan.",
+        message: "Store limit reached for your plan. Please upgrade to add more stores.",
         upgradeRequired: true,
       };
     }

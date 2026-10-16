@@ -7,6 +7,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
 import { serializeFirestoreDoc } from "@/lib/utils/serialize-firestore";
+import { checkPlanLimit } from "@/lib/plan-limits";
 
 export async function addProduct(raw: unknown) {
   let session, role, tenantId, storeId;
@@ -22,6 +23,23 @@ export async function addProduct(raw: unknown) {
   const data = parsed.data;
 
   const branchCode = storeId ?? (raw as any).branchCode ?? "HQ";
+
+  if (tenantId) {
+    const countSnap = await adminDb
+      .collection("products")
+      .where("tenantId", "==", tenantId)
+      .where("branchCode", "==", branchCode)
+      .where("isDeleted", "!=", true)
+      .count()
+      .get();
+    const count = countSnap.data().count;
+
+    const limitCheck = await checkPlanLimit(tenantId, "maxProducts", count);
+    if (!limitCheck.allowed) {
+      return { ok: false, error: "Product limit reached for your plan. Please upgrade." };
+    }
+  }
+
   const docId = `${tenantId}_${branchCode}_${data.barcode.trim()}`;
   const docRef = adminDb.collection("products").doc(docId);
 
@@ -394,6 +412,19 @@ export async function commitBulkProductImport(validatedRows: any[], branchParam?
   }
 
   const branchCode = storeId ?? branchParam ?? "HQ";
+
+  const countSnap = await adminDb
+    .collection("products")
+    .where("tenantId", "==", tenantId)
+    .where("branchCode", "==", branchCode)
+    .where("isDeleted", "!=", true)
+    .count()
+    .get();
+  const currentCount = countSnap.data().count;
+  const limitCheck = await checkPlanLimit(tenantId, "maxProducts", currentCount + validOnly.length);
+  if (!limitCheck.allowed) {
+    return { ok: false, count: 0, successCount: 0, failCount: 0, error: "Product limit reached for your plan. Please upgrade." };
+  }
 
   try {
     const result = await executeProductBatchWrites(

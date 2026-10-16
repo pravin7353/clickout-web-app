@@ -10,6 +10,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { revalidatePath } from "next/cache";
 import { detectDelimiter } from "@/lib/csv-utils";
 import { planFromString, effectiveMaxStaff } from "@/lib/subscription/plan";
+import { checkPlanLimit } from "@/lib/plan-limits";
 
 export async function onboardStaff(raw: unknown) {
   const { session, role, tenantId, storeId } = await requireRole(["super_admin", "tenant_admin", "manager"]);
@@ -67,13 +68,14 @@ export async function onboardStaff(raw: unknown) {
       tData.extraStaffPurchased ?? (tData.extraStaffBlocksPurchased ? Number(tData.extraStaffBlocksPurchased) * 10 : 0)
     );
 
-    if (!trialActive && isStaffLimitReached(rawPlan, staffCount, extraStaffPurchased)) {
+    const limitCheck = await checkPlanLimit(effectiveTenantId, "maxStaff", staffCount);
+    if (!trialActive && (!limitCheck.allowed || isStaffLimitReached(rawPlan, staffCount, extraStaffPurchased))) {
       return {
         ok: false,
         success: false,
         reason: "staff_limit_reached",
-        error: "Staff account limit reached for your plan. Purchase a Staff Block (+10) for ₹199/month or upgrade to add more staff.",
-        message: "Staff account limit reached for your plan. Purchase a Staff Block (+10) for ₹199/month or upgrade to add more staff.",
+        error: "Staff limit reached. Upgrade to add more team members.",
+        message: "Staff limit reached. Upgrade to add more team members.",
       };
     }
   }

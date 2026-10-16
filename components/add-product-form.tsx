@@ -5,6 +5,7 @@ import { addProduct } from "@/actions/inventory";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/profile-menu";
 import { CustomSelect, OptionItem } from "@/components/custom-select";
+import { PlanLimitAlert } from "@/components/plan-limit-alert";
 
 const GST_OPTIONS: OptionItem[] = [
   { value: "0", label: "0% GST", icon: "📊" },
@@ -438,19 +439,23 @@ export function AddProductForm({ branchParam }: { branchParam?: string }) {
               </div>
 
               {error && (
-                <div
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 10,
-                    background: "color-mix(in srgb, var(--danger) 12%, transparent)",
-                    border: "1px solid var(--danger)",
-                    color: "var(--danger)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  🚨 {error}
-                </div>
+                error.toLowerCase().includes("limit reached") || error.toLowerCase().includes("upgrade") ? (
+                  <PlanLimitAlert error={error} />
+                ) : (
+                  <div
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      background: "color-mix(in srgb, var(--danger) 12%, transparent)",
+                      border: "1px solid var(--danger)",
+                      color: "var(--danger)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    🚨 {error}
+                  </div>
+                )
               )}
 
               {/* Footer Actions */}

@@ -4,6 +4,7 @@ import { useState, useTransition, useRef } from "react";
 import { createStore } from "@/actions/store";
 import { useRouter } from "next/navigation";
 import { createStoreSchema } from "@/lib/schemas/store-schema";
+import { PlanLimitAlert } from "@/components/plan-limit-alert";
 
 const INDIAN_STATES = [
   "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", "Haryana", 
@@ -226,7 +227,13 @@ export function CreateStoreForm({ asIcon = false }: { asIcon?: boolean }) {
 
         {/* Scrollable Body */}
         <div style={{ padding: 24, overflowY: "auto", flex: 1 }}>
-          {error && <div style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)", padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 16, border: "1px solid var(--danger)" }}>{error}</div>}
+          {error && (
+            error.toLowerCase().includes("limit reached") || error.toLowerCase().includes("upgrade") ? (
+              <PlanLimitAlert error={error} />
+            ) : (
+              <div style={{ background: "color-mix(in srgb, var(--danger) 15%, transparent)", color: "var(--danger)", padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 16, border: "1px solid var(--danger)" }}>{error}</div>
+            )
+          )}
 
           {step === 1 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
