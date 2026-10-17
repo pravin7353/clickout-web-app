@@ -6,3 +6,11 @@
 [2026-10-13T07:44:57.721Z] decoded: animusitmanagement@gmail.com, uid: P5OedoV5g7OzVODX2lDZGAEzWux1, roleClaim: tenant_admin
 [2026-10-13T07:44:57.935Z] staff doc found: P5OedoV5g7OzVODX2lDZGAEzWux1, raw role: TENANT_ADMIN, normalized: tenant_admin, allowed: true
 [2026-10-13T07:44:58.243Z] SUCCESS returning user object: role tenant_admin, isCashier: false
+[2026-10-17T00:37:11.561Z] authorize called. idToken: true
+[2026-10-17T00:37:11.740Z] decoded: jaiswal.pravin415@gmail.com, uid: u2GZLgKTNwTLQ6LV8wDmOqBx5Cc2, roleClaim: tenant_admin
+[2026-10-17T00:37:11.802Z] staff doc found: u2GZLgKTNwTLQ6LV8wDmOqBx5Cc2, raw role: TENANT_ADMIN, normalized: tenant_admin, allowed: true
+[2026-10-17T00:37:12.153Z] SUCCESS returning user object: role tenant_admin, isCashier: false
+[2026-10-17T00:45:02.227Z] authorize called. idToken: true
+[2026-10-17T00:45:02.229Z] decoded: animusitmanagement@gmail.com, uid: P5OedoV5g7OzVODX2lDZGAEzWux1, roleClaim: tenant_admin
+[2026-10-17T00:45:02.625Z] staff doc found: P5OedoV5g7OzVODX2lDZGAEzWux1, raw role: TENANT_ADMIN, normalized: tenant_admin, allowed: true
+[2026-10-17T00:45:02.825Z] SUCCESS returning user object: role tenant_admin, isCashier: false
